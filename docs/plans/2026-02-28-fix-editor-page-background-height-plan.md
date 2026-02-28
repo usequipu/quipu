@@ -1,7 +1,7 @@
 ---
 title: "fix: Editor page white background stops after one viewport height"
 type: fix
-status: active
+status: completed
 date: 2026-02-28
 ---
 
@@ -41,11 +41,11 @@ Scrolling continues to work because `.editor-page-container` has `overflow-y: au
 
 ## Acceptance Criteria
 
-- [ ] White page background extends to cover the entire document, regardless of length
-- [ ] Scrollbar still appears on the editor container for long documents
-- [ ] Short documents (shorter than viewport) still display correctly with `min-height: 1056px`
-- [ ] Comments track positioning is unaffected
-- [ ] Responsive media queries still work at all breakpoints (1400px, 1200px, 1150px)
+- [x] White page background extends to cover the entire document, regardless of length
+- [x] Scrollbar still appears on the editor container for long documents
+- [x] Short documents (shorter than viewport) still display correctly with `min-height: 1056px`
+- [x] Comments track positioning is unaffected
+- [x] Responsive media queries still work at all breakpoints (1400px, 1200px, 1150px)
 
 ## Context
 
