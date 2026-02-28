@@ -159,18 +159,27 @@ function AppContent() {
                   Save
                 </button>
               )}
-              <button className="send-btn" onClick={handleSendToTerminal}>Send to Terminal</button>
+              {activeFile && (
+                <button className="send-btn" onClick={handleSendToTerminal}>Send to Terminal</button>
+              )}
             </div>
           </div>
           <TabBar />
-          <Editor
-            onEditorReady={handleEditorReady}
-            onContentChange={handleContentChange}
-            activeFile={activeFile}
-            activeTabId={activeTabId}
-            activeTab={activeTab}
-            snapshotTab={snapshotTab}
-          />
+          {activeFile ? (
+            <Editor
+              onEditorReady={handleEditorReady}
+              onContentChange={handleContentChange}
+              activeFile={activeFile}
+              activeTabId={activeTabId}
+              activeTab={activeTab}
+              snapshotTab={snapshotTab}
+            />
+          ) : (
+            <div className="welcome-screen">
+              <div className="welcome-message">Open a file to start editing</div>
+              <div className="welcome-hint">Use the Explorer or press Ctrl+P</div>
+            </div>
+          )}
         </div>
         <div className="terminal-pane">
           <Terminal ref={terminalRef} />
