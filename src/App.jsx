@@ -4,6 +4,7 @@ import Terminal from './components/Terminal';
 import FileExplorer from './components/FileExplorer';
 import FolderPicker from './components/FolderPicker';
 import TabBar from './components/TabBar';
+import ActivityBar from './components/ActivityBar';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { ToastProvider } from './components/Toast';
 import './App.css';
@@ -15,7 +16,11 @@ function AppContent() {
     activeFile, isDirty, saveFile, setIsDirty, showFolderPicker, selectFolder, cancelFolderPicker,
     activeTabId, activeTab, snapshotTab, openTabs, closeTab, switchTab,
   } = useWorkspace();
-  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [activePanel, setActivePanel] = useState('explorer');
+
+  const handlePanelToggle = useCallback((panelId) => {
+    setActivePanel(prev => prev === panelId ? null : panelId);
+  }, []);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -28,7 +33,7 @@ function AppContent() {
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
         e.preventDefault();
-        setSidebarVisible(prev => !prev);
+        setActivePanel(prev => prev ? null : 'explorer');
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
         e.preventDefault();
@@ -114,17 +119,34 @@ function AppContent() {
       {showFolderPicker && (
         <FolderPicker onSelect={selectFolder} onCancel={cancelFolderPicker} />
       )}
-      {sidebarVisible && <FileExplorer />}
+      <ActivityBar activePanel={activePanel} onPanelToggle={handlePanelToggle} />
+      {activePanel && (
+        <div className="side-panel">
+          {activePanel === 'explorer' && <FileExplorer />}
+          {activePanel === 'search' && (
+            <div className="panel-placeholder">
+              <p>Search</p>
+              <p className="panel-placeholder-sub">Coming soon</p>
+            </div>
+          )}
+          {activePanel === 'git' && (
+            <div className="panel-placeholder">
+              <p>Source Control</p>
+              <p className="panel-placeholder-sub">Coming soon</p>
+            </div>
+          )}
+        </div>
+      )}
       <div className="main-area">
         <div className="editor-pane">
           <div className="editor-header">
             <div className="header-left">
               <button
                 className="sidebar-toggle"
-                onClick={() => setSidebarVisible(prev => !prev)}
+                onClick={() => setActivePanel(prev => prev ? null : 'explorer')}
                 title="Toggle sidebar (Ctrl+B)"
               >
-                {sidebarVisible ? '\u2630' : '\u2630'}
+                {'\u2630'}
               </button>
               <span className="window-title">{title}</span>
             </div>
