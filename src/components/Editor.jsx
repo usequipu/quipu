@@ -3,10 +3,10 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Highlight from '@tiptap/extension-highlight';
 import Placeholder from '@tiptap/extension-placeholder';
-import { marked } from 'marked';
+import { Markdown } from 'tiptap-markdown';
 import './Editor.css';
 
-const Editor = ({ onEditorReady, onContentChange, activeFile }) => {
+const Editor = ({ onEditorReady, onContentChange, activeFile, activeTabId, activeTab, snapshotTab }) => {
     const [commentText, setCommentText] = useState('');
     const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
     const [showMenu, setShowMenu] = useState(false);
@@ -16,7 +16,7 @@ const Editor = ({ onEditorReady, onContentChange, activeFile }) => {
     const menuRef = useRef(null);
     const pageRef = useRef(null);
     const commentsRef = useRef({});
-    const loadedFileRef = useRef(null);
+    const loadedTabRef = useRef(null);
 
     // New state for adjusted positions
     const [adjustedPositions, setAdjustedPositions] = useState({});
@@ -27,10 +27,25 @@ const Editor = ({ onEditorReady, onContentChange, activeFile }) => {
             Placeholder.configure({
                 placeholder: 'Start writing...',
             }),
+            Markdown.configure({
+                html: false,
+                tightLists: true,
+                bulletListMarker: '-',
+                transformPastedText: true,
+                transformCopiedText: true,
+            }),
             Highlight.configure({
                 multicolor: true,
             }).extend({
                 name: 'comment',
+                addStorage() {
+                    return {
+                        markdown: {
+                            serialize: { open: '', close: '' },
+                            parse: {}
+                        }
+                    };
+                },
                 addAttributes() {
                     return {
                         comment: {
@@ -99,25 +114,41 @@ const Editor = ({ onEditorReady, onContentChange, activeFile }) => {
         }
     }, [editor, onEditorReady]);
 
-    // Load file content when activeFile changes
+    // Load content when active tab changes
     useEffect(() => {
         if (!editor) return;
-        if (!activeFile) return;
-        // Avoid reloading the same file
-        if (loadedFileRef.current === activeFile.path) return;
-        loadedFileRef.current = activeFile.path;
+        if (!activeFile || !activeTabId) {
+            loadedTabRef.current = null;
+            editor.commands.setContent('', { emitUpdate: false });
+            return;
+        }
+        if (loadedTabRef.current === activeTabId) return;
 
+        // Snapshot previous tab before switching
+        if (loadedTabRef.current && snapshotTab) {
+            snapshotTab(loadedTabRef.current, editor.getJSON(), 0);
+        }
+
+        loadedTabRef.current = activeTabId;
+
+        // If tab has a tiptapJSON snapshot, use it (returning to a previously viewed tab)
+        if (activeTab && activeTab.tiptapJSON) {
+            editor.commands.setContent(activeTab.tiptapJSON, { emitUpdate: false });
+            extractComments(editor);
+            return;
+        }
+
+        // Otherwise load from file content (first time opening this tab)
         if (activeFile.isQuipu && typeof activeFile.content === 'object') {
             // Quipu format - load TipTap JSON directly
-            editor.commands.setContent(activeFile.content);
+            editor.commands.setContent(activeFile.content, { emitUpdate: false });
         } else {
             const text = typeof activeFile.content === 'string' ? activeFile.content : '';
             const isMarkdown = activeFile.name.endsWith('.md') || activeFile.name.endsWith('.markdown');
 
             if (isMarkdown) {
-                // Convert markdown to HTML, then let TipTap parse it
-                const html = marked.parse(text);
-                editor.commands.setContent(html);
+                // tiptap-markdown extension handles parsing raw markdown
+                editor.commands.setContent(text, { emitUpdate: false });
             } else {
                 // Plain text - convert to paragraphs
                 const paragraphs = text.split('\n').map(line => ({
@@ -127,11 +158,11 @@ const Editor = ({ onEditorReady, onContentChange, activeFile }) => {
                 editor.commands.setContent({
                     type: 'doc',
                     content: paragraphs.length > 0 ? paragraphs : [{ type: 'paragraph' }],
-                });
+                }, { emitUpdate: false });
             }
         }
         extractComments(editor);
-    }, [editor, activeFile]);
+    }, [editor, activeFile, activeTabId, activeTab, snapshotTab]);
 
     // Effect to calculate positions preventing overlap
     useEffect(() => {

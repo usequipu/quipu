@@ -3,14 +3,28 @@ import Editor from './components/Editor';
 import Terminal from './components/Terminal';
 import FileExplorer from './components/FileExplorer';
 import FolderPicker from './components/FolderPicker';
+import TabBar from './components/TabBar';
+import ActivityBar from './components/ActivityBar';
+import SearchPanel from './components/SearchPanel';
+import SourceControlPanel from './components/SourceControlPanel';
+import QuickOpen from './components/QuickOpen';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
+import { ToastProvider } from './components/Toast';
 import './App.css';
 
 function AppContent() {
   const [editorInstance, setEditorInstance] = useState(null);
   const terminalRef = React.useRef(null);
-  const { activeFile, isDirty, saveFile, setIsDirty, showFolderPicker, selectFolder, cancelFolderPicker } = useWorkspace();
-  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const {
+    activeFile, isDirty, saveFile, setIsDirty, showFolderPicker, selectFolder, cancelFolderPicker,
+    activeTabId, activeTab, snapshotTab, openTabs, closeTab, switchTab,
+  } = useWorkspace();
+  const [activePanel, setActivePanel] = useState('explorer');
+  const [isQuickOpenVisible, setIsQuickOpenVisible] = useState(false);
+
+  const handlePanelToggle = useCallback((panelId) => {
+    setActivePanel(prev => prev === panelId ? null : panelId);
+  }, []);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -23,12 +37,39 @@ function AppContent() {
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
         e.preventDefault();
-        setSidebarVisible(prev => !prev);
+        setActivePanel(prev => prev ? null : 'explorer');
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
+        e.preventDefault();
+        if (activeTabId) {
+          closeTab(activeTabId);
+        }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Tab') {
+        e.preventDefault();
+        if (openTabs.length > 1) {
+          const currentIdx = openTabs.findIndex(t => t.id === activeTabId);
+          let nextIdx;
+          if (e.shiftKey) {
+            nextIdx = (currentIdx - 1 + openTabs.length) % openTabs.length;
+          } else {
+            nextIdx = (currentIdx + 1) % openTabs.length;
+          }
+          switchTab(openTabs[nextIdx].id);
+        }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'F') {
+        e.preventDefault();
+        setActivePanel('search');
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+        e.preventDefault();
+        setIsQuickOpenVisible(prev => !prev);
       }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [editorInstance, activeFile, saveFile]);
+  }, [editorInstance, activeFile, saveFile, activeTabId, openTabs, closeTab, switchTab]);
 
   const handleSendToTerminal = () => {
     if (!editorInstance) return;
@@ -90,17 +131,25 @@ function AppContent() {
       {showFolderPicker && (
         <FolderPicker onSelect={selectFolder} onCancel={cancelFolderPicker} />
       )}
-      {sidebarVisible && <FileExplorer />}
+      <QuickOpen isOpen={isQuickOpenVisible} onClose={() => setIsQuickOpenVisible(false)} />
+      <ActivityBar activePanel={activePanel} onPanelToggle={handlePanelToggle} />
+      {activePanel && (
+        <div className="side-panel">
+          {activePanel === 'explorer' && <FileExplorer />}
+          {activePanel === 'search' && <SearchPanel />}
+          {activePanel === 'git' && <SourceControlPanel />}
+        </div>
+      )}
       <div className="main-area">
         <div className="editor-pane">
           <div className="editor-header">
             <div className="header-left">
               <button
                 className="sidebar-toggle"
-                onClick={() => setSidebarVisible(prev => !prev)}
+                onClick={() => setActivePanel(prev => prev ? null : 'explorer')}
                 title="Toggle sidebar (Ctrl+B)"
               >
-                {sidebarVisible ? '\u2630' : '\u2630'}
+                {'\u2630'}
               </button>
               <span className="window-title">{title}</span>
             </div>
@@ -113,10 +162,14 @@ function AppContent() {
               <button className="send-btn" onClick={handleSendToTerminal}>Send to Terminal</button>
             </div>
           </div>
+          <TabBar />
           <Editor
             onEditorReady={handleEditorReady}
             onContentChange={handleContentChange}
             activeFile={activeFile}
+            activeTabId={activeTabId}
+            activeTab={activeTab}
+            snapshotTab={snapshotTab}
           />
         </div>
         <div className="terminal-pane">
@@ -129,9 +182,11 @@ function AppContent() {
 
 function App() {
   return (
-    <WorkspaceProvider>
-      <AppContent />
-    </WorkspaceProvider>
+    <ToastProvider>
+      <WorkspaceProvider>
+        <AppContent />
+      </WorkspaceProvider>
+    </ToastProvider>
   );
 }
 

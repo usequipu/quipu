@@ -1,15 +1,13 @@
 .file-explorer {
-  width: 250px;
-  min-width: 200px;
-  max-width: 400px;
-  background: #252526;
-  color: #cccccc;
+  background: var(--bg-color);
+  color: var(--text-color);
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #1e1e1e;
   user-select: none;
   font-size: 13px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  flex: 1;
+  overflow: hidden;
 }
 
 .explorer-header {
@@ -20,9 +18,9 @@
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.8px;
-  color: #bbbbbb;
+  color: #8a7e6b;
   text-transform: uppercase;
-  border-bottom: 1px solid #1e1e1e;
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 }
 
@@ -71,14 +69,14 @@
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.5px;
-  color: #bbbbbb;
+  color: #8a7e6b;
   text-transform: uppercase;
   cursor: pointer;
   flex-shrink: 0;
 }
 
 .explorer-workspace-header:hover {
-  background: #2a2d2e;
+  background: rgba(0, 0, 0, 0.06);
 }
 
 .workspace-name {
@@ -102,13 +100,13 @@
 }
 
 .tree-scroll::-webkit-scrollbar-thumb {
-  background: rgba(121, 121, 121, 0.4);
+  background: rgba(0, 0, 0, 0.15);
   border-radius: 0;
   min-height: 40px;
 }
 
 .tree-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(121, 121, 121, 0.7);
+  background: rgba(0, 0, 0, 0.25);
 }
 
 .tree-item-wrapper {
@@ -126,15 +124,15 @@
 }
 
 .tree-item:hover {
-  background: #2a2d2e;
+  background: rgba(0, 0, 0, 0.06);
 }
 
 .tree-item-active {
-  background: #37373d;
+  background: rgba(0, 0, 0, 0.1);
 }
 
 .tree-item-active:hover {
-  background: #37373d;
+  background: rgba(0, 0, 0, 0.1);
 }
 
 .file-icon {
@@ -154,7 +152,7 @@
   height: 0;
   border-top: 4px solid transparent;
   border-bottom: 4px solid transparent;
-  border-left: 5px solid #c5c5c5;
+  border-left: 5px solid #8a7e6b;
   transition: transform 0.15s ease;
 }
 
@@ -168,7 +166,7 @@
   display: block;
   width: 9px;
   height: 11px;
-  border: 1px solid #8b8b8b;
+  border: 1px solid #a09080;
   border-radius: 1px;
 }
 
@@ -186,9 +184,9 @@
 }
 
 .tree-item-input {
-  background: #3c3c3c;
-  border: 1px solid #007fd4;
-  color: #cccccc;
+  background: #f5f0e0;
+  border: 1px solid var(--accent-color);
+  color: var(--text-color);
   font-size: 13px;
   font-family: inherit;
   padding: 0 4px;
@@ -202,7 +200,7 @@
   /* Indentation guides */
 }
 
-/* Context menu */
+/* Context menu - kept dark for contrast */
 .context-menu {
   position: fixed;
   background: #3c3c3c;

@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -11,15 +14,27 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 )
 
+// workspaceRoot is the directory that all file operations are restricted to.
+// Set via -workspace flag or auto-detected on the first /files request.
+var workspaceRoot string
+
+var allowedOrigins = map[string]bool{
+	"http://localhost:5173": true,
+	"http://localhost:3000": true,
+}
+
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for dev
+		origin := r.Header.Get("Origin")
+		return allowedOrigins[origin]
 	},
 }
 
@@ -52,7 +67,10 @@ type RenameRequest struct {
 // CORS middleware
 func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if allowedOrigins[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		if r.Method == "OPTIONS" {
@@ -74,6 +92,28 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
+// isWithinWorkspace checks whether absPath is contained within the workspace root.
+// Returns false if the workspace root has not been set yet.
+func isWithinWorkspace(absPath string) bool {
+	if workspaceRoot == "" {
+		return false
+	}
+	// Resolve to clean absolute path
+	resolved, err := filepath.Abs(absPath)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(workspaceRoot, resolved)
+	if err != nil {
+		return false
+	}
+	// Reject if the relative path escapes the workspace
+	if strings.HasPrefix(rel, "..") {
+		return false
+	}
+	return true
+}
+
 // GET /files?path=<dir>
 func handleListFiles(w http.ResponseWriter, r *http.Request) {
 	dirPath := r.URL.Query().Get("path")
@@ -86,6 +126,18 @@ func handleListFiles(w http.ResponseWriter, r *http.Request) {
 	absPath, err := filepath.Abs(dirPath)
 	if err != nil {
 		jsonError(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	// Auto-set workspace root on the first /files request
+	if workspaceRoot == "" {
+		workspaceRoot = absPath
+		log.Printf("Workspace root set to: %s", workspaceRoot)
+	}
+
+	// Validate the path is within the workspace
+	if !isWithinWorkspace(absPath) {
+		jsonError(w, "path outside workspace", http.StatusForbidden)
 		return
 	}
 
@@ -126,7 +178,18 @@ func handleReadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	content, err := os.ReadFile(filePath)
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		jsonError(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	if !isWithinWorkspace(absPath) {
+		jsonError(w, "path outside workspace", http.StatusForbidden)
+		return
+	}
+
+	content, err := os.ReadFile(absPath)
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -144,7 +207,18 @@ func handleWriteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.WriteFile(req.Path, []byte(req.Content), 0644); err != nil {
+	absPath, err := filepath.Abs(req.Path)
+	if err != nil {
+		jsonError(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	if !isWithinWorkspace(absPath) {
+		jsonError(w, "path outside workspace", http.StatusForbidden)
+		return
+	}
+
+	if err := os.WriteFile(absPath, []byte(req.Content), 0644); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -160,16 +234,27 @@ func handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, err := os.Stat(targetPath)
+	absPath, err := filepath.Abs(targetPath)
+	if err != nil {
+		jsonError(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	if !isWithinWorkspace(absPath) {
+		jsonError(w, "path outside workspace", http.StatusForbidden)
+		return
+	}
+
+	info, err := os.Stat(absPath)
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if info.IsDir() {
-		err = os.RemoveAll(targetPath)
+		err = os.RemoveAll(absPath)
 	} else {
-		err = os.Remove(targetPath)
+		err = os.Remove(absPath)
 	}
 
 	if err != nil {
@@ -188,7 +273,18 @@ func handleCreateFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.MkdirAll(req.Path, 0755); err != nil {
+	absPath, err := filepath.Abs(req.Path)
+	if err != nil {
+		jsonError(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	if !isWithinWorkspace(absPath) {
+		jsonError(w, "path outside workspace", http.StatusForbidden)
+		return
+	}
+
+	if err := os.MkdirAll(absPath, 0755); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -204,7 +300,24 @@ func handleRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.Rename(req.OldPath, req.NewPath); err != nil {
+	absOldPath, err := filepath.Abs(req.OldPath)
+	if err != nil {
+		jsonError(w, "invalid old path", http.StatusBadRequest)
+		return
+	}
+
+	absNewPath, err := filepath.Abs(req.NewPath)
+	if err != nil {
+		jsonError(w, "invalid new path", http.StatusBadRequest)
+		return
+	}
+
+	if !isWithinWorkspace(absOldPath) || !isWithinWorkspace(absNewPath) {
+		jsonError(w, "path outside workspace", http.StatusForbidden)
+		return
+	}
+
+	if err := os.Rename(absOldPath, absNewPath); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -283,10 +396,749 @@ func handleTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Search types
+type SearchResult struct {
+	File string `json:"file"`
+	Line int    `json:"line"`
+	Text string `json:"text"`
+}
+
+type SearchResponse struct {
+	Results   []SearchResult `json:"results"`
+	Truncated bool           `json:"truncated"`
+}
+
+// File listing types
+type FileListEntry struct {
+	Path string `json:"path"`
+	Name string `json:"name"`
+}
+
+type FilesRecursiveResponse struct {
+	Files     []FileListEntry `json:"files"`
+	Truncated bool            `json:"truncated"`
+}
+
+// Directories to exclude from recursive file listing and search
+var excludeDirs = map[string]bool{
+	"node_modules": true,
+	".git":         true,
+	"build":        true,
+	"dist":         true,
+}
+
+// GET /search?path=<workspace>&q=<query>&regex=false&caseSensitive=false
+func handleSearch(w http.ResponseWriter, r *http.Request) {
+	dirPath := r.URL.Query().Get("path")
+	query := r.URL.Query().Get("q")
+	regexStr := r.URL.Query().Get("regex")
+	caseSensitiveStr := r.URL.Query().Get("caseSensitive")
+
+	if dirPath == "" || query == "" {
+		jsonError(w, "path and q parameters required", http.StatusBadRequest)
+		return
+	}
+
+	absPath, err := filepath.Abs(dirPath)
+	if err != nil {
+		jsonError(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	if !isWithinWorkspace(absPath) {
+		jsonError(w, "path outside workspace", http.StatusForbidden)
+		return
+	}
+
+	isRegex := regexStr == "true"
+	isCaseSensitive := caseSensitiveStr == "true"
+
+	const maxResults = 500
+
+	// Try ripgrep first, fallback to grep
+	results, truncated, err := searchWithRipgrep(absPath, query, isRegex, isCaseSensitive, maxResults)
+	if err != nil {
+		// Fallback to grep
+		results, truncated, err = searchWithGrep(absPath, query, isRegex, isCaseSensitive, maxResults)
+		if err != nil {
+			jsonError(w, "search failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	jsonResponse(w, SearchResponse{
+		Results:   results,
+		Truncated: truncated,
+	})
+}
+
+func searchWithRipgrep(dir, query string, isRegex, isCaseSensitive bool, maxResults int) ([]SearchResult, bool, error) {
+	args := []string{
+		"--no-heading",
+		"--line-number",
+		"--color", "never",
+		"--max-count", strconv.Itoa(maxResults),
+	}
+
+	if !isCaseSensitive {
+		args = append(args, "--ignore-case")
+	}
+
+	if !isRegex {
+		args = append(args, "--fixed-strings")
+	}
+
+	// Exclude directories
+	for d := range excludeDirs {
+		args = append(args, "--glob", "!"+d)
+	}
+
+	args = append(args, query, dir)
+
+	cmd := exec.Command("rg", args...)
+	output, err := cmd.Output()
+	if err != nil {
+		// rg returns exit code 1 for no matches, which is not an error
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			return []SearchResult{}, false, nil
+		}
+		return nil, false, err
+	}
+
+	return parseSearchOutput(string(output), dir, maxResults)
+}
+
+func searchWithGrep(dir, query string, isRegex, isCaseSensitive bool, maxResults int) ([]SearchResult, bool, error) {
+	args := []string{"-rn", "--color=never"}
+
+	if !isCaseSensitive {
+		args = append(args, "-i")
+	}
+
+	if !isRegex {
+		args = append(args, "-F")
+	}
+
+	// Exclude directories
+	for d := range excludeDirs {
+		args = append(args, fmt.Sprintf("--exclude-dir=%s", d))
+	}
+
+	args = append(args, query, dir)
+
+	cmd := exec.Command("grep", args...)
+	output, err := cmd.Output()
+	if err != nil {
+		// grep returns exit code 1 for no matches
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			return []SearchResult{}, false, nil
+		}
+		return nil, false, err
+	}
+
+	return parseSearchOutput(string(output), dir, maxResults)
+}
+
+func parseSearchOutput(output, baseDir string, maxResults int) ([]SearchResult, bool, error) {
+	var results []SearchResult
+	truncated := false
+
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+
+		// Format: file:line:text
+		// Find first colon (file path may contain colons on Windows, but we handle Unix-style)
+		firstColon := strings.Index(line, ":")
+		if firstColon < 0 {
+			continue
+		}
+		rest := line[firstColon+1:]
+		secondColon := strings.Index(rest, ":")
+		if secondColon < 0 {
+			continue
+		}
+
+		filePath := line[:firstColon]
+		lineNumStr := rest[:secondColon]
+		text := rest[secondColon+1:]
+
+		lineNum, err := strconv.Atoi(lineNumStr)
+		if err != nil {
+			continue
+		}
+
+		// Make path relative to baseDir for cleaner output
+		relPath, err := filepath.Rel(baseDir, filePath)
+		if err != nil {
+			relPath = filePath
+		}
+
+		results = append(results, SearchResult{
+			File: relPath,
+			Line: lineNum,
+			Text: strings.TrimRight(text, "\r\n"),
+		})
+
+		if len(results) >= maxResults {
+			truncated = true
+			break
+		}
+	}
+
+	if results == nil {
+		results = []SearchResult{}
+	}
+
+	return results, truncated, nil
+}
+
+// GET /files-recursive?path=<workspace>&limit=5000
+func handleFilesRecursive(w http.ResponseWriter, r *http.Request) {
+	dirPath := r.URL.Query().Get("path")
+	if dirPath == "" {
+		jsonError(w, "path parameter required", http.StatusBadRequest)
+		return
+	}
+
+	absPath, err := filepath.Abs(dirPath)
+	if err != nil {
+		jsonError(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	if !isWithinWorkspace(absPath) {
+		jsonError(w, "path outside workspace", http.StatusForbidden)
+		return
+	}
+
+	limitStr := r.URL.Query().Get("limit")
+	limit := 5000
+	if limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	var files []FileListEntry
+	truncated := false
+
+	err = filepath.WalkDir(absPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil // Skip entries with errors
+		}
+
+		// Skip excluded directories
+		if d.IsDir() && excludeDirs[d.Name()] {
+			return filepath.SkipDir
+		}
+
+		// Skip hidden directories and files
+		if strings.HasPrefix(d.Name(), ".") && d.Name() != "." {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Only include files, not directories
+		if d.IsDir() {
+			return nil
+		}
+
+		if len(files) >= limit {
+			truncated = true
+			return filepath.SkipAll
+		}
+
+		relPath, err := filepath.Rel(absPath, path)
+		if err != nil {
+			relPath = path
+		}
+
+		files = append(files, FileListEntry{
+			Path: relPath,
+			Name: d.Name(),
+		})
+
+		return nil
+	})
+
+	if err != nil {
+		jsonError(w, "failed to list files: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if files == nil {
+		files = []FileListEntry{}
+	}
+
+	jsonResponse(w, FilesRecursiveResponse{
+		Files:     files,
+		Truncated: truncated,
+	})
+}
+
+// Git request types
+type GitFilesRequest struct {
+	Files []string `json:"files"`
+}
+
+type GitCommitRequest struct {
+	Message string `json:"message"`
+}
+
+type GitCheckoutRequest struct {
+	Branch string `json:"branch"`
+}
+
+// runGitCommand executes a git command in the workspace directory with a 30s timeout.
+// Returns stdout and stderr strings. If the command fails, returns an error.
+func runGitCommand(args ...string) (string, string, error) {
+	if workspaceRoot == "" {
+		return "", "", fmt.Errorf("no workspace open")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = workspaceRoot
+
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
+}
+
+// GET /git/status
+func handleGitStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if workspaceRoot == "" {
+		jsonError(w, "no workspace open", http.StatusBadRequest)
+		return
+	}
+
+	stdout, stderr, err := runGitCommand("status", "--porcelain", "-z")
+	if err != nil {
+		// Check if it's not a git repo
+		if strings.Contains(stderr, "not a git repository") {
+			jsonError(w, "not a git repository", http.StatusBadRequest)
+			return
+		}
+		jsonError(w, "git status failed: "+stderr, http.StatusInternalServerError)
+		return
+	}
+
+	type FileStatus struct {
+		Path   string `json:"path"`
+		Status string `json:"status"`
+	}
+
+	staged := []FileStatus{}
+	unstaged := []FileStatus{}
+	untracked := []string{}
+
+	// Parse NUL-separated output from git status --porcelain -z
+	// Each entry: XY<space>path\0  (renamed entries: XY<space>old\0new\0)
+	entries := strings.Split(stdout, "\x00")
+	i := 0
+	for i < len(entries) {
+		entry := entries[i]
+		if len(entry) < 3 {
+			i++
+			continue
+		}
+
+		x := entry[0]   // staged status
+		y := entry[1]   // unstaged status
+		path := entry[3:] // skip "XY "
+
+		// Handle untracked files
+		if x == '?' && y == '?' {
+			untracked = append(untracked, path)
+			i++
+			continue
+		}
+
+		// Handle renames/copies - next entry is the new name
+		if x == 'R' || x == 'C' {
+			newPath := ""
+			if i+1 < len(entries) {
+				newPath = entries[i+1]
+				i++ // skip the extra entry
+			}
+			staged = append(staged, FileStatus{Path: newPath, Status: string(x)})
+		} else if x != ' ' && x != '?' {
+			staged = append(staged, FileStatus{Path: path, Status: string(x)})
+		}
+
+		if y == 'R' || y == 'C' {
+			newPath := ""
+			if i+1 < len(entries) {
+				newPath = entries[i+1]
+				i++
+			}
+			unstaged = append(unstaged, FileStatus{Path: newPath, Status: string(y)})
+		} else if y != ' ' && y != '?' {
+			unstaged = append(unstaged, FileStatus{Path: path, Status: string(y)})
+		}
+
+		i++
+	}
+
+	jsonResponse(w, map[string]interface{}{
+		"staged":    staged,
+		"unstaged":  unstaged,
+		"untracked": untracked,
+	})
+}
+
+// GET /git/diff?file=<path>&staged=true/false
+func handleGitDiff(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if workspaceRoot == "" {
+		jsonError(w, "no workspace open", http.StatusBadRequest)
+		return
+	}
+
+	file := r.URL.Query().Get("file")
+	isStaged := r.URL.Query().Get("staged") == "true"
+
+	args := []string{"diff"}
+	if isStaged {
+		args = append(args, "--cached")
+	}
+	if file != "" {
+		// Validate file path is within workspace
+		absFile := filepath.Join(workspaceRoot, file)
+		if !isWithinWorkspace(absFile) {
+			jsonError(w, "path outside workspace", http.StatusForbidden)
+			return
+		}
+		args = append(args, "--", file)
+	}
+
+	stdout, stderr, err := runGitCommand(args...)
+	if err != nil {
+		jsonError(w, "git diff failed: "+stderr, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write([]byte(stdout))
+}
+
+// POST /git/stage  { files: [...] }
+func handleGitStage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if workspaceRoot == "" {
+		jsonError(w, "no workspace open", http.StatusBadRequest)
+		return
+	}
+
+	var req GitFilesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.Files) == 0 {
+		jsonError(w, "no files specified", http.StatusBadRequest)
+		return
+	}
+
+	// Validate all file paths
+	for _, f := range req.Files {
+		absFile := filepath.Join(workspaceRoot, f)
+		if !isWithinWorkspace(absFile) {
+			jsonError(w, "path outside workspace: "+f, http.StatusForbidden)
+			return
+		}
+	}
+
+	args := append([]string{"add"}, req.Files...)
+	_, stderr, err := runGitCommand(args...)
+	if err != nil {
+		jsonError(w, "git add failed: "+stderr, http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, map[string]bool{"success": true})
+}
+
+// POST /git/unstage  { files: [...] }
+func handleGitUnstage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if workspaceRoot == "" {
+		jsonError(w, "no workspace open", http.StatusBadRequest)
+		return
+	}
+
+	var req GitFilesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.Files) == 0 {
+		jsonError(w, "no files specified", http.StatusBadRequest)
+		return
+	}
+
+	// Validate all file paths
+	for _, f := range req.Files {
+		absFile := filepath.Join(workspaceRoot, f)
+		if !isWithinWorkspace(absFile) {
+			jsonError(w, "path outside workspace: "+f, http.StatusForbidden)
+			return
+		}
+	}
+
+	args := append([]string{"reset", "HEAD", "--"}, req.Files...)
+	_, stderr, err := runGitCommand(args...)
+	if err != nil {
+		jsonError(w, "git reset failed: "+stderr, http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, map[string]bool{"success": true})
+}
+
+// POST /git/commit  { message: "..." }
+func handleGitCommit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if workspaceRoot == "" {
+		jsonError(w, "no workspace open", http.StatusBadRequest)
+		return
+	}
+
+	var req GitCommitRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Message == "" {
+		jsonError(w, "commit message required", http.StatusBadRequest)
+		return
+	}
+
+	stdout, stderr, err := runGitCommand("commit", "-m", req.Message)
+	if err != nil {
+		jsonError(w, "git commit failed: "+stderr, http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, map[string]string{"output": stdout})
+}
+
+// POST /git/push
+func handleGitPush(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if workspaceRoot == "" {
+		jsonError(w, "no workspace open", http.StatusBadRequest)
+		return
+	}
+
+	stdout, stderr, err := runGitCommand("push")
+	if err != nil {
+		jsonError(w, "git push failed: "+stderr, http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, map[string]string{"output": stdout + stderr})
+}
+
+// POST /git/pull
+func handleGitPull(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if workspaceRoot == "" {
+		jsonError(w, "no workspace open", http.StatusBadRequest)
+		return
+	}
+
+	stdout, stderr, err := runGitCommand("pull")
+	if err != nil {
+		jsonError(w, "git pull failed: "+stderr, http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, map[string]string{"output": stdout + stderr})
+}
+
+// GET /git/branches
+func handleGitBranches(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if workspaceRoot == "" {
+		jsonError(w, "no workspace open", http.StatusBadRequest)
+		return
+	}
+
+	// Get current branch
+	currentOut, stderr, err := runGitCommand("branch", "--show-current")
+	if err != nil {
+		jsonError(w, "git branch failed: "+stderr, http.StatusInternalServerError)
+		return
+	}
+	current := strings.TrimSpace(currentOut)
+
+	// Get all branches
+	listOut, stderr, err := runGitCommand("branch", "--list")
+	if err != nil {
+		jsonError(w, "git branch --list failed: "+stderr, http.StatusInternalServerError)
+		return
+	}
+
+	branches := []string{}
+	for _, line := range strings.Split(listOut, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Remove the "* " prefix from current branch
+		line = strings.TrimPrefix(line, "* ")
+		branches = append(branches, line)
+	}
+
+	jsonResponse(w, map[string]interface{}{
+		"branches": branches,
+		"current":  current,
+	})
+}
+
+// POST /git/checkout  { branch: "..." }
+func handleGitCheckout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if workspaceRoot == "" {
+		jsonError(w, "no workspace open", http.StatusBadRequest)
+		return
+	}
+
+	var req GitCheckoutRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Branch == "" {
+		jsonError(w, "branch name required", http.StatusBadRequest)
+		return
+	}
+
+	_, stderr, err := runGitCommand("checkout", req.Branch)
+	if err != nil {
+		jsonError(w, "git checkout failed: "+stderr, http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, map[string]bool{"success": true})
+}
+
+// GET /git/log
+func handleGitLog(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if workspaceRoot == "" {
+		jsonError(w, "no workspace open", http.StatusBadRequest)
+		return
+	}
+
+	stdout, stderr, err := runGitCommand("log", "--oneline", "-20")
+	if err != nil {
+		// Empty repo with no commits
+		if strings.Contains(stderr, "does not have any commits") || strings.Contains(stderr, "bad default revision") {
+			jsonResponse(w, map[string]interface{}{"entries": []interface{}{}})
+			return
+		}
+		jsonError(w, "git log failed: "+stderr, http.StatusInternalServerError)
+		return
+	}
+
+	type LogEntry struct {
+		Hash    string `json:"hash"`
+		Message string `json:"message"`
+	}
+
+	entries := []LogEntry{}
+	for _, line := range strings.Split(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Format: <hash> <message>
+		spaceIdx := strings.Index(line, " ")
+		if spaceIdx < 0 {
+			entries = append(entries, LogEntry{Hash: line, Message: ""})
+			continue
+		}
+		entries = append(entries, LogEntry{
+			Hash:    line[:spaceIdx],
+			Message: line[spaceIdx+1:],
+		})
+	}
+
+	jsonResponse(w, map[string]interface{}{"entries": entries})
+}
+
 func main() {
 	var addr = flag.String("addr", "localhost:3000", "http service address")
+	var workspace = flag.String("workspace", "", "workspace root directory (auto-detected from first /files request if not set)")
 	flag.Parse()
 	log.SetFlags(0)
+
+	if *workspace != "" {
+		abs, err := filepath.Abs(*workspace)
+		if err != nil {
+			log.Fatalf("Invalid workspace path: %v", err)
+		}
+		workspaceRoot = abs
+		log.Printf("Workspace root set to: %s", workspaceRoot)
+	}
 
 	// File system endpoints
 	http.HandleFunc("/files", corsMiddleware(handleListFiles))
@@ -311,6 +1163,22 @@ func main() {
 		}
 		jsonResponse(w, map[string]string{"path": home})
 	}))
+
+	// Search endpoints
+	http.HandleFunc("/search", corsMiddleware(handleSearch))
+	http.HandleFunc("/files-recursive", corsMiddleware(handleFilesRecursive))
+
+	// Git endpoints
+	http.HandleFunc("/git/status", corsMiddleware(handleGitStatus))
+	http.HandleFunc("/git/diff", corsMiddleware(handleGitDiff))
+	http.HandleFunc("/git/stage", corsMiddleware(handleGitStage))
+	http.HandleFunc("/git/unstage", corsMiddleware(handleGitUnstage))
+	http.HandleFunc("/git/commit", corsMiddleware(handleGitCommit))
+	http.HandleFunc("/git/push", corsMiddleware(handleGitPush))
+	http.HandleFunc("/git/pull", corsMiddleware(handleGitPull))
+	http.HandleFunc("/git/branches", corsMiddleware(handleGitBranches))
+	http.HandleFunc("/git/checkout", corsMiddleware(handleGitCheckout))
+	http.HandleFunc("/git/log", corsMiddleware(handleGitLog))
 
 	// Terminal endpoint
 	http.HandleFunc("/term", handleTerminal)
