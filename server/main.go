@@ -17,9 +17,19 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// workspaceRoot is the directory that all file operations are restricted to.
+// Set via -workspace flag or auto-detected on the first /files request.
+var workspaceRoot string
+
+var allowedOrigins = map[string]bool{
+	"http://localhost:5173": true,
+	"http://localhost:3000": true,
+}
+
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for dev
+		origin := r.Header.Get("Origin")
+		return allowedOrigins[origin]
 	},
 }
 
@@ -52,7 +62,10 @@ type RenameRequest struct {
 // CORS middleware
 func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if allowedOrigins[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		if r.Method == "OPTIONS" {
@@ -74,6 +87,28 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
+// isWithinWorkspace checks whether absPath is contained within the workspace root.
+// Returns false if the workspace root has not been set yet.
+func isWithinWorkspace(absPath string) bool {
+	if workspaceRoot == "" {
+		return false
+	}
+	// Resolve to clean absolute path
+	resolved, err := filepath.Abs(absPath)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(workspaceRoot, resolved)
+	if err != nil {
+		return false
+	}
+	// Reject if the relative path escapes the workspace
+	if strings.HasPrefix(rel, "..") {
+		return false
+	}
+	return true
+}
+
 // GET /files?path=<dir>
 func handleListFiles(w http.ResponseWriter, r *http.Request) {
 	dirPath := r.URL.Query().Get("path")
@@ -86,6 +121,18 @@ func handleListFiles(w http.ResponseWriter, r *http.Request) {
 	absPath, err := filepath.Abs(dirPath)
 	if err != nil {
 		jsonError(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	// Auto-set workspace root on the first /files request
+	if workspaceRoot == "" {
+		workspaceRoot = absPath
+		log.Printf("Workspace root set to: %s", workspaceRoot)
+	}
+
+	// Validate the path is within the workspace
+	if !isWithinWorkspace(absPath) {
+		jsonError(w, "path outside workspace", http.StatusForbidden)
 		return
 	}
 
@@ -126,7 +173,18 @@ func handleReadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	content, err := os.ReadFile(filePath)
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		jsonError(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	if !isWithinWorkspace(absPath) {
+		jsonError(w, "path outside workspace", http.StatusForbidden)
+		return
+	}
+
+	content, err := os.ReadFile(absPath)
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -144,7 +202,18 @@ func handleWriteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.WriteFile(req.Path, []byte(req.Content), 0644); err != nil {
+	absPath, err := filepath.Abs(req.Path)
+	if err != nil {
+		jsonError(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	if !isWithinWorkspace(absPath) {
+		jsonError(w, "path outside workspace", http.StatusForbidden)
+		return
+	}
+
+	if err := os.WriteFile(absPath, []byte(req.Content), 0644); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -160,16 +229,27 @@ func handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, err := os.Stat(targetPath)
+	absPath, err := filepath.Abs(targetPath)
+	if err != nil {
+		jsonError(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	if !isWithinWorkspace(absPath) {
+		jsonError(w, "path outside workspace", http.StatusForbidden)
+		return
+	}
+
+	info, err := os.Stat(absPath)
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	if info.IsDir() {
-		err = os.RemoveAll(targetPath)
+		err = os.RemoveAll(absPath)
 	} else {
-		err = os.Remove(targetPath)
+		err = os.Remove(absPath)
 	}
 
 	if err != nil {
@@ -188,7 +268,18 @@ func handleCreateFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.MkdirAll(req.Path, 0755); err != nil {
+	absPath, err := filepath.Abs(req.Path)
+	if err != nil {
+		jsonError(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	if !isWithinWorkspace(absPath) {
+		jsonError(w, "path outside workspace", http.StatusForbidden)
+		return
+	}
+
+	if err := os.MkdirAll(absPath, 0755); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -204,7 +295,24 @@ func handleRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.Rename(req.OldPath, req.NewPath); err != nil {
+	absOldPath, err := filepath.Abs(req.OldPath)
+	if err != nil {
+		jsonError(w, "invalid old path", http.StatusBadRequest)
+		return
+	}
+
+	absNewPath, err := filepath.Abs(req.NewPath)
+	if err != nil {
+		jsonError(w, "invalid new path", http.StatusBadRequest)
+		return
+	}
+
+	if !isWithinWorkspace(absOldPath) || !isWithinWorkspace(absNewPath) {
+		jsonError(w, "path outside workspace", http.StatusForbidden)
+		return
+	}
+
+	if err := os.Rename(absOldPath, absNewPath); err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -285,8 +393,18 @@ func handleTerminal(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	var addr = flag.String("addr", "localhost:3000", "http service address")
+	var workspace = flag.String("workspace", "", "workspace root directory (auto-detected from first /files request if not set)")
 	flag.Parse()
 	log.SetFlags(0)
+
+	if *workspace != "" {
+		abs, err := filepath.Abs(*workspace)
+		if err != nil {
+			log.Fatalf("Invalid workspace path: %v", err)
+		}
+		workspaceRoot = abs
+		log.Printf("Workspace root set to: %s", workspaceRoot)
+	}
 
 	// File system endpoints
 	http.HandleFunc("/files", corsMiddleware(handleListFiles))

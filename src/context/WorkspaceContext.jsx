@@ -1,9 +1,11 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import fs from '../services/fileSystem';
+import { useToast } from '../components/Toast';
 
 const WorkspaceContext = createContext(null);
 
 export function WorkspaceProvider({ children }) {
+  const { showToast } = useToast();
   const [workspacePath, setWorkspacePath] = useState(null);
   const [fileTree, setFileTree] = useState([]);
   const [activeFile, setActiveFile] = useState(null);
@@ -33,8 +35,9 @@ export function WorkspaceProvider({ children }) {
       setFileTree(entries);
     } catch (err) {
       console.error('Failed to read directory:', err);
+      showToast('Failed to read directory: ' + err.message, 'error');
     }
-  }, []);
+  }, [showToast]);
 
   const cancelFolderPicker = useCallback(() => {
     setShowFolderPicker(false);
@@ -47,17 +50,19 @@ export function WorkspaceProvider({ children }) {
       setFileTree(entries);
     } catch (err) {
       console.error('Failed to refresh directory:', err);
+      showToast('Failed to refresh directory: ' + err.message, 'error');
     }
-  }, []);
+  }, [showToast]);
 
   const loadSubDirectory = useCallback(async (dirPath) => {
     try {
       return await fs.readDirectory(dirPath);
     } catch (err) {
       console.error('Failed to load subdirectory:', err);
+      showToast('Failed to load subdirectory: ' + err.message, 'error');
       return [];
     }
-  }, []);
+  }, [showToast]);
 
   const toggleFolder = useCallback((folderPath) => {
     setExpandedFolders(prev => {
@@ -97,8 +102,9 @@ export function WorkspaceProvider({ children }) {
       setIsDirty(false);
     } catch (err) {
       console.error('Failed to open file:', err);
+      showToast('Failed to open file: ' + err.message, 'error');
     }
-  }, []);
+  }, [showToast]);
 
   const saveFile = useCallback(async (editorInstance) => {
     if (!activeFile || !editorInstance) return;
@@ -120,10 +126,12 @@ export function WorkspaceProvider({ children }) {
     try {
       await fs.writeFile(activeFile.path, content);
       setIsDirty(false);
+      showToast('File saved', 'success');
     } catch (err) {
       console.error('Failed to save file:', err);
+      showToast('Failed to save file: ' + err.message, 'error');
     }
-  }, [activeFile]);
+  }, [activeFile, showToast]);
 
   const createNewFile = useCallback(async (parentPath, name) => {
     const filePath = parentPath + '/' + name;
@@ -132,8 +140,9 @@ export function WorkspaceProvider({ children }) {
       if (workspacePath) await refreshDirectory(workspacePath);
     } catch (err) {
       console.error('Failed to create file:', err);
+      showToast('Failed to create file: ' + err.message, 'error');
     }
-  }, [workspacePath, refreshDirectory]);
+  }, [workspacePath, refreshDirectory, showToast]);
 
   const createNewFolder = useCallback(async (parentPath, name) => {
     const folderPath = parentPath + '/' + name;
@@ -142,8 +151,9 @@ export function WorkspaceProvider({ children }) {
       if (workspacePath) await refreshDirectory(workspacePath);
     } catch (err) {
       console.error('Failed to create folder:', err);
+      showToast('Failed to create folder: ' + err.message, 'error');
     }
-  }, [workspacePath, refreshDirectory]);
+  }, [workspacePath, refreshDirectory, showToast]);
 
   const deleteEntry = useCallback(async (targetPath) => {
     try {
@@ -155,8 +165,9 @@ export function WorkspaceProvider({ children }) {
       if (workspacePath) await refreshDirectory(workspacePath);
     } catch (err) {
       console.error('Failed to delete:', err);
+      showToast('Failed to delete: ' + err.message, 'error');
     }
-  }, [workspacePath, activeFile, refreshDirectory]);
+  }, [workspacePath, activeFile, refreshDirectory, showToast]);
 
   const renameEntry = useCallback(async (oldPath, newPath) => {
     try {
@@ -167,8 +178,9 @@ export function WorkspaceProvider({ children }) {
       if (workspacePath) await refreshDirectory(workspacePath);
     } catch (err) {
       console.error('Failed to rename:', err);
+      showToast('Failed to rename: ' + err.message, 'error');
     }
-  }, [workspacePath, activeFile, refreshDirectory]);
+  }, [workspacePath, activeFile, refreshDirectory, showToast]);
 
   const value = {
     workspacePath,

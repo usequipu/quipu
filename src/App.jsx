@@ -4,6 +4,7 @@ import Terminal from './components/Terminal';
 import FileExplorer from './components/FileExplorer';
 import FolderPicker from './components/FolderPicker';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
+import { ToastProvider } from './components/Toast';
 import './App.css';
 
 function AppContent() {
@@ -129,9 +130,11 @@ function AppContent() {
 
 function App() {
   return (
-    <WorkspaceProvider>
-      <AppContent />
-    </WorkspaceProvider>
+    <ToastProvider>
+      <WorkspaceProvider>
+        <AppContent />
+      </WorkspaceProvider>
+    </ToastProvider>
   );
 }
 
