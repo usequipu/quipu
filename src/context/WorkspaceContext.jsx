@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import jsYaml from 'js-yaml';
 import fs from '../services/fileSystem';
 import claudeInstaller from '../services/claudeInstaller';
@@ -20,6 +20,15 @@ export function WorkspaceProvider({ children }) {
   const [expandedFolders, setExpandedFolders] = useState(new Set());
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [recentWorkspaces, setRecentWorkspaces] = useState([]);
+  const [gitChangeCount, setGitChangeCount] = useState(0);
+
+  const updateGitChangeCount = useCallback((count) => {
+    setGitChangeCount(count);
+  }, []);
+
+  // Ref to access current openTabs inside intervals/event listeners without stale closures
+  const openTabsRef = useRef(openTabs);
+  useEffect(() => { openTabsRef.current = openTabs; }, [openTabs]);
 
   // Derived values (computed, not useState)
   const activeTab = openTabs.find(t => t.id === activeTabId) || null;
@@ -203,6 +212,32 @@ export function WorkspaceProvider({ children }) {
     ));
   }, []);
 
+  const addFrontmatterTag = useCallback((tabId, key, tagValue) => {
+    setOpenTabs(prev => prev.map(t => {
+      if (t.id !== tabId) return t;
+      const existing = Array.isArray(t.frontmatter?.[key]) ? t.frontmatter[key] : [];
+      return { ...t, frontmatter: { ...t.frontmatter, [key]: [...existing, tagValue] }, isDirty: true };
+    }));
+  }, []);
+
+  const removeFrontmatterTag = useCallback((tabId, key, index) => {
+    setOpenTabs(prev => prev.map(t => {
+      if (t.id !== tabId) return t;
+      const existing = Array.isArray(t.frontmatter?.[key]) ? [...t.frontmatter[key]] : [];
+      existing.splice(index, 1);
+      return { ...t, frontmatter: { ...t.frontmatter, [key]: existing }, isDirty: true };
+    }));
+  }, []);
+
+  const updateFrontmatterTag = useCallback((tabId, key, index, newValue) => {
+    setOpenTabs(prev => prev.map(t => {
+      if (t.id !== tabId) return t;
+      const existing = Array.isArray(t.frontmatter?.[key]) ? [...t.frontmatter[key]] : [];
+      existing[index] = newValue;
+      return { ...t, frontmatter: { ...t.frontmatter, [key]: existing }, isDirty: true };
+    }));
+  }, []);
+
   const extractFrontmatter = useCallback((rawContent) => {
     const match = rawContent.match(FRONTMATTER_REGEX);
     if (!match) return { frontmatter: null, frontmatterRaw: null, body: rawContent };
@@ -249,7 +284,8 @@ export function WorkspaceProvider({ children }) {
         scrollPosition: 0,
         frontmatter: null,
         frontmatterRaw: null,
-        frontmatterCollapsed: false,
+        diskContent: null,
+        frontmatterCollapsed: true,
       };
       setOpenTabs(prev => [...prev, newTab]);
       setActiveTabId(newTab.id);
@@ -294,7 +330,8 @@ export function WorkspaceProvider({ children }) {
         scrollPosition: 0,
         frontmatter,
         frontmatterRaw,
-        frontmatterCollapsed: false,
+        diskContent: content, // Raw content as read from disk, for change detection
+        frontmatterCollapsed: true,
       };
 
       setOpenTabs(prev => [...prev, newTab]);
@@ -375,13 +412,16 @@ export function WorkspaceProvider({ children }) {
 
     try {
       await fs.writeFile(activeTab.path, content);
-      setTabDirty(activeTab.id, false);
+      // Update diskContent so file watcher doesn't trigger on our own save
+      setOpenTabs(prev => prev.map(t =>
+        t.id === activeTab.id ? { ...t, isDirty: false, diskContent: content } : t
+      ));
       showToast('File saved', 'success');
     } catch (err) {
       console.error('Failed to save file:', err);
       showToast('Failed to save file: ' + err.message, 'error');
     }
-  }, [activeTab, setTabDirty, showToast]);
+  }, [activeTab, showToast]);
 
   const createNewFile = useCallback(async (parentPath, name) => {
     const filePath = parentPath + '/' + name;
@@ -434,6 +474,88 @@ export function WorkspaceProvider({ children }) {
     }
   }, [workspacePath, refreshDirectory, showToast]);
 
+  // Helper: apply a fresh file content to a tab (parse frontmatter, reset dirty)
+  const applyFreshContent = useCallback((tab, fresh) => {
+    const isMarkdown = tab.name.endsWith('.md') || tab.name.endsWith('.markdown');
+    let frontmatter = null, frontmatterRaw = null, bodyContent = fresh;
+    if (isMarkdown && typeof fresh === 'string') {
+      const fm = extractFrontmatter(fresh);
+      frontmatter = fm.frontmatter;
+      frontmatterRaw = fm.frontmatterRaw;
+      bodyContent = fm.body;
+    }
+    return { content: bodyContent, tiptapJSON: null, isDirty: false, diskContent: fresh, frontmatter, frontmatterRaw };
+  }, [extractFrontmatter]);
+
+  // Electron: use native directory watcher
+  useEffect(() => {
+    if (!window.electronAPI || !workspacePath) return;
+
+    fs.watchDirectory(workspacePath);
+
+    const cleanup = fs.onDirectoryChanged(async ({ filename }) => {
+      if (!filename) return;
+      const fullPath = workspacePath + '/' + filename.replace(/\\/g, '/');
+      const tab = openTabsRef.current.find(t => t.path === fullPath);
+      if (!tab || tab.isMedia) return;
+
+      try {
+        const fresh = await fs.readFile(fullPath);
+        if (fresh === tab.diskContent) return;
+
+        if (tab.isDirty) {
+          showToast(`"${tab.name}" changed on disk (unsaved changes preserved)`, 'warning');
+          setOpenTabs(prev => prev.map(t => t.id === tab.id ? { ...t, diskContent: fresh } : t));
+        } else {
+          const updates = applyFreshContent(tab, fresh);
+          setOpenTabs(prev => prev.map(t =>
+            t.id === tab.id ? { ...t, ...updates, reloadKey: (t.reloadKey || 0) + 1 } : t
+          ));
+        }
+      } catch { /* file may be temporarily inaccessible */ }
+    });
+
+    return cleanup;
+  }, [workspacePath, showToast, applyFreshContent]);
+
+  // Browser: poll open files every 5 seconds for external changes
+  useEffect(() => {
+    if (window.electronAPI || !workspacePath) return;
+
+    const id = setInterval(async () => {
+      const tabs = openTabsRef.current;
+      const reloads = [];
+      const warnings = [];
+
+      for (const tab of tabs) {
+        if (tab.isMedia || !tab.diskContent) continue;
+        try {
+          const fresh = await fs.readFile(tab.path);
+          if (fresh === tab.diskContent) continue;
+
+          if (tab.isDirty) {
+            warnings.push({ id: tab.id, name: tab.name, diskContent: fresh });
+          } else {
+            reloads.push({ tab, fresh });
+          }
+        } catch { /* ignore read errors */ }
+      }
+
+      if (reloads.length > 0 || warnings.length > 0) {
+        setOpenTabs(prev => prev.map(t => {
+          const reload = reloads.find(r => r.tab.id === t.id);
+          if (reload) return { ...t, ...applyFreshContent(reload.tab, reload.fresh), reloadKey: (t.reloadKey || 0) + 1 };
+          const warn = warnings.find(w => w.id === t.id);
+          if (warn) return { ...t, diskContent: warn.diskContent };
+          return t;
+        }));
+        warnings.forEach(w => showToast(`"${w.name}" changed on disk (unsaved changes preserved)`, 'warning'));
+      }
+    }, 5000);
+
+    return () => clearInterval(id);
+  }, [workspacePath, showToast, applyFreshContent]);
+
   const value = {
     workspacePath,
     fileTree,
@@ -465,12 +587,18 @@ export function WorkspaceProvider({ children }) {
     closeOtherTabs,
     setTabDirty,
     snapshotTab,
+    // Git status
+    gitChangeCount,
+    updateGitChangeCount,
     // Frontmatter functions
     updateFrontmatter,
     addFrontmatterProperty,
     removeFrontmatterProperty,
     renameFrontmatterKey,
     toggleFrontmatterCollapsed,
+    addFrontmatterTag,
+    removeFrontmatterTag,
+    updateFrontmatterTag,
   };
 
   return (
