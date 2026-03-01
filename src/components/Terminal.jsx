@@ -94,7 +94,10 @@ const Terminal = forwardRef(({ workspacePath }, ref) => {
       window.electronAPI.resizeTerminal(term.cols, term.rows);
     } else {
       // WebSocket connection (Browser Mode)
-      const ws = new WebSocket(`${WS_URL}/term`);
+      const wsUrl = workspacePath
+        ? `${WS_URL}/term?cwd=${encodeURIComponent(workspacePath)}`
+        : `${WS_URL}/term`;
+      const ws = new WebSocket(wsUrl);
       ws.binaryType = "arraybuffer";
 
       ws.onopen = () => {
