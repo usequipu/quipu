@@ -62,6 +62,7 @@ const Editor = ({
     workspacePath,
     updateFrontmatter, addFrontmatterProperty, removeFrontmatterProperty,
     renameFrontmatterKey, toggleFrontmatterCollapsed,
+    addFrontmatterTag, removeFrontmatterTag, updateFrontmatterTag,
 }) => {
     const [commentText, setCommentText] = useState('');
     const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
@@ -637,7 +638,7 @@ const Editor = ({
                     ref={pageRef}
                 >
                     {displayTitle && (
-                        <h1 className="text-5xl font-bold text-page-text mb-6 font-editor leading-tight tracking-tight select-none">
+                        <h1 className="text-3xl font-bold font-editor text-page-text select-none break-words mb-4">
                             {displayTitle}
                         </h1>
                     )}
@@ -653,6 +654,9 @@ const Editor = ({
                                 onRemove={removeFrontmatterProperty}
                                 onRenameKey={renameFrontmatterKey}
                                 onToggleCollapse={toggleFrontmatterCollapsed}
+                                onAddTag={addFrontmatterTag}
+                                onRemoveTag={removeFrontmatterTag}
+                                onUpdateTag={updateFrontmatterTag}
                             />
                         </div>
                     )}
