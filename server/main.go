@@ -341,6 +341,9 @@ func handleTerminal(w http.ResponseWriter, r *http.Request) {
 
 	cmd := exec.Command(shell)
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	if workspaceRoot != "" {
+		cmd.Dir = workspaceRoot
+	}
 
 	// Start with a reasonable default size, but resize will handle the rest
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 30, Cols: 80})
@@ -423,6 +426,7 @@ type FilesRecursiveResponse struct {
 var excludeDirs = map[string]bool{
 	"node_modules": true,
 	".git":         true,
+	".quipu":       true,
 	"build":        true,
 	"dist":         true,
 }

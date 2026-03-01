@@ -12,7 +12,8 @@ import SourceControlPanel from './components/SourceControlPanel';
 import QuickOpen from './components/QuickOpen';
 import TitleBar from './components/TitleBar';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
-import { ToastProvider } from './components/Toast';
+import { ToastProvider, useToast } from './components/Toast';
+import frameService from './services/frameService.js';
 
 function AppContent() {
   const [editorInstance, setEditorInstance] = useState(null);
@@ -21,10 +22,13 @@ function AppContent() {
     activeFile, saveFile, setIsDirty, showFolderPicker, selectFolder, cancelFolderPicker,
     activeTabId, activeTab, snapshotTab, openTabs, closeTab, switchTab,
     updateFrontmatter, addFrontmatterProperty, removeFrontmatterProperty,
-    renameFrontmatterKey, toggleFrontmatterCollapsed,
+    renameFrontmatterKey, toggleFrontmatterCollapsed, workspacePath,
   } = useWorkspace();
+  const { showToast } = useToast();
   const [activePanel, setActivePanel] = useState('explorer');
   const [isQuickOpenVisible, setIsQuickOpenVisible] = useState(false);
+  const [quickOpenInitialValue, setQuickOpenInitialValue] = useState('');
+  const [isClaudeRunning, setIsClaudeRunning] = useState(false);
   const sidePanelRef = usePanelRef();
   const terminalPanelRef = usePanelRef();
 
@@ -59,6 +63,110 @@ function AppContent() {
       terminalPanelRef.current?.collapse();
     }
   }, [terminalPanelRef]);
+
+  const toggleTheme = useCallback(() => {
+    const root = document.documentElement;
+    const current = localStorage.getItem('quipu-theme') || 'light';
+    const cycle = { light: 'tinted', tinted: 'dark', dark: 'light' };
+    const next = cycle[current] || 'light';
+    root.classList.remove('dark', 'tinted');
+    if (next !== 'light') root.classList.add(next);
+    localStorage.setItem('quipu-theme', next);
+  }, []);
+
+  const handleSendToTerminal = useCallback(() => {
+    if (!editorInstance) return;
+
+    const json = editorInstance.getJSON();
+    let output = '';
+
+    const serializeNode = (node) => {
+      if (node.type === 'text') {
+        const commentMark = node.marks?.find(m => m.type === 'comment');
+        if (commentMark) {
+          return `<commented>${node.text}</commented><comment>${commentMark.attrs.comment}</comment>`;
+        }
+        return node.text;
+      }
+
+      if (node.content) {
+        return node.content.map(serializeNode).join('');
+      }
+
+      if (node.type === 'paragraph') {
+        return (node.content ? node.content.map(serializeNode).join('') : '') + '\n';
+      }
+
+      return '';
+    };
+
+    if (json.content) {
+      output = json.content.map(serializeNode).join('');
+    }
+
+    if (terminalRef.current) {
+      terminalRef.current.focus();
+      terminalRef.current.write("claude\r");
+      setTimeout(() => {
+        terminalRef.current.write(output + "\r");
+      }, 1000);
+    }
+  }, [editorInstance]);
+
+  const handleSendToClaude = useCallback(async () => {
+    if (!activeFile || !workspacePath) {
+      showToast('No file open to send to Claude', 'warning');
+      return;
+    }
+    if (!terminalRef.current) {
+      showToast('Terminal not connected', 'error');
+      return;
+    }
+
+    // Auto-save if dirty
+    if (editorInstance && activeTab?.isDirty) {
+      await saveFile(editorInstance);
+    }
+
+    // Expand terminal if collapsed
+    if (terminalPanelRef.current?.isCollapsed()) {
+      terminalPanelRef.current.expand();
+    }
+
+    // Build context with file path and FRAME summary
+    const relativePath = activeFile.path.replace(workspacePath + '/', '');
+    let prompt = `Review and work with: ${relativePath}`;
+
+    // Try to load FRAME context
+    try {
+      const frame = await frameService.readFrame(workspacePath, activeFile.path);
+      if (frame) {
+        if (frame.instructions) {
+          prompt += `\n\nFile context: ${frame.instructions}`;
+        }
+        if (frame.annotations?.length > 0) {
+          const notes = frame.annotations.map(a => `  - Line ${a.line}: [${a.type}] ${a.text}`).join('\n');
+          prompt += `\n\nAnnotations:\n${notes}`;
+        }
+      }
+    } catch {
+      // FRAME read failed — proceed without it
+    }
+
+    terminalRef.current.focus();
+
+    if (isClaudeRunning) {
+      // Claude is already running — send prompt directly
+      terminalRef.current.write(prompt + "\r");
+    } else {
+      // Launch Claude then send prompt
+      terminalRef.current.write("claude\r");
+      setIsClaudeRunning(true);
+      setTimeout(() => {
+        terminalRef.current.write(prompt + "\r");
+      }, 1000);
+    }
+  }, [activeFile, workspacePath, editorInstance, activeTab, saveFile, terminalPanelRef, isClaudeRunning, showToast]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -99,8 +207,15 @@ function AppContent() {
           sidePanelRef.current?.expand();
         }
       }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'P') {
+        e.preventDefault();
+        setQuickOpenInitialValue('> ');
+        setIsQuickOpenVisible(true);
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
         e.preventDefault();
+        setQuickOpenInitialValue('');
         setIsQuickOpenVisible(prev => !prev);
       }
       if ((e.ctrlKey || e.metaKey) && e.key === '`') {
@@ -114,49 +229,14 @@ function AppContent() {
         }
         handleSendToTerminal();
       }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'L') {
+        e.preventDefault();
+        handleSendToClaude();
+      }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [editorInstance, activeFile, saveFile, activeTabId, openTabs, closeTab, switchTab, handleToggleSidebar, handleToggleTerminal, sidePanelRef, terminalPanelRef]);
-
-  const handleSendToTerminal = () => {
-    if (!editorInstance) return;
-
-    const json = editorInstance.getJSON();
-    let output = '';
-
-    const serializeNode = (node) => {
-      if (node.type === 'text') {
-        const commentMark = node.marks?.find(m => m.type === 'comment');
-        if (commentMark) {
-          return `<commented>${node.text}</commented><comment>${commentMark.attrs.comment}</comment>`;
-        }
-        return node.text;
-      }
-
-      if (node.content) {
-        return node.content.map(serializeNode).join('');
-      }
-
-      if (node.type === 'paragraph') {
-        return (node.content ? node.content.map(serializeNode).join('') : '') + '\n';
-      }
-
-      return '';
-    };
-
-    if (json.content) {
-      output = json.content.map(serializeNode).join('');
-    }
-
-    if (terminalRef.current) {
-      terminalRef.current.focus();
-      terminalRef.current.write("claude\r");
-      setTimeout(() => {
-        terminalRef.current.write(output + "\r");
-      }, 1000);
-    }
-  };
+  }, [editorInstance, activeFile, saveFile, activeTabId, openTabs, closeTab, switchTab, handleToggleSidebar, handleToggleTerminal, handleSendToTerminal, handleSendToClaude, sidePanelRef, terminalPanelRef]);
 
   const handleEditorReady = useCallback((editor) => {
     setEditorInstance(editor);
@@ -201,13 +281,33 @@ function AppContent() {
         handleToggleTerminal();
         break;
       case 'view.quickOpen':
+        setQuickOpenInitialValue('');
         setIsQuickOpenVisible(true);
+        break;
+      case 'view.commandPalette':
+        setQuickOpenInitialValue('> ');
+        setIsQuickOpenVisible(true);
+        break;
+      case 'edit.cut':
+        document.execCommand('cut');
+        break;
+      case 'edit.copy':
+        document.execCommand('copy');
+        break;
+      case 'edit.paste':
+        document.execCommand('paste');
+        break;
+      case 'theme.toggle':
+        toggleTheme();
         break;
       case 'terminal.send':
         handleSendToTerminal();
         break;
+      case 'terminal.claude':
+        handleSendToClaude();
+        break;
     }
-  }, [editorInstance, activeFile, saveFile, activeTabId, closeTab, sidePanelRef, handlePanelToggle, handleToggleSidebar, handleToggleTerminal]);
+  }, [editorInstance, activeFile, saveFile, activeTabId, closeTab, sidePanelRef, handlePanelToggle, handleToggleSidebar, handleToggleTerminal, toggleTheme, handleSendToClaude]);
 
   // Build title
   let title = 'Quipu';
@@ -220,7 +320,12 @@ function AppContent() {
       {showFolderPicker && (
         <FolderPicker onSelect={selectFolder} onCancel={cancelFolderPicker} />
       )}
-      <QuickOpen isOpen={isQuickOpenVisible} onClose={() => setIsQuickOpenVisible(false)} />
+      <QuickOpen
+        isOpen={isQuickOpenVisible}
+        onClose={() => { setIsQuickOpenVisible(false); setQuickOpenInitialValue(''); }}
+        onAction={handleMenuAction}
+        initialValue={quickOpenInitialValue}
+      />
       <TitleBar title={title} onAction={handleMenuAction} />
       <div className="flex flex-row flex-1 overflow-hidden">
         <ActivityBar activePanel={activePanel} onPanelToggle={handlePanelToggle} />
@@ -275,8 +380,8 @@ function AppContent() {
               minSize={100}
               defaultSize={300}
             >
-              <div className="h-full bg-bg-base">
-                <Terminal ref={terminalRef} />
+              <div className="h-full bg-bg-surface">
+                <Terminal ref={terminalRef} workspacePath={workspacePath} />
               </div>
             </Panel>
           </Group>

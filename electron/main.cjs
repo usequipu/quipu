@@ -162,7 +162,7 @@ app.whenReady().then(() => {
                 ];
                 if (!isCaseSensitive) args.push('--ignore-case');
                 if (!isRegex) args.push('--fixed-strings');
-                ['node_modules', '.git', 'build', 'dist'].forEach(d => {
+                ['node_modules', '.git', '.quipu', 'build', 'dist'].forEach(d => {
                     args.push('--glob', '!' + d);
                 });
                 args.push(query, dirPath);
@@ -188,7 +188,7 @@ app.whenReady().then(() => {
             const args = ['-rn', '--color=never'];
             if (!isCaseSensitive) args.push('-i');
             if (!isRegex) args.push('-F');
-            ['node_modules', '.git', 'build', 'dist'].forEach(d => {
+            ['node_modules', '.git', '.quipu', 'build', 'dist'].forEach(d => {
                 args.push('--exclude-dir=' + d);
             });
             args.push(query, dirPath);
@@ -207,7 +207,7 @@ app.whenReady().then(() => {
 
     // List all files recursively
     ipcMain.handle('list-files-recursive', async (event, dirPath, limit = 5000) => {
-        const excludeDirs = new Set(['node_modules', '.git', 'build', 'dist']);
+        const excludeDirs = new Set(['node_modules', '.git', '.quipu', 'build', 'dist']);
         const files = [];
         let truncated = false;
 
@@ -517,11 +517,13 @@ app.whenReady().then(() => {
             ptyProcess.kill();
         }
 
+        const cwd = (options && options.cwd) || process.env.HOME;
+
         ptyProcess = pty.spawn(shell, [], {
             name: 'xterm-color',
             cols: 80,
             rows: 30,
-            cwd: process.env.HOME,
+            cwd,
             env: process.env
         });
 

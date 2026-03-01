@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/scripts/load-frame.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

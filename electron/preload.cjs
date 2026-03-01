@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
     // Terminal
-    createTerminal: () => ipcRenderer.send('terminal-create'),
+    createTerminal: (options) => ipcRenderer.send('terminal-create', options),
     onTerminalData: (callback) => ipcRenderer.on('terminal-incoming', (event, data) => callback(data)),
     writeTerminal: (data) => ipcRenderer.send('terminal-write', data),
     resizeTerminal: (cols, rows) => ipcRenderer.send('terminal-resize', { cols, rows }),

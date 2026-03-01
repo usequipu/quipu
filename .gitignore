@@ -16,6 +16,9 @@ dist-ssr
 release
 server/bin
 
+# FRAME metadata (per-developer AI context)
+.quipu/meta/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

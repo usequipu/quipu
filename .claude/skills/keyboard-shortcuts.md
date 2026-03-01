@@ -25,6 +25,9 @@ Use this skill when adding or modifying keyboard shortcuts in Quipu.
 | `Ctrl+Shift+Tab` | Previous tab | App.jsx |
 | `Ctrl+Shift+F` | Open search panel | App.jsx |
 | `Ctrl+P` | Toggle QuickOpen | App.jsx |
+| `` Ctrl+` `` | Toggle terminal | App.jsx |
+| `Ctrl+Shift+Enter` | Send editor content to terminal | App.jsx |
+| `Ctrl+Shift+L` | Send file to Claude with FRAME context | App.jsx |
 
 ## Adding a New Shortcut
 

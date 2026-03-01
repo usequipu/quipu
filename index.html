@@ -11,6 +11,10 @@
     <title>quipu</title>
   </head>
   <body>
+    <script>
+      var t = localStorage.getItem('quipu-theme');
+      if (t === 'dark' || t === 'tinted') document.documentElement.classList.add(t);
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

@@ -10,7 +10,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WS_URL } from "../config.js";
 import "@xterm/xterm/css/xterm.css";
 
-const Terminal = forwardRef((props, ref) => {
+const Terminal = forwardRef(({ workspacePath }, ref) => {
   const terminalRef = useRef(null);
   const xtermRef = useRef(null);
   const fitAddonRef = useRef(null);
@@ -80,7 +80,7 @@ const Terminal = forwardRef((props, ref) => {
 
     // Connect to Electron IPC or WebSocket
     if (window.electronAPI) {
-      window.electronAPI.createTerminal();
+      window.electronAPI.createTerminal(workspacePath ? { cwd: workspacePath } : undefined);
 
       window.electronAPI.onTerminalData((data) => {
         term.write(data);
@@ -165,7 +165,7 @@ const Terminal = forwardRef((props, ref) => {
   return (
     <div
       ref={terminalRef}
-      className="w-full h-full bg-bg-base overflow-hidden"
+      className="w-full h-full bg-bg-base overflow-hidden rounded-t-md"
     />
   );
 });

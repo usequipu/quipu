@@ -1,57 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { cn } from '@/lib/utils';
+import { menus } from '../data/commands';
 
 const MenuBar = ({ onAction }) => {
   const [openMenu, setOpenMenu] = useState(null);
   const [hovering, setHovering] = useState(false);
   const menuBarRef = useRef(null);
-
-  const menus = [
-    {
-      label: 'File',
-      items: [
-        { label: 'New File', shortcut: 'Ctrl+N', action: 'file.new' },
-        { label: 'Open Folder', action: 'file.openFolder' },
-        { type: 'separator' },
-        { label: 'Save', shortcut: 'Ctrl+S', action: 'file.save' },
-        { type: 'separator' },
-        { label: 'Close Tab', shortcut: 'Ctrl+W', action: 'file.closeTab' },
-      ],
-    },
-    {
-      label: 'Edit',
-      items: [
-        { label: 'Undo', shortcut: 'Ctrl+Z', action: 'edit.undo' },
-        { label: 'Redo', shortcut: 'Ctrl+Shift+Z', action: 'edit.redo' },
-        { type: 'separator' },
-        { label: 'Cut', shortcut: 'Ctrl+X', action: 'edit.cut' },
-        { label: 'Copy', shortcut: 'Ctrl+C', action: 'edit.copy' },
-        { label: 'Paste', shortcut: 'Ctrl+V', action: 'edit.paste' },
-        { type: 'separator' },
-        { label: 'Find in Files', shortcut: 'Ctrl+Shift+F', action: 'edit.findInFiles' },
-      ],
-    },
-    {
-      label: 'View',
-      items: [
-        { label: 'Explorer', shortcut: 'Ctrl+Shift+E', action: 'view.explorer' },
-        { label: 'Search', shortcut: 'Ctrl+Shift+F', action: 'view.search' },
-        { label: 'Source Control', shortcut: 'Ctrl+Shift+G', action: 'view.git' },
-        { type: 'separator' },
-        { label: 'Toggle Sidebar', shortcut: 'Ctrl+B', action: 'view.toggleSidebar' },
-        { label: 'Toggle Terminal', shortcut: 'Ctrl+`', action: 'view.toggleTerminal' },
-        { type: 'separator' },
-        { label: 'Quick Open', shortcut: 'Ctrl+P', action: 'view.quickOpen' },
-      ],
-    },
-    {
-      label: 'Terminal',
-      items: [
-        { label: 'Toggle Terminal', shortcut: 'Ctrl+`', action: 'terminal.toggle' },
-        { label: 'Send to Terminal', action: 'terminal.send' },
-      ],
-    },
-  ];
 
   const handleClickOutside = useCallback((e) => {
     if (menuBarRef.current && !menuBarRef.current.contains(e.target)) {

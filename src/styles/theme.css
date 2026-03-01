@@ -32,6 +32,10 @@
   --color-error: #cf222e;
   --color-info: #0969da;
 
+  /* Comment highlights */
+  --color-comment-bg: #f7e6b5;
+  --color-comment-bg-hover: #ffe69c;
+
   /* Git status */
   --color-git-modified: #bf8700;
   --color-git-added: #2ea043;
@@ -41,12 +45,87 @@
 
   /* Fonts */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-editor: 'Clash Grotesk', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
   /* Animations */
   --animate-toast-in: toast-slide-in 0.3s ease-out;
   --animate-toast-out: toast-slide-out 0.2s ease-in forwards;
   --animate-menu-fade-in: menu-fade-in 0.1s ease;
+}
+
+/* Dark theme overrides (Claude.ai-inspired) */
+:root.dark {
+  --color-bg-base: #1a1a1a;
+  --color-bg-surface: #242424;
+  --color-bg-elevated: #2d2d2d;
+  --color-bg-overlay: #333333;
+
+  --color-text-primary: #e8e8e0;
+  --color-text-secondary: #a0a0a0;
+  --color-text-tertiary: #666666;
+
+  --color-accent: #c4835a;
+  --color-accent-hover: #d4935a;
+  --color-accent-muted: #3d2d20;
+
+  --color-border: #383838;
+  --color-border-focus: #c4835a;
+
+  --color-page-bg: #2b2926;
+  --color-page-text: #e8e8e0;
+  --color-page-border: #383838;
+
+  --color-success: #3fb950;
+  --color-warning: #d29922;
+  --color-error: #f85149;
+  --color-info: #58a6ff;
+
+  --color-git-modified: #d29922;
+  --color-git-added: #3fb950;
+  --color-git-deleted: #f85149;
+  --color-git-renamed: #58a6ff;
+  --color-git-untracked: #666666;
+
+  --color-comment-bg: #4a3d20;
+  --color-comment-bg-hover: #5a4d2a;
+}
+
+/* Tinted theme overrides (Tasokare warm cream) */
+:root.tinted {
+  --color-bg-base: #EFE3C4;
+  --color-bg-surface: #FCF1D4;
+  --color-bg-elevated: #F5EAC8;
+  --color-bg-overlay: #E8DDB8;
+
+  --color-text-primary: #5a4e48;
+  --color-text-secondary: #877771;
+  --color-text-tertiary: #c4b3a3;
+
+  --color-accent: #c4835a;
+  --color-accent-hover: #b57348;
+  --color-accent-muted: #f0dcc8;
+
+  --color-border: #E0D4B8;
+  --color-border-focus: #c4835a;
+
+  --color-page-bg: #FCF1D4;
+  --color-page-text: #5a4e48;
+  --color-page-border: #E0D4B8;
+
+  --color-success: #8cb000;
+  --color-warning: #F2B100;
+  --color-error: #D71617;
+  --color-info: #6899D9;
+
+  --color-comment-bg: #f0dcc0;
+  --color-comment-bg-hover: #e8d0a8;
+
+  --color-git-modified: #F2B100;
+  --color-git-added: #8cb000;
+  --color-git-deleted: #D71617;
+  --color-git-renamed: #6899D9;
+  --color-git-untracked: #c4b3a3;
 }
 
 @keyframes toast-slide-in {

@@ -5,6 +5,10 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Highlight from '@tiptap/extension-highlight';
 import Placeholder from '@tiptap/extension-placeholder';
+import { Table } from '@tiptap/extension-table';
+import { TableRow } from '@tiptap/extension-table-row';
+import { TableHeader } from '@tiptap/extension-table-header';
+import { TableCell } from '@tiptap/extension-table-cell';
 import { Markdown } from 'tiptap-markdown';
 import { RevealMarkdown } from '../extensions/RevealMarkdown';
 import FrontmatterProperties from './FrontmatterProperties';
@@ -31,6 +35,10 @@ const Editor = ({
     const editor = useEditor({
         extensions: [
             StarterKit,
+            Table.configure({ resizable: false }),
+            TableRow,
+            TableHeader,
+            TableCell,
             Placeholder.configure({
                 placeholder: 'Start writing...',
             }),
@@ -348,7 +356,7 @@ const Editor = ({
             )}>
                 <div
                     className={cn(
-                        "w-[816px] min-h-[1056px] bg-white rounded border border-page-border",
+                        "w-[816px] min-h-[1056px] bg-page-bg rounded border border-page-border",
                         "shadow-[0_1px_3px_rgba(0,0,0,0.08),0_4px_12px_rgba(0,0,0,0.06),0_12px_30px_rgba(0,0,0,0.05)]",
                         "p-16 relative shrink-0 transition-[width] duration-300",
                         "max-[1150px]:w-full max-[1150px]:max-w-[816px]",
@@ -428,7 +436,7 @@ const Editor = ({
                 )}>
                     {showCommentInput && (
                         <div
-                            className="absolute w-[280px] bg-white rounded-lg shadow-lg p-3 pointer-events-auto border border-accent z-[100]"
+                            className="absolute w-[280px] bg-bg-surface rounded-lg shadow-lg p-3 pointer-events-auto border border-accent z-[100]"
                             style={{ top: commentInputTop }}
                         >
                             <textarea
@@ -441,7 +449,7 @@ const Editor = ({
                             <div className="flex justify-end gap-2">
                                 <button
                                     onClick={cancelComment}
-                                    className="py-1.5 px-3 rounded text-[13px] font-medium cursor-pointer border-none bg-transparent text-text-tertiary hover:bg-black/5"
+                                    className="py-1.5 px-3 rounded text-[13px] font-medium cursor-pointer border-none bg-transparent text-text-tertiary hover:bg-bg-elevated"
                                 >
                                     Cancel
                                 </button>
@@ -459,7 +467,7 @@ const Editor = ({
                         <div
                             key={c.id || i}
                             ref={el => commentsRef.current[i] = el}
-                            className="absolute w-[280px] bg-white rounded-lg shadow-md p-3 pointer-events-auto border border-transparent hover:shadow-lg"
+                            className="absolute w-[280px] bg-bg-surface rounded-lg shadow-md p-3 pointer-events-auto border border-transparent hover:shadow-lg"
                             style={{
                                 top: adjustedPositions[i] !== undefined ? adjustedPositions[i] : c.top,
                                 transition: 'top 0.3s ease-out'
@@ -468,9 +476,9 @@ const Editor = ({
                             <div className="flex justify-between mb-1 text-xs">
                                 <span className="font-semibold text-page-text">User</span>
                                 <div className="flex gap-2 items-center">
-                                    <span className="text-[#57606a]">Just now</span>
+                                    <span className="text-text-secondary">Just now</span>
                                     <button
-                                        className="border-none bg-transparent text-[#57606a] cursor-pointer py-0.5 px-1.5 rounded flex items-center justify-center transition-colors hover:bg-[#e5e7eb] hover:text-page-text"
+                                        className="border-none bg-transparent text-text-secondary cursor-pointer py-0.5 px-1.5 rounded flex items-center justify-center transition-colors hover:bg-bg-elevated hover:text-page-text"
                                         onClick={() => resolveComment(c.id)}
                                         title="Resolve comment"
                                     >
@@ -479,7 +487,7 @@ const Editor = ({
                                 </div>
                             </div>
                             <div className="text-sm text-page-text mb-2 whitespace-pre-wrap">{c.comment}</div>
-                            <div className="text-xs text-[#57606a] border-l-2 border-warning pl-2 italic whitespace-nowrap overflow-hidden text-ellipsis">"{c.text}"</div>
+                            <div className="text-xs text-text-secondary border-l-2 border-warning pl-2 italic whitespace-nowrap overflow-hidden text-ellipsis">"{c.text}"</div>
                         </div>
                     ))}
                 </div>

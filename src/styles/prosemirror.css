@@ -8,7 +8,7 @@
   padding: 0;
   max-width: none;
   margin: 0 auto;
-  font-family: var(--font-sans);
+  font-family: var(--font-editor);
   font-size: 1.125rem;
   line-height: 1.7;
   min-height: 100%;
@@ -139,6 +139,33 @@
   height: auto;
 }
 
+/* --- Tables --- */
+
+.ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.75em 0;
+  overflow: hidden;
+}
+
+.ProseMirror th,
+.ProseMirror td {
+  border: 1px solid var(--color-border);
+  padding: 0.5em 0.75em;
+  vertical-align: top;
+  text-align: left;
+}
+
+.ProseMirror th {
+  font-weight: 600;
+  background: var(--color-bg-elevated);
+}
+
+.ProseMirror th p,
+.ProseMirror td p {
+  margin: 0;
+}
+
 /* --- End typography reset --- */
 
 .ProseMirror p.is-editor-empty:first-child::before {
@@ -151,11 +178,11 @@
 
 /* Comment Highlight */
 mark.comment {
-  background-color: #f7e6b5;
+  background-color: var(--color-comment-bg, #f7e6b5);
   border-bottom: 2px solid var(--color-warning);
   cursor: pointer;
 }
 
 mark.comment:hover {
-  background-color: #ffe69c;
+  background-color: var(--color-comment-bg-hover, #ffe69c);
 }
