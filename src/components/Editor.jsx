@@ -1,5 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { XIcon } from '@phosphor-icons/react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+    XIcon, TextBIcon, TextItalicIcon, TextStrikethroughIcon,
+    TextHOneIcon, TextHTwoIcon, TextHThreeIcon,
+    ListBulletsIcon, ListNumbersIcon, QuotesIcon, CodeIcon, CodeBlockIcon,
+} from '@phosphor-icons/react';
 import { cn } from '@/lib/utils';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -40,6 +44,19 @@ const lineNumberToPos = (doc, lineNumber) => {
     return doc.content.size;
 };
 
+const ToolbarButton = ({ onClick, isActive, title, children }) => (
+    <button
+        className={cn('editor-toolbar-btn', isActive && 'active')}
+        onClick={onClick}
+        title={title}
+        onMouseDown={(e) => e.preventDefault()}
+    >
+        {children}
+    </button>
+);
+
+const ToolbarSeparator = () => <div className="editor-toolbar-separator" />;
+
 const Editor = ({
     onEditorReady, onContentChange, activeFile, activeTabId, activeTab, snapshotTab,
     workspacePath,
@@ -56,6 +73,25 @@ const Editor = ({
     const pageRef = useRef(null);
     const commentsRef = useRef({});
     const loadedTabRef = useRef(null);
+
+    // Editor mode: 'richtext' (default) or 'obsidian'
+    const [editorMode, setEditorMode] = useState(() => {
+        return localStorage.getItem('quipu-editor-mode') || 'richtext';
+    });
+
+    const toggleEditorMode = useCallback(() => {
+        setEditorMode(prev => {
+            const next = prev === 'richtext' ? 'obsidian' : 'richtext';
+            localStorage.setItem('quipu-editor-mode', next);
+            return next;
+        });
+    }, []);
+
+    // Expose toggleEditorMode for command palette (editor.toggleMode action)
+    useEffect(() => {
+        window.__quipuToggleEditorMode = toggleEditorMode;
+        return () => { delete window.__quipuToggleEditorMode; };
+    }, [toggleEditorMode]);
 
     // New state for adjusted positions
     const [adjustedPositions, setAdjustedPositions] = useState({});
@@ -542,7 +578,122 @@ const Editor = ({
                             </button>
                         </div>
                     )}
-                    <EditorContent editor={editor} />
+                    {editorMode === 'richtext' && editor && (
+                        <div className="flex items-center gap-1 px-4 py-2 border-b border-page-border -mx-16 mb-4 bg-page-bg/50">
+                            <ToolbarButton
+                                onClick={() => editor.chain().focus().toggleBold().run()}
+                                isActive={editor.isActive('bold')}
+                                title="Bold (Ctrl+B)"
+                            >
+                                <TextBIcon size={16} weight="bold" />
+                            </ToolbarButton>
+                            <ToolbarButton
+                                onClick={() => editor.chain().focus().toggleItalic().run()}
+                                isActive={editor.isActive('italic')}
+                                title="Italic (Ctrl+I)"
+                            >
+                                <TextItalicIcon size={16} />
+                            </ToolbarButton>
+                            <ToolbarButton
+                                onClick={() => editor.chain().focus().toggleStrike().run()}
+                                isActive={editor.isActive('strike')}
+                                title="Strikethrough"
+                            >
+                                <TextStrikethroughIcon size={16} />
+                            </ToolbarButton>
+
+                            <ToolbarSeparator />
+
+                            <ToolbarButton
+                                onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+                                isActive={editor.isActive('heading', { level: 1 })}
+                                title="Heading 1"
+                            >
+                                <TextHOneIcon size={16} />
+                            </ToolbarButton>
+                            <ToolbarButton
+                                onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+                                isActive={editor.isActive('heading', { level: 2 })}
+                                title="Heading 2"
+                            >
+                                <TextHTwoIcon size={16} />
+                            </ToolbarButton>
+                            <ToolbarButton
+                                onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+                                isActive={editor.isActive('heading', { level: 3 })}
+                                title="Heading 3"
+                            >
+                                <TextHThreeIcon size={16} />
+                            </ToolbarButton>
+
+                            <ToolbarSeparator />
+
+                            <ToolbarButton
+                                onClick={() => editor.chain().focus().toggleBulletList().run()}
+                                isActive={editor.isActive('bulletList')}
+                                title="Bullet List"
+                            >
+                                <ListBulletsIcon size={16} />
+                            </ToolbarButton>
+                            <ToolbarButton
+                                onClick={() => editor.chain().focus().toggleOrderedList().run()}
+                                isActive={editor.isActive('orderedList')}
+                                title="Ordered List"
+                            >
+                                <ListNumbersIcon size={16} />
+                            </ToolbarButton>
+
+                            <ToolbarSeparator />
+
+                            <ToolbarButton
+                                onClick={() => editor.chain().focus().toggleBlockquote().run()}
+                                isActive={editor.isActive('blockquote')}
+                                title="Blockquote"
+                            >
+                                <QuotesIcon size={16} />
+                            </ToolbarButton>
+                            <ToolbarButton
+                                onClick={() => editor.chain().focus().toggleCode().run()}
+                                isActive={editor.isActive('code')}
+                                title="Inline Code"
+                            >
+                                <CodeIcon size={16} />
+                            </ToolbarButton>
+                            <ToolbarButton
+                                onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+                                isActive={editor.isActive('codeBlock')}
+                                title="Code Block"
+                            >
+                                <CodeBlockIcon size={16} />
+                            </ToolbarButton>
+
+                            <div className="flex-1" />
+
+                            <button
+                                onClick={toggleEditorMode}
+                                className="text-[11px] text-text-tertiary hover:text-text-secondary px-2 py-1 rounded hover:bg-bg-elevated transition-colors"
+                                title="Switch to Obsidian mode"
+                            >
+                                Rich Text
+                            </button>
+                        </div>
+                    )}
+
+                    {editorMode === 'obsidian' && (
+                        <div className="flex items-center justify-end px-4 py-1.5 border-b border-page-border -mx-16 mb-4 bg-page-bg/50">
+                            <button
+                                onClick={toggleEditorMode}
+                                className="text-[11px] text-text-tertiary hover:text-text-secondary px-2 py-1 rounded hover:bg-bg-elevated transition-colors"
+                                title="Switch to Rich Text mode"
+                            >
+                                Obsidian
+                            </button>
+                        </div>
+                    )}
+
+                    <div className={editorMode === 'richtext' ? 'editor-richtext' : 'editor-obsidian'}>
+                        <EditorContent editor={editor} />
+                    </div>
                 </div>
 
                 {/* Floating Comments Track */}
@@ -561,6 +712,15 @@ const Editor = ({
                             <textarea
                                 value={commentText}
                                 onChange={(e) => setCommentText(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                        e.preventDefault();
+                                        addComment();
+                                    }
+                                    if (e.key === 'Escape') {
+                                        cancelComment();
+                                    }
+                                }}
                                 placeholder="Type your comment..."
                                 autoFocus
                                 className="w-full border border-border-focus rounded py-2 px-2 font-[inherit] text-sm resize-y min-h-[60px] outline-none mb-2 text-page-text focus:border-accent focus:shadow-[0_0_0_2px_rgba(196,131,90,0.3)]"

@@ -33,6 +33,7 @@ export const commands = [
 
   // Preferences
   { label: 'Cycle Theme (Light / Tinted / Dark)', action: 'theme.toggle', category: 'Preferences' },
+  { label: 'Toggle Editor Mode (Rich Text / Obsidian)', action: 'editor.toggleMode', category: 'Preferences' },
 ];
 
 /**

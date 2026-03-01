@@ -186,3 +186,41 @@ mark.comment {
 mark.comment:hover {
   background-color: var(--color-comment-bg-hover, #ffe69c);
 }
+
+/* --- Rich Text Toolbar --- */
+
+.editor-toolbar-btn {
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  transition: background 0.15s, color 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.editor-toolbar-btn:hover {
+  background: var(--color-bg-elevated);
+  color: var(--color-text-primary);
+}
+
+.editor-toolbar-btn.active {
+  background: var(--color-accent-muted);
+  color: var(--color-accent);
+}
+
+/* Hide RevealMarkdown decorations in rich text mode */
+.editor-richtext .reveal-syntax {
+  display: none;
+}
+
+.editor-toolbar-separator {
+  width: 1px;
+  height: 18px;
+  background: var(--color-border);
+  margin: 0 4px;
+  align-self: center;
+}
