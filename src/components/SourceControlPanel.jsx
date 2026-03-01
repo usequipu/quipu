@@ -1,8 +1,13 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import {
+  GitBranchIcon, CaretDownIcon, CaretUpIcon, CaretRightIcon,
+  CheckIcon, MinusIcon, PlusIcon, ArrowDownIcon, ArrowUpIcon,
+  GearIcon,
+} from '@phosphor-icons/react';
+import { cn } from '@/lib/utils';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { useToast } from '../components/Toast';
 import gitService from '../services/gitService';
-import './SourceControlPanel.css';
 
 const STATUS_LABELS = {
   M: 'Modified',
@@ -22,6 +27,15 @@ const STATUS_LETTERS = {
   C: 'C',
   U: 'U',
   '?': 'U',
+};
+
+const STATUS_COLORS = {
+  M: 'text-git-modified bg-git-modified/10',
+  A: 'text-git-added bg-git-added/10',
+  D: 'text-git-deleted bg-git-deleted/10',
+  R: 'text-git-renamed bg-git-renamed/10',
+  C: 'text-git-renamed bg-git-renamed/10',
+  U: 'text-[#9b6bc7] bg-[#9b6bc7]/10',
 };
 
 function SourceControlPanel() {
@@ -246,12 +260,12 @@ function SourceControlPanel() {
   // No workspace
   if (!workspacePath) {
     return (
-      <div className="source-control-panel">
-        <div className="sc-header">
-          <span className="sc-header-title">Source Control</span>
+      <div className="flex flex-col h-full overflow-hidden bg-bg-surface text-text-primary text-[13px] select-none">
+        <div className="h-[35px] flex items-center px-3 border-b border-border shrink-0 gap-2">
+          <span className="text-[11px] font-semibold tracking-wide uppercase text-text-tertiary">Source Control</span>
         </div>
-        <div className="sc-empty">
-          <p>No folder open</p>
+        <div className="flex flex-col items-center justify-center py-8 px-5 flex-1 gap-2">
+          <p className="text-text-primary text-[13px] m-0 opacity-70">No folder open</p>
         </div>
       </div>
     );
@@ -260,14 +274,14 @@ function SourceControlPanel() {
   // Not a git repo
   if (!isGitRepo) {
     return (
-      <div className="source-control-panel">
-        <div className="sc-header">
-          <span className="sc-header-title">Source Control</span>
+      <div className="flex flex-col h-full overflow-hidden bg-bg-surface text-text-primary text-[13px] select-none">
+        <div className="h-[35px] flex items-center px-3 border-b border-border shrink-0 gap-2">
+          <span className="text-[11px] font-semibold tracking-wide uppercase text-text-tertiary">Source Control</span>
         </div>
-        <div className="sc-empty">
-          <span className="sc-empty-icon">&#x2699;</span>
-          <p>Not a git repository</p>
-          <p className="sc-empty-sub">Initialize a repository to use source control</p>
+        <div className="flex flex-col items-center justify-center py-8 px-5 flex-1 gap-2">
+          <GearIcon size={24} className="opacity-30" />
+          <p className="text-text-primary text-[13px] m-0 opacity-70">Not a git repository</p>
+          <p className="text-text-primary text-xs m-0 opacity-50">Initialize a repository to use source control</p>
         </div>
       </div>
     );
@@ -277,32 +291,36 @@ function SourceControlPanel() {
   const isCommitDisabled = !commitMessage.trim() || staged.length === 0 || isCommitting;
 
   return (
-    <div className="source-control-panel">
-      <div className="sc-header">
-        <span className="sc-header-title">Source Control</span>
-        {isLoading && <span className="sc-loading-indicator" />}
+    <div className="flex flex-col h-full overflow-hidden bg-bg-surface text-text-primary text-[13px] select-none">
+      <div className="h-[35px] flex items-center px-3 border-b border-border shrink-0 gap-2">
+        <span className="text-[11px] font-semibold tracking-wide uppercase text-text-tertiary">Source Control</span>
+        {isLoading && <span className="w-3 h-3 border-2 border-border border-t-accent rounded-full animate-spin" />}
       </div>
 
       {/* Branch indicator */}
-      <div className="sc-branch-section" ref={branchDropdownRef}>
+      <div className="relative px-2.5 pt-2 pb-1 shrink-0" ref={branchDropdownRef}>
         <button
-          className="sc-branch-btn"
+          className="flex items-center gap-1.5 w-full bg-bg-elevated border border-border rounded py-1.5 px-2 text-xs font-mono text-text-primary cursor-pointer text-left hover:border-accent"
           onClick={() => setIsBranchDropdownOpen(prev => !prev)}
           title={`Current branch: ${currentBranch}`}
         >
-          <span className="sc-branch-icon">&#x2387;</span>
-          <span className="sc-branch-name">{currentBranch || 'unknown'}</span>
-          <span className="sc-branch-arrow">{isBranchDropdownOpen ? '\u25B4' : '\u25BE'}</span>
+          <GitBranchIcon size={14} className="shrink-0 opacity-60" />
+          <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{currentBranch || 'unknown'}</span>
+          {isBranchDropdownOpen ? <CaretUpIcon size={12} /> : <CaretDownIcon size={12} />}
         </button>
         {isBranchDropdownOpen && branches.length > 0 && (
-          <div className="sc-branch-dropdown">
+          <div className="absolute top-full left-2.5 right-2.5 bg-bg-elevated border border-border rounded shadow-lg z-[100] max-h-[200px] overflow-y-auto mt-0.5">
             {branches.map(branch => (
               <button
                 key={branch}
-                className={`sc-branch-option ${branch === currentBranch ? 'sc-branch-option-active' : ''}`}
+                className={cn(
+                  "flex items-center gap-1.5 w-full bg-transparent border-none py-1.5 px-2.5 text-xs font-mono text-text-primary cursor-pointer text-left",
+                  "hover:bg-white/[0.06]",
+                  branch === currentBranch && "font-semibold text-accent",
+                )}
                 onClick={() => handleCheckout(branch)}
               >
-                {branch === currentBranch && <span className="sc-branch-check">&#x2713;</span>}
+                {branch === currentBranch && <CheckIcon size={14} className="text-accent" />}
                 <span>{branch}</span>
               </button>
             ))}
@@ -311,9 +329,9 @@ function SourceControlPanel() {
       </div>
 
       {/* Commit section */}
-      <div className="sc-commit-section">
+      <div className="py-1.5 px-2.5 shrink-0">
         <textarea
-          className="sc-commit-input"
+          className="w-full bg-bg-elevated border border-border rounded py-1.5 px-2 text-xs font-sans text-text-primary resize-y min-h-[40px] max-h-[120px] outline-none leading-snug focus:border-accent placeholder:text-text-tertiary"
           placeholder="Commit message (Ctrl+Enter to commit)"
           value={commitMessage}
           onChange={(e) => setCommitMessage(e.target.value)}
@@ -321,7 +339,7 @@ function SourceControlPanel() {
           rows={3}
         />
         <button
-          className="sc-commit-btn"
+          className="block w-full mt-1.5 py-1.5 px-3 bg-accent text-white border-none rounded text-xs font-medium font-sans cursor-pointer transition-colors hover:enabled:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed"
           onClick={handleCommit}
           disabled={isCommitDisabled}
           title={staged.length === 0 ? 'Stage changes before committing' : 'Commit staged changes'}
@@ -331,66 +349,66 @@ function SourceControlPanel() {
       </div>
 
       {/* Push / Pull */}
-      <div className="sc-actions-row">
+      <div className="flex gap-1.5 px-2.5 pb-2 shrink-0">
         <button
-          className="sc-action-btn"
+          className="flex-1 flex items-center justify-center gap-1 py-1.5 px-2 bg-bg-elevated border border-border rounded text-xs font-sans text-text-primary cursor-pointer transition-colors hover:enabled:border-accent disabled:opacity-40 disabled:cursor-not-allowed"
           onClick={handlePull}
           disabled={isPulling}
           title="Pull from remote"
         >
-          {isPulling ? 'Pulling...' : '\u2193 Pull'}
+          {isPulling ? 'Pulling...' : <><ArrowDownIcon size={14} /> Pull</>}
         </button>
         <button
-          className="sc-action-btn"
+          className="flex-1 flex items-center justify-center gap-1 py-1.5 px-2 bg-bg-elevated border border-border rounded text-xs font-sans text-text-primary cursor-pointer transition-colors hover:enabled:border-accent disabled:opacity-40 disabled:cursor-not-allowed"
           onClick={handlePush}
           disabled={isPushing}
           title="Push to remote"
         >
-          {isPushing ? 'Pushing...' : '\u2191 Push'}
+          {isPushing ? 'Pushing...' : <><ArrowUpIcon size={14} /> Push</>}
         </button>
       </div>
 
-      <div className="sc-changes-scroll">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:w-2.5 [&::-webkit-scrollbar-thumb]:bg-white/15 [&::-webkit-scrollbar-thumb:hover]:bg-white/25">
         {/* No changes */}
         {!hasChanges && !isLoading && (
-          <div className="sc-no-changes">
-            <span className="sc-check-icon">&#x2713;</span>
+          <div className="flex items-center justify-center gap-2 py-5 px-3 text-[13px] text-text-primary opacity-50">
+            <CheckIcon size={16} className="text-success" />
             <span>No changes</span>
           </div>
         )}
 
         {/* Staged changes */}
         {staged.length > 0 && (
-          <div className="sc-section">
-            <div className="sc-section-header">
-              <span className="sc-section-title">Staged Changes</span>
-              <span className="sc-section-count">{staged.length}</span>
+          <div className="mb-0.5">
+            <div className="flex items-center py-1 px-2.5 bg-white/[0.03] gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-text-tertiary flex-1">Staged Changes</span>
+              <span className="text-[10px] font-normal bg-white/[0.06] px-1.5 rounded-full text-text-primary opacity-70">{staged.length}</span>
               <button
-                className="sc-section-action"
+                className="bg-transparent border border-transparent rounded-sm px-1.5 text-text-primary opacity-40 cursor-pointer leading-none hover:opacity-80 hover:bg-white/[0.06] hover:border-border"
                 onClick={handleUnstageAll}
                 title="Unstage all"
               >
-                &minus;
+                <MinusIcon size={14} />
               </button>
             </div>
-            <div className="sc-file-list">
+            <div>
               {staged.map((file, idx) => (
                 <div
                   key={`staged-${file.path}-${idx}`}
-                  className="sc-file-item"
+                  className="group flex items-center h-6 pr-2.5 pl-3.5 cursor-pointer gap-1.5 hover:bg-white/[0.06]"
                   onClick={() => handleFileClick(file.path)}
                   title={`${file.path} [${STATUS_LABELS[file.status] || file.status}]`}
                 >
-                  <span className={`sc-status-badge sc-status-${file.status}`}>
+                  <span className={cn("shrink-0 w-4 h-4 inline-flex items-center justify-center text-[10px] font-bold font-mono rounded-sm", STATUS_COLORS[file.status] || 'text-text-tertiary bg-white/[0.06]')}>
                     {STATUS_LETTERS[file.status] || file.status}
                   </span>
-                  <span className="sc-file-name">{file.path}</span>
+                  <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs leading-6 min-w-0">{file.path}</span>
                   <button
-                    className="sc-file-action"
+                    className="shrink-0 bg-transparent border border-transparent rounded-sm px-1 text-text-primary opacity-0 cursor-pointer leading-none group-hover:opacity-60 hover:!opacity-100 hover:bg-white/[0.08] hover:border-border"
                     onClick={(e) => { e.stopPropagation(); handleUnstageFile(file.path); }}
                     title="Unstage"
                   >
-                    &minus;
+                    <MinusIcon size={14} />
                   </button>
                 </div>
               ))}
@@ -400,36 +418,36 @@ function SourceControlPanel() {
 
         {/* Unstaged changes */}
         {unstaged.length > 0 && (
-          <div className="sc-section">
-            <div className="sc-section-header">
-              <span className="sc-section-title">Changes</span>
-              <span className="sc-section-count">{unstaged.length}</span>
+          <div className="mb-0.5">
+            <div className="flex items-center py-1 px-2.5 bg-white/[0.03] gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-text-tertiary flex-1">Changes</span>
+              <span className="text-[10px] font-normal bg-white/[0.06] px-1.5 rounded-full text-text-primary opacity-70">{unstaged.length}</span>
               <button
-                className="sc-section-action"
+                className="bg-transparent border border-transparent rounded-sm px-1.5 text-text-primary opacity-40 cursor-pointer leading-none hover:opacity-80 hover:bg-white/[0.06] hover:border-border"
                 onClick={handleStageAll}
                 title="Stage all"
               >
-                +
+                <PlusIcon size={14} />
               </button>
             </div>
-            <div className="sc-file-list">
+            <div>
               {unstaged.map((file, idx) => (
                 <div
                   key={`unstaged-${file.path}-${idx}`}
-                  className="sc-file-item"
+                  className="group flex items-center h-6 pr-2.5 pl-3.5 cursor-pointer gap-1.5 hover:bg-white/[0.06]"
                   onClick={() => handleFileClick(file.path)}
                   title={`${file.path} [${STATUS_LABELS[file.status] || file.status}]`}
                 >
-                  <span className={`sc-status-badge sc-status-${file.status}`}>
+                  <span className={cn("shrink-0 w-4 h-4 inline-flex items-center justify-center text-[10px] font-bold font-mono rounded-sm", STATUS_COLORS[file.status] || 'text-text-tertiary bg-white/[0.06]')}>
                     {STATUS_LETTERS[file.status] || file.status}
                   </span>
-                  <span className="sc-file-name">{file.path}</span>
+                  <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs leading-6 min-w-0">{file.path}</span>
                   <button
-                    className="sc-file-action"
+                    className="shrink-0 bg-transparent border border-transparent rounded-sm px-1 text-text-primary opacity-0 cursor-pointer leading-none group-hover:opacity-60 hover:!opacity-100 hover:bg-white/[0.08] hover:border-border"
                     onClick={(e) => { e.stopPropagation(); handleStageFile(file.path); }}
                     title="Stage"
                   >
-                    +
+                    <PlusIcon size={14} />
                   </button>
                 </div>
               ))}
@@ -439,34 +457,34 @@ function SourceControlPanel() {
 
         {/* Untracked files */}
         {untracked.length > 0 && (
-          <div className="sc-section">
-            <div className="sc-section-header">
-              <span className="sc-section-title">Untracked</span>
-              <span className="sc-section-count">{untracked.length}</span>
+          <div className="mb-0.5">
+            <div className="flex items-center py-1 px-2.5 bg-white/[0.03] gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-text-tertiary flex-1">Untracked</span>
+              <span className="text-[10px] font-normal bg-white/[0.06] px-1.5 rounded-full text-text-primary opacity-70">{untracked.length}</span>
               <button
-                className="sc-section-action"
+                className="bg-transparent border border-transparent rounded-sm px-1.5 text-text-primary opacity-40 cursor-pointer leading-none hover:opacity-80 hover:bg-white/[0.06] hover:border-border"
                 onClick={handleStageAll}
                 title="Stage all"
               >
-                +
+                <PlusIcon size={14} />
               </button>
             </div>
-            <div className="sc-file-list">
+            <div>
               {untracked.map((filePath, idx) => (
                 <div
                   key={`untracked-${filePath}-${idx}`}
-                  className="sc-file-item"
+                  className="group flex items-center h-6 pr-2.5 pl-3.5 cursor-pointer gap-1.5 hover:bg-white/[0.06]"
                   onClick={() => handleFileClick(filePath)}
                   title={`${filePath} [Untracked]`}
                 >
-                  <span className="sc-status-badge sc-status-untracked">U</span>
-                  <span className="sc-file-name">{filePath}</span>
+                  <span className="shrink-0 w-4 h-4 inline-flex items-center justify-center text-[10px] font-bold font-mono rounded-sm text-git-untracked bg-white/[0.06]">U</span>
+                  <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs leading-6 min-w-0">{filePath}</span>
                   <button
-                    className="sc-file-action"
+                    className="shrink-0 bg-transparent border border-transparent rounded-sm px-1 text-text-primary opacity-0 cursor-pointer leading-none group-hover:opacity-60 hover:!opacity-100 hover:bg-white/[0.08] hover:border-border"
                     onClick={(e) => { e.stopPropagation(); handleStageFile(filePath); }}
                     title="Stage"
                   >
-                    +
+                    <PlusIcon size={14} />
                   </button>
                 </div>
               ))}
@@ -475,25 +493,25 @@ function SourceControlPanel() {
         )}
 
         {/* Recent commits */}
-        <div className="sc-section">
-          <div className="sc-section-header">
+        <div className="mb-0.5">
+          <div className="flex items-center py-1 px-2.5 bg-white/[0.03] gap-1.5">
             <button
-              className="sc-section-toggle"
+              className="flex items-center gap-1 bg-transparent border-none p-0 cursor-pointer flex-1 text-text-tertiary"
               onClick={() => setIsLogVisible(prev => !prev)}
             >
-              <span className={`sc-toggle-arrow ${isLogVisible ? 'sc-toggle-arrow-open' : ''}`} />
-              <span className="sc-section-title">Recent Commits</span>
+              {isLogVisible ? <CaretDownIcon size={14} /> : <CaretRightIcon size={14} />}
+              <span className="text-[11px] font-semibold uppercase tracking-wide">Recent Commits</span>
             </button>
           </div>
           {isLogVisible && (
-            <div className="sc-log-list">
+            <div className="py-0.5">
               {logEntries.length === 0 && (
-                <div className="sc-log-empty">No commits yet</div>
+                <div className="py-2 px-3.5 text-xs text-text-primary opacity-50 italic">No commits yet</div>
               )}
               {logEntries.map((entry, idx) => (
-                <div key={`log-${entry.hash}-${idx}`} className="sc-log-item">
-                  <span className="sc-log-hash">{entry.hash}</span>
-                  <span className="sc-log-message">{entry.message}</span>
+                <div key={`log-${entry.hash}-${idx}`} className="flex items-baseline py-0.5 px-3.5 gap-2 text-xs">
+                  <span className="shrink-0 font-mono text-[11px] text-accent min-w-14">{entry.hash}</span>
+                  <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-text-primary min-w-0">{entry.message}</span>
                 </div>
               ))}
             </div>

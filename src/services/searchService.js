@@ -1,4 +1,6 @@
-const GO_SERVER = 'http://localhost:3000';
+import { SERVER_URL } from '../config.js';
+
+const GO_SERVER = SERVER_URL;
 
 function isElectron() {
   return !!(window.electronAPI && window.electronAPI.searchFiles);

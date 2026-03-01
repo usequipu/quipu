@@ -1,15 +1,35 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  CaretRightIcon, CaretDownIcon, FileIcon as PhFileIcon, FolderIcon, FolderOpenIcon,
+  NotebookIcon, FileJsIcon, FileJsxIcon, FileCssIcon, FileHtmlIcon,
+  FileCodeIcon, FileMdIcon, FileTextIcon,
+} from '@phosphor-icons/react';
+import { cn } from '@/lib/utils';
 import { useWorkspace } from '../context/WorkspaceContext';
-import './FileExplorer.css';
 
-function FileIcon({ name, isDirectory, isExpanded }) {
+function getFileIcon(name) {
+  const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+  switch (ext) {
+    case 'js': return FileJsIcon;
+    case 'jsx': return FileJsxIcon;
+    case 'css': return FileCssIcon;
+    case 'html': return FileHtmlIcon;
+    case 'json': case 'go': case 'ts': case 'tsx': return FileCodeIcon;
+    case 'md': case 'markdown': return FileMdIcon;
+    case 'quipu': return NotebookIcon;
+    case 'txt': return FileTextIcon;
+    default: return PhFileIcon;
+  }
+}
+
+function FileIconComponent({ name, isDirectory, isExpanded }) {
   if (isDirectory) {
-    return <span className={`file-icon dir-arrow ${isExpanded ? 'dir-arrow-open' : ''}`} />;
+    return isExpanded
+      ? <FolderOpenIcon size={16} className="shrink-0" />
+      : <FolderIcon size={16} className="shrink-0" />;
   }
-  if (name.endsWith('.quipu')) {
-    return <span className="file-icon file-icon-quipu">Q</span>;
-  }
-  return <span className="file-icon file-icon-file" />;
+  const Icon = getFileIcon(name);
+  return <Icon size={16} className="shrink-0" />;
 }
 
 function FileTreeItem({ entry, depth = 0 }) {
@@ -132,18 +152,27 @@ function FileTreeItem({ entry, depth = 0 }) {
   }, [createValue, isCreating, entry.path, createNewFile, createNewFolder]);
 
   return (
-    <div className="tree-item-wrapper">
+    <div className="relative">
       <div
-        className={`tree-item ${isActive ? 'tree-item-active' : ''}`}
+        className={cn(
+          "flex items-center h-[22px] cursor-pointer gap-1 whitespace-nowrap overflow-hidden",
+          "hover:bg-white/[0.06]",
+          isActive && "bg-white/10",
+        )}
         style={{ paddingLeft: `${12 + depth * 16}px` }}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
       >
-        <FileIcon name={entry.name} isDirectory={entry.isDirectory} isExpanded={isExpanded} />
+        {entry.isDirectory && (
+          isExpanded
+            ? <CaretDownIcon size={14} className="shrink-0 text-text-tertiary" />
+            : <CaretRightIcon size={14} className="shrink-0 text-text-tertiary" />
+        )}
+        <FileIconComponent name={entry.name} isDirectory={entry.isDirectory} isExpanded={isExpanded} />
         {isRenaming ? (
           <input
             ref={renameRef}
-            className="tree-item-input"
+            className="bg-bg-elevated border border-accent text-text-primary text-[13px] font-[inherit] px-1 h-[18px] flex-1 outline-none rounded-none"
             value={renameValue}
             onChange={(e) => setRenameValue(e.target.value)}
             onBlur={handleRenameSubmit}
@@ -154,35 +183,35 @@ function FileTreeItem({ entry, depth = 0 }) {
             onClick={(e) => e.stopPropagation()}
           />
         ) : (
-          <span className="tree-item-name">{entry.name}</span>
+          <span className="overflow-hidden text-ellipsis flex-1 leading-[22px]">{entry.name}</span>
         )}
       </div>
 
       {contextMenu && (
         <div
-          className="context-menu"
+          className="fixed bg-bg-elevated border border-border rounded shadow-lg py-1 min-w-[160px] z-[1000]"
           style={{ top: contextMenu.y, left: contextMenu.x }}
         >
           {entry.isDirectory && (
             <>
-              <div className="context-menu-item" onClick={handleNewFile}>New File</div>
-              <div className="context-menu-item" onClick={handleNewFolder}>New Folder</div>
-              <div className="context-menu-separator" />
+              <div className="py-1 px-6 cursor-pointer text-[13px] text-text-secondary hover:bg-accent hover:text-white" onClick={handleNewFile}>New File</div>
+              <div className="py-1 px-6 cursor-pointer text-[13px] text-text-secondary hover:bg-accent hover:text-white" onClick={handleNewFolder}>New Folder</div>
+              <div className="h-px bg-border my-1" />
             </>
           )}
-          <div className="context-menu-item" onClick={handleRenameStart}>Rename</div>
-          <div className="context-menu-item context-menu-danger" onClick={handleDelete}>Delete</div>
+          <div className="py-1 px-6 cursor-pointer text-[13px] text-text-secondary hover:bg-accent hover:text-white" onClick={handleRenameStart}>Rename</div>
+          <div className="py-1 px-6 cursor-pointer text-[13px] text-text-secondary hover:bg-error hover:text-white" onClick={handleDelete}>Delete</div>
         </div>
       )}
 
       {entry.isDirectory && isExpanded && (
-        <div className="tree-children">
+        <div>
           {isCreating && (
-            <div className="tree-item" style={{ paddingLeft: `${12 + (depth + 1) * 16}px` }}>
-              <span className={`file-icon ${isCreating === 'folder' ? 'dir-arrow' : 'file-icon-file'}`} />
+            <div className="flex items-center h-[22px] cursor-pointer gap-1 whitespace-nowrap overflow-hidden" style={{ paddingLeft: `${12 + (depth + 1) * 16}px` }}>
+              {isCreating === 'folder' ? <FolderIcon size={16} className="shrink-0" /> : <PhFileIcon size={16} className="shrink-0" />}
               <input
                 ref={createRef}
-                className="tree-item-input"
+                className="bg-bg-elevated border border-accent text-text-primary text-[13px] font-[inherit] px-1 h-[18px] flex-1 outline-none rounded-none"
                 value={createValue}
                 placeholder={isCreating === 'file' ? 'filename' : 'folder name'}
                 onChange={(e) => setCreateValue(e.target.value)}
@@ -207,24 +236,30 @@ export default function FileExplorer() {
   const { workspacePath, fileTree, openFolder } = useWorkspace();
 
   return (
-    <div className="file-explorer">
-      <div className="explorer-header">
-        <span className="explorer-title">EXPLORER</span>
+    <div className="bg-bg-surface text-text-primary flex flex-col select-none text-[13px] font-sans flex-1 overflow-hidden">
+      <div className="h-[35px] flex items-center px-5 text-[11px] font-semibold tracking-wider text-text-tertiary uppercase border-b border-border shrink-0">
+        <span>EXPLORER</span>
       </div>
 
       {!workspacePath ? (
-        <div className="explorer-empty">
-          <p>No folder opened</p>
-          <button className="open-folder-btn" onClick={openFolder}>
+        <div className="flex flex-col items-center justify-center p-5 flex-1 gap-3">
+          <p className="text-text-tertiary text-[13px] m-0">No folder opened</p>
+          <button
+            className="bg-accent text-white border-none py-1.5 px-4 rounded-sm text-[13px] cursor-pointer hover:bg-accent-hover"
+            onClick={openFolder}
+          >
             Open Folder
           </button>
         </div>
       ) : (
-        <div className="explorer-tree">
-          <div className="explorer-workspace-header" onClick={openFolder}>
-            <span className="workspace-name">{workspacePath.split('/').pop()}</span>
+        <div className="flex flex-col flex-1 overflow-hidden">
+          <div
+            className="h-[22px] flex items-center px-3 text-[11px] font-bold tracking-wide text-text-tertiary uppercase cursor-pointer shrink-0 hover:bg-white/[0.06]"
+            onClick={openFolder}
+          >
+            <span className="overflow-hidden text-ellipsis whitespace-nowrap">{workspacePath.split('/').pop()}</span>
           </div>
-          <div className="tree-scroll">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:w-2.5 [&::-webkit-scrollbar-thumb]:bg-white/15 [&::-webkit-scrollbar-thumb:hover]:bg-white/25">
             {fileTree.map((entry) => (
               <FileTreeItem key={entry.path} entry={entry} depth={0} />
             ))}

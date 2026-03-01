@@ -1,25 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
-  --bg-color: #ede8d0;
-  /* Warm tan desk surface */
-  --text-color: #3d3d3d;
-  /* Dark charcoal/brown */
-  --accent-color: #a67c52;
-  /* Terracotta/Sandstone */
-  --accent-hover: #8c6642;
-  --border-color: #d1cbb8;
-  /* Sand-gray */
-  --terminal-bg: #2b2a27;
-  /* Dark brownish-gray */
-  --sidebar-dark-bg: #252526;
-  --sidebar-dark-border: #1e1e1e;
-  --sidebar-dark-text: #cccccc;
-  --sidebar-dark-hover: #2a2d2e;
-  --sidebar-dark-active: #37373d;
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-  --page-bg: #ffffff;
 }
 
 * {
@@ -30,8 +13,8 @@ body {
   margin: 0;
   padding: 0;
   font-family: var(--font-sans);
-  background-color: var(--bg-color);
-  color: var(--text-color);
+  background-color: var(--color-bg-base);
+  color: var(--color-text-primary);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   /* App handles scrolling */
@@ -43,38 +26,7 @@ body {
   flex-direction: column;
 }
 
-/* Editor Styles - Typora-like */
-.ProseMirror {
-  outline: none;
-  padding: 2rem 4rem;
-  max-width: 900px;
-  margin: 0 auto;
-  font-size: 1.125rem;
-  line-height: 1.7;
-  min-height: 100%;
-}
-
-.ProseMirror p.is-editor-empty:first-child::before {
-  color: #adb5bd;
-  content: attr(data-placeholder);
-  float: left;
-  height: 0;
-  pointer-events: none;
-}
-
-/* Comment Highlight */
-mark.comment {
-  background-color: #f7e6b5;
-  /* Warmer yellow */
-  border-bottom: 2px solid #ffc107;
-  cursor: pointer;
-}
-
-mark.comment:hover {
-  background-color: #ffe69c;
-}
-
-/* Scrollbar */
+/* Scrollbar - warm dark */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -85,10 +37,10 @@ mark.comment:hover {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
+  background: var(--color-border);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
+  background: var(--color-text-tertiary);
 }

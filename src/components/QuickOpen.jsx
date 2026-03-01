@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { cn } from '@/lib/utils';
 import { useWorkspace } from '../context/WorkspaceContext';
 import searchService from '../services/searchService';
-import './QuickOpen.css';
 
 export default function QuickOpen({ isOpen, onClose }) {
   const { workspacePath, openFile } = useWorkspace();
@@ -123,37 +123,44 @@ export default function QuickOpen({ isOpen, onClose }) {
   if (!isOpen) return null;
 
   return (
-    <div className="quick-open-backdrop" onClick={handleBackdropClick}>
-      <div className="quick-open-modal">
+    <div
+      className="fixed inset-0 bg-black/35 z-[1000] flex justify-center pt-[15vh]"
+      onClick={handleBackdropClick}
+    >
+      <div className="w-[500px] max-w-[90vw] max-h-[400px] bg-bg-elevated rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden self-start">
         <input
           ref={inputRef}
           type="text"
-          className="quick-open-input"
+          className="w-full border-none outline-none py-3 px-4 text-[15px] font-sans text-text-primary bg-bg-elevated border-b border-border shrink-0 placeholder:text-text-tertiary"
           placeholder="Type a file name to open..."
           value={query}
           onChange={handleQueryChange}
           onKeyDown={handleKeyDown}
           spellCheck={false}
         />
-        <div className="quick-open-list" ref={listRef}>
+        <div className="flex-1 overflow-y-auto max-h-[340px]" ref={listRef}>
           {isLoading && (
-            <div className="quick-open-message">Loading files...</div>
+            <div className="p-4 text-center text-[13px] text-text-primary opacity-50 italic">Loading files...</div>
           )}
           {!isLoading && filteredFiles.length === 0 && query.trim() && (
-            <div className="quick-open-message">No matching files</div>
+            <div className="p-4 text-center text-[13px] text-text-primary opacity-50 italic">No matching files</div>
           )}
           {!isLoading && filteredFiles.length === 0 && !query.trim() && allFiles.length === 0 && (
-            <div className="quick-open-message">No files in workspace</div>
+            <div className="p-4 text-center text-[13px] text-text-primary opacity-50 italic">No files in workspace</div>
           )}
           {!isLoading && filteredFiles.map((file, idx) => (
             <div
               key={file.path}
-              className={`quick-open-item ${idx === selectedIndex ? 'quick-open-item-selected' : ''}`}
+              className={cn(
+                "flex items-center py-1.5 px-4 cursor-pointer gap-2.5",
+                "hover:bg-white/[0.04]",
+                idx === selectedIndex && "bg-bg-overlay",
+              )}
               onClick={() => handleOpen(file)}
               onMouseEnter={() => setSelectedIndex(idx)}
             >
-              <span className="quick-open-item-name">{file.name}</span>
-              <span className="quick-open-item-path">{file.path}</span>
+              <span className="text-sm font-medium text-text-primary shrink-0">{file.name}</span>
+              <span className="text-xs text-text-tertiary overflow-hidden text-ellipsis whitespace-nowrap min-w-0 font-mono">{file.path}</span>
             </div>
           ))}
         </div>

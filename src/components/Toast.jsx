@@ -1,7 +1,15 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
-import './Toast.css';
+import { XIcon } from '@phosphor-icons/react';
+import { cn } from '@/lib/utils';
 
 const ToastContext = createContext(null);
+
+const TYPE_COLORS = {
+  error: 'bg-error',
+  warning: 'bg-warning',
+  success: 'bg-success',
+  info: 'bg-info',
+};
 
 let toastIdCounter = 0;
 
@@ -56,21 +64,21 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
-      <div className="toast-container">
+      <div className="fixed bottom-4 right-4 z-[9999] flex flex-col-reverse gap-2 pointer-events-none">
         {toasts.map(toast => (
           <div
             key={toast.id}
-            className={`toast-item toast-${toast.type}`}
+            className="flex items-stretch w-[360px] max-w-[calc(100vw-32px)] bg-bg-elevated rounded-lg shadow-lg overflow-hidden pointer-events-auto animate-toast-in"
           >
-            <div className="toast-icon" />
-            <div className="toast-body">
-              <span className="toast-message">{toast.message}</span>
+            <div className={cn("w-1 shrink-0", TYPE_COLORS[toast.type] || 'bg-info')} />
+            <div className="flex-1 py-2.5 px-3 flex items-center gap-2 min-w-0">
+              <span className="flex-1 font-sans text-sm leading-snug text-text-primary break-words">{toast.message}</span>
               <button
-                className="toast-dismiss"
+                className="shrink-0 bg-transparent border-none cursor-pointer p-1 text-text-tertiary rounded transition-colors hover:bg-white/[0.06] hover:text-text-secondary"
                 onClick={() => handleDismiss(toast.id)}
                 aria-label="Dismiss notification"
               >
-                &times;
+                <XIcon size={14} />
               </button>
             </div>
           </div>

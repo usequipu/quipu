@@ -11,9 +11,13 @@
     "preview": "vite preview",
     "electron": "wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
     "electron:pack": "electron-builder",
-    "start": "concurrently -k \"npm run dev\" \"npm run electron\""
+    "start": "concurrently -k \"npm run dev\" \"npm run electron\"",
+    "build:server": "bash scripts/build-server.sh",
+    "build:release": "bash scripts/build-release.sh"
   },
   "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
+    "@tailwindcss/vite": "^4.2.1",
     "@tiptap/extension-bubble-menu": "^3.15.3",
     "@tiptap/extension-highlight": "^3.15.3",
     "@tiptap/extension-placeholder": "^3.15.3",
@@ -23,9 +27,14 @@
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^6.0.0",
     "clsx": "^2.1.1",
+    "js-yaml": "^4.1.1",
     "node-pty": "^1.1.0",
+    "radix-ui": "^1.4.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-resizable-panels": "^4.7.0",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^4.2.1",
     "tiptap-markdown": "^0.9.0"
   },
   "devDependencies": {
@@ -43,5 +52,58 @@
     "globals": "^16.5.0",
     "vite": "^7.2.4",
     "wait-on": "^9.0.3"
+  },
+  "build": {
+    "appId": "com.quipu.editor",
+    "productName": "Quipu",
+    "extraMetadata": {
+      "main": "electron/main-thin.cjs"
+    },
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/main-thin.cjs",
+      "electron/preload-thin.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "server/bin/${os}/",
+        "to": "server/",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Development"
+    }
   }
 }

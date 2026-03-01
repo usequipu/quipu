@@ -1183,6 +1183,12 @@ func main() {
 	// Terminal endpoint
 	http.HandleFunc("/term", handleTerminal)
 
+	// Health check endpoint (used by thin Electron shell to wait for server readiness)
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
+
 	log.Printf("Listening on %s", *addr)
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }

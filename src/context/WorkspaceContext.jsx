@@ -1,6 +1,9 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
+import jsYaml from 'js-yaml';
 import fs from '../services/fileSystem';
 import { useToast } from '../components/Toast';
+
+const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 
 const WorkspaceContext = createContext(null);
 
@@ -101,6 +104,76 @@ export function WorkspaceProvider({ children }) {
     ));
   }, []);
 
+  // Frontmatter operations
+  const updateFrontmatter = useCallback((tabId, key, value) => {
+    setOpenTabs(prev => prev.map(t => {
+      if (t.id !== tabId) return t;
+      const updated = { ...(t.frontmatter || {}), [key]: value };
+      return { ...t, frontmatter: updated, isDirty: true };
+    }));
+  }, []);
+
+  const addFrontmatterProperty = useCallback((tabId) => {
+    setOpenTabs(prev => prev.map(t => {
+      if (t.id !== tabId) return t;
+      const existing = t.frontmatter || {};
+      // Find a unique key name
+      let keyName = 'key';
+      let counter = 1;
+      while (existing[keyName] !== undefined) {
+        keyName = `key${counter++}`;
+      }
+      return { ...t, frontmatter: { ...existing, [keyName]: '' }, isDirty: true };
+    }));
+  }, []);
+
+  const removeFrontmatterProperty = useCallback((tabId, key) => {
+    setOpenTabs(prev => prev.map(t => {
+      if (t.id !== tabId) return t;
+      const updated = { ...t.frontmatter };
+      delete updated[key];
+      // If no properties left, keep frontmatter as empty object (not null)
+      // so the properties section still shows
+      return { ...t, frontmatter: updated, isDirty: true };
+    }));
+  }, []);
+
+  const renameFrontmatterKey = useCallback((tabId, oldKey, newKey) => {
+    if (oldKey === newKey) return;
+    setOpenTabs(prev => prev.map(t => {
+      if (t.id !== tabId) return t;
+      const entries = Object.entries(t.frontmatter || {});
+      const updated = {};
+      for (const [k, v] of entries) {
+        updated[k === oldKey ? newKey : k] = v;
+      }
+      return { ...t, frontmatter: updated, isDirty: true };
+    }));
+  }, []);
+
+  const toggleFrontmatterCollapsed = useCallback((tabId) => {
+    setOpenTabs(prev => prev.map(t =>
+      t.id === tabId ? { ...t, frontmatterCollapsed: !t.frontmatterCollapsed } : t
+    ));
+  }, []);
+
+  const extractFrontmatter = useCallback((rawContent) => {
+    const match = rawContent.match(FRONTMATTER_REGEX);
+    if (!match) return { frontmatter: null, frontmatterRaw: null, body: rawContent };
+
+    try {
+      const parsed = jsYaml.load(match[1]);
+      return {
+        frontmatter: typeof parsed === 'object' && parsed !== null ? parsed : null,
+        frontmatterRaw: match[1],
+        body: rawContent.slice(match[0].length),
+      };
+    } catch {
+      showToast('Malformed YAML frontmatter', 'warning');
+      return { frontmatter: null, frontmatterRaw: match[1], body: rawContent.slice(match[0].length) };
+    }
+  }, [showToast]);
+
   const openFile = useCallback(async (filePath, fileName) => {
     // Check if already open
     const existing = openTabs.find(t => t.path === filePath);
@@ -130,16 +203,30 @@ export function WorkspaceProvider({ children }) {
         } catch { /* treat as text */ }
       }
 
+      // Parse frontmatter for markdown files
+      let frontmatter = null;
+      let frontmatterRaw = null;
+      let bodyContent = content;
+      if (isMarkdown && typeof content === 'string') {
+        const fm = extractFrontmatter(content);
+        frontmatter = fm.frontmatter;
+        frontmatterRaw = fm.frontmatterRaw;
+        bodyContent = fm.body;
+      }
+
       const newTab = {
         id: crypto.randomUUID(),
         path: filePath,
         name: fileName,
-        content: isQuipu && parsedContent ? parsedContent : content,
+        content: isQuipu && parsedContent ? parsedContent : bodyContent,
         tiptapJSON: null,
         isDirty: false,
         isQuipu: isQuipu && !!parsedContent,
         isMarkdown,
         scrollPosition: 0,
+        frontmatter,
+        frontmatterRaw,
+        frontmatterCollapsed: false,
       };
 
       setOpenTabs(prev => [...prev, newTab]);
@@ -148,7 +235,7 @@ export function WorkspaceProvider({ children }) {
       console.error('Failed to open file:', err);
       showToast('Failed to open file: ' + err.message, 'error');
     }
-  }, [openTabs, showToast]);
+  }, [openTabs, showToast, extractFrontmatter]);
 
   const closeTab = useCallback((tabId) => {
     const tab = openTabs.find(t => t.id === tabId);
@@ -205,7 +292,15 @@ export function WorkspaceProvider({ children }) {
         },
       }, null, 2);
     } else if (activeTab.name.endsWith('.md') || activeTab.name.endsWith('.markdown')) {
-      content = editorInstance.storage.markdown.getMarkdown();
+      const markdown = editorInstance.storage.markdown.getMarkdown();
+      if (activeTab.frontmatter || activeTab.frontmatterRaw) {
+        const yaml = activeTab.frontmatter
+          ? jsYaml.dump(activeTab.frontmatter, { sortKeys: false, lineWidth: -1 })
+          : activeTab.frontmatterRaw + '\n';
+        content = `---\n${yaml}---\n\n${markdown}`;
+      } else {
+        content = markdown;
+      }
     } else {
       content = editorInstance.getText();
     }
@@ -291,7 +386,7 @@ export function WorkspaceProvider({ children }) {
     deleteEntry,
     renameEntry,
     refreshDirectory,
-    // New tab functions
+    // Tab functions
     openTabs,
     activeTabId,
     activeTab,
@@ -300,6 +395,12 @@ export function WorkspaceProvider({ children }) {
     closeOtherTabs,
     setTabDirty,
     snapshotTab,
+    // Frontmatter functions
+    updateFrontmatter,
+    addFrontmatterProperty,
+    removeFrontmatterProperty,
+    renameFrontmatterKey,
+    toggleFrontmatterCollapsed,
   };
 
   return (

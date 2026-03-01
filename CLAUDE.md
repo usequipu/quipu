@@ -48,13 +48,15 @@ Each service exports a single default object with the same API shape for both ru
 ### Components
 - **Functional components only** - no class components
 - **Arrow functions** for Editor, Terminal; **named function declarations** for FileExplorer, App
-- **One CSS file per component** (co-located): `Component.jsx` + `Component.css`
-- **No CSS modules, no CSS-in-JS** - plain CSS with kebab-case class names
+- **Tailwind CSS v4** for all styling — no co-located CSS files per component
+- **shadcn/ui** primitives in `src/components/ui/` (Button, Input, Badge, Collapsible)
+- **Phosphor Icons** via `@phosphor-icons/react` — use `Icon` suffix naming (e.g., `FilesIcon`, `XIcon`)
+- **`cn()` utility** from `@/lib/utils` for conditional class composition (clsx + tailwind-merge)
+- **Path alias** `@/` maps to `./src` in vite.config.js
 
 ### Naming
 - Component files: PascalCase (`Editor.jsx`, `FileExplorer.jsx`)
 - Service/context files: camelCase (`fileSystem.js`, `WorkspaceContext.jsx`)
-- CSS classes: kebab-case (`editor-page-container`, `tree-item-active`)
 - Handlers: `handle` prefix (`handleClick`, `handleContextMenu`)
 - Booleans: `is` prefix (`isDirty`, `isExpanded`)
 
@@ -64,24 +66,30 @@ Each service exports a single default object with the same API shape for both ru
 - `useEffect` with explicit dependency arrays
 - No custom hooks besides `useWorkspace()`
 
-### CSS Theme
+### Styling
 
-Two visual zones:
-- **Editor area**: Warm tan/paper theme using CSS variables from `index.css`
-- **Activity Bar**: Dark VSCode theme (`#252526`)
-- **Side panels (Explorer, Search, Source Control)**: Warm theme using CSS variables
-- **Terminal**: Dark (`#1e1e1e`)
+**Tailwind CSS v4** with `@tailwindcss/vite` plugin. All component styling uses Tailwind utility classes inline.
 
-Key CSS variables (defined in `src/index.css`):
-```css
---bg-color: #ede8d0;        /* Warm tan */
---text-color: #3d3d3d;
---accent-color: #a67c52;    /* Terracotta */
---border-color: #d1cbb8;
---terminal-bg: #2b2a27;
-```
+Theme tokens defined in `src/styles/theme.css` via `@theme` directive:
+- **Backgrounds**: `bg-bg-base`, `bg-bg-surface`, `bg-bg-elevated`, `bg-bg-overlay`
+- **Text**: `text-text-primary`, `text-text-secondary`, `text-text-tertiary`
+- **Accent**: `bg-accent`, `text-accent`, `hover:bg-accent-hover`, `bg-accent-muted`
+- **Borders**: `border-border`
+- **Editor page**: `bg-page-bg`, `text-page-text`, `border-page-border` (warm cream theme for document area)
+- **Git status**: `text-git-modified`, `text-git-added`, `text-git-deleted`, `text-git-renamed`
+- **Semantic**: `bg-error`, `bg-warning`, `bg-success`, `bg-info`
 
-Use CSS variables instead of hardcoded hex values for any warm-themed components.
+Key patterns used throughout:
+- `group` + `group-hover:` for parent-hover child-visibility (close buttons, file actions)
+- `cn()` for conditional styling: `cn("base-classes", isActive && "active-classes")`
+- Arbitrary values for responsive: `max-[1400px]:`, `max-[1200px]:`
+- `after:` pseudo-elements for resize handles
+- `white/[0.06]` opacity for hover states on dark backgrounds
+
+Remaining CSS files (not in Tailwind):
+- `src/index.css` — Google Fonts import, global scrollbar, body/root base styles
+- `src/styles/theme.css` — Tailwind v4 `@theme` tokens, custom keyframe animations
+- `src/styles/prosemirror.css` — TipTap/ProseMirror DOM styles (can't be controlled via Tailwind)
 
 ### Error Handling
 - Use `showToast(message, type)` for all user-facing errors
@@ -115,6 +123,11 @@ cd server && go run main.go  # Go backend server
 - `src/components/Editor.jsx` - TipTap editor with comment system
 - `src/components/FileExplorer.jsx` - File tree sidebar
 - `src/components/Terminal.jsx` - xterm.js terminal
+- `src/components/TitleBar.jsx` - Window title bar with MenuBar and window controls
+- `src/components/FrontmatterProperties.jsx` - YAML frontmatter editor (uses shadcn/ui)
+- `src/styles/theme.css` - Tailwind v4 theme tokens and custom animations
+- `src/styles/prosemirror.css` - TipTap/ProseMirror editor styles
+- `src/lib/utils.js` - `cn()` utility (clsx + tailwind-merge)
 - `src/services/fileSystem.js` - Dual-runtime file system adapter
 - `server/main.go` - Go HTTP/WebSocket server
 - `electron/main.cjs` - Electron main process

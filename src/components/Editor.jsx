@@ -1,12 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { XIcon } from '@phosphor-icons/react';
+import { cn } from '@/lib/utils';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Highlight from '@tiptap/extension-highlight';
 import Placeholder from '@tiptap/extension-placeholder';
 import { Markdown } from 'tiptap-markdown';
-import './Editor.css';
+import { RevealMarkdown } from '../extensions/RevealMarkdown';
+import FrontmatterProperties from './FrontmatterProperties';
 
-const Editor = ({ onEditorReady, onContentChange, activeFile, activeTabId, activeTab, snapshotTab }) => {
+const Editor = ({
+    onEditorReady, onContentChange, activeFile, activeTabId, activeTab, snapshotTab,
+    updateFrontmatter, addFrontmatterProperty, removeFrontmatterProperty,
+    renameFrontmatterKey, toggleFrontmatterCollapsed,
+}) => {
     const [commentText, setCommentText] = useState('');
     const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
     const [showMenu, setShowMenu] = useState(false);
@@ -34,6 +41,7 @@ const Editor = ({ onEditorReady, onContentChange, activeFile, activeTabId, activ
                 transformPastedText: true,
                 transformCopiedText: true,
             }),
+            RevealMarkdown,
             Highlight.configure({
                 multicolor: true,
             }).extend({
@@ -330,12 +338,41 @@ const Editor = ({ onEditorReady, onContentChange, activeFile, activeTabId, activ
     };
 
     return (
-        <div className="editor-layout">
-            <div className="editor-page-container">
-                <div className="editor-page" ref={pageRef}>
+        <div className="flex h-full w-full bg-bg-surface overflow-hidden">
+            <div className={cn(
+                "flex-1 flex justify-center items-start overflow-y-auto relative",
+                "py-12 px-16",
+                "max-[1400px]:justify-start max-[1400px]:pl-12",
+                "max-[1200px]:overflow-x-auto max-[1200px]:p-8",
+                "max-[1150px]:py-6 max-[1150px]:px-4",
+            )}>
+                <div
+                    className={cn(
+                        "w-[816px] min-h-[1056px] bg-white rounded border border-page-border",
+                        "shadow-[0_1px_3px_rgba(0,0,0,0.08),0_4px_12px_rgba(0,0,0,0.06),0_12px_30px_rgba(0,0,0,0.05)]",
+                        "p-16 relative shrink-0 transition-[width] duration-300",
+                        "max-[1150px]:w-full max-[1150px]:max-w-[816px]",
+                    )}
+                    ref={pageRef}
+                >
+                    {activeTab && (activeTab.frontmatter || activeTab.frontmatterRaw) && (
+                        <div className="-mx-16 -mt-16 mb-6 rounded-t border-b border-page-border">
+                            <FrontmatterProperties
+                                frontmatter={activeTab.frontmatter}
+                                frontmatterRaw={activeTab.frontmatterRaw}
+                                isCollapsed={activeTab.frontmatterCollapsed}
+                                tabId={activeTab.id}
+                                onUpdate={updateFrontmatter}
+                                onAdd={addFrontmatterProperty}
+                                onRemove={removeFrontmatterProperty}
+                                onRenameKey={renameFrontmatterKey}
+                                onToggleCollapse={toggleFrontmatterCollapsed}
+                            />
+                        </div>
+                    )}
                     {showMenu && (
                         <div
-                            className="bubble-menu"
+                            className="flex bg-bg-overlay p-0.5 rounded-lg shadow-lg"
                             style={{
                                 position: 'fixed',
                                 top: menuPosition.top,
@@ -348,19 +385,31 @@ const Editor = ({ onEditorReady, onContentChange, activeFile, activeTabId, activ
                         >
                             <button
                                 onClick={() => editor.chain().focus().toggleBold().run()}
-                                className={editor.isActive('bold') ? 'is-active' : ''}
+                                className={cn(
+                                    "border-none bg-transparent text-white text-sm font-medium py-1.5 px-2.5 cursor-pointer rounded-md",
+                                    "hover:bg-white/15",
+                                    editor.isActive('bold') && "bg-white/20",
+                                )}
                             >
                                 Bold
                             </button>
                             <button
                                 onClick={() => editor.chain().focus().toggleItalic().run()}
-                                className={editor.isActive('italic') ? 'is-active' : ''}
+                                className={cn(
+                                    "border-none bg-transparent text-white text-sm font-medium py-1.5 px-2.5 cursor-pointer rounded-md",
+                                    "hover:bg-white/15",
+                                    editor.isActive('italic') && "bg-white/20",
+                                )}
                             >
                                 Italic
                             </button>
                             <button
                                 onClick={handleCommentClick}
-                                className={editor.isActive('comment') ? 'is-active' : ''}
+                                className={cn(
+                                    "border-none bg-transparent text-white text-sm font-medium py-1.5 px-2.5 cursor-pointer rounded-md",
+                                    "hover:bg-white/15",
+                                    editor.isActive('comment') && "bg-white/20",
+                                )}
                             >
                                 Comment
                             </button>
@@ -370,10 +419,16 @@ const Editor = ({ onEditorReady, onContentChange, activeFile, activeTabId, activ
                 </div>
 
                 {/* Floating Comments Track */}
-                <div className="comments-track">
+                <div className={cn(
+                    "absolute top-8 w-[300px] bottom-0 pointer-events-none",
+                    "left-[calc(50%+408px+1rem)]",
+                    "max-[1400px]:left-[867px]",
+                    "max-[1200px]:left-[calc(2rem+816px+1rem)]",
+                    "max-[1150px]:w-auto",
+                )}>
                     {showCommentInput && (
                         <div
-                            className="comment-card input-card"
+                            className="absolute w-[280px] bg-white rounded-lg shadow-lg p-3 pointer-events-auto border border-accent z-[100]"
                             style={{ top: commentInputTop }}
                         >
                             <textarea
@@ -381,10 +436,21 @@ const Editor = ({ onEditorReady, onContentChange, activeFile, activeTabId, activ
                                 onChange={(e) => setCommentText(e.target.value)}
                                 placeholder="Type your comment..."
                                 autoFocus
+                                className="w-full border border-border-focus rounded py-2 px-2 font-[inherit] text-sm resize-y min-h-[60px] outline-none mb-2 text-page-text focus:border-accent focus:shadow-[0_0_0_2px_rgba(196,131,90,0.3)]"
                             />
-                            <div className="comment-actions">
-                                <button onClick={cancelComment} className="cancel-btn">Cancel</button>
-                                <button onClick={addComment} className="submit-btn">Comment</button>
+                            <div className="flex justify-end gap-2">
+                                <button
+                                    onClick={cancelComment}
+                                    className="py-1.5 px-3 rounded text-[13px] font-medium cursor-pointer border-none bg-transparent text-text-tertiary hover:bg-black/5"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={addComment}
+                                    className="py-1.5 px-3 rounded text-[13px] font-medium cursor-pointer border-none bg-accent text-white hover:bg-accent-hover"
+                                >
+                                    Comment
+                                </button>
                             </div>
                         </div>
                     )}
@@ -393,27 +459,27 @@ const Editor = ({ onEditorReady, onContentChange, activeFile, activeTabId, activ
                         <div
                             key={c.id || i}
                             ref={el => commentsRef.current[i] = el}
-                            className="comment-card"
+                            className="absolute w-[280px] bg-white rounded-lg shadow-md p-3 pointer-events-auto border border-transparent hover:shadow-lg"
                             style={{
                                 top: adjustedPositions[i] !== undefined ? adjustedPositions[i] : c.top,
-                                transition: 'top 0.3s ease-out' // Smooth transition for movement
+                                transition: 'top 0.3s ease-out'
                             }}
                         >
-                            <div className="comment-header">
-                                <span className="comment-author">User</span>
-                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                    <span className="comment-time">Just now</span>
+                            <div className="flex justify-between mb-1 text-xs">
+                                <span className="font-semibold text-page-text">User</span>
+                                <div className="flex gap-2 items-center">
+                                    <span className="text-[#57606a]">Just now</span>
                                     <button
-                                        className="resolve-btn"
+                                        className="border-none bg-transparent text-[#57606a] cursor-pointer py-0.5 px-1.5 rounded flex items-center justify-center transition-colors hover:bg-[#e5e7eb] hover:text-page-text"
                                         onClick={() => resolveComment(c.id)}
                                         title="Resolve comment"
                                     >
-                                        ✕
+                                        <XIcon size={14} />
                                     </button>
                                 </div>
                             </div>
-                            <div className="comment-body">{c.comment}</div>
-                            <div className="comment-quote">"{c.text}"</div>
+                            <div className="text-sm text-page-text mb-2 whitespace-pre-wrap">{c.comment}</div>
+                            <div className="text-xs text-[#57606a] border-l-2 border-warning pl-2 italic whitespace-nowrap overflow-hidden text-ellipsis">"{c.text}"</div>
                         </div>
                     ))}
                 </div>
