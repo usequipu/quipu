@@ -159,6 +159,83 @@ export function WorkspaceProvider({ children }) {
     ));
   }, []);
 
+  const extractFrontmatter = useCallback((rawContent) => {
+    const match = rawContent.match(FRONTMATTER_REGEX);
+    if (!match) return { frontmatter: null, frontmatterRaw: null, body: rawContent };
+
+    try {
+      const parsed = jsYaml.load(match[1]);
+      return {
+        frontmatter: typeof parsed === 'object' && parsed !== null ? parsed : null,
+        frontmatterRaw: match[1],
+        body: rawContent.slice(match[0].length),
+      };
+    } catch {
+      showToast('Malformed YAML frontmatter', 'warning');
+      return { frontmatter: null, frontmatterRaw: match[1], body: rawContent.slice(match[0].length) };
+    }
+  }, [showToast]);
+
+  const reloadTabFromDisk = useCallback(async (tabId) => {
+    const tab = openTabs.find(t => t.id === tabId);
+    if (!tab) return;
+
+    try {
+      const content = await fs.readFile(tab.path);
+      const isMarkdown = tab.name.endsWith('.md') || tab.name.endsWith('.markdown');
+
+      let bodyContent = content;
+      let frontmatter = tab.frontmatter;
+      let frontmatterRaw = tab.frontmatterRaw;
+
+      if (isMarkdown && typeof content === 'string') {
+        const fm = extractFrontmatter(content);
+        frontmatter = fm.frontmatter;
+        frontmatterRaw = fm.frontmatterRaw;
+        bodyContent = fm.body;
+      }
+
+      setOpenTabs(prev => prev.map(t =>
+        t.id === tabId ? {
+          ...t,
+          content: bodyContent,
+          tiptapJSON: null,
+          isDirty: false,
+          frontmatter,
+          frontmatterRaw,
+        } : t
+      ));
+    } catch (err) {
+      showToast('Failed to reload file: ' + err.message, 'error');
+    }
+  }, [openTabs, extractFrontmatter, showToast]);
+
+  // Keep a ref to openTabs for use in file-watcher callbacks (avoids stale closures)
+  const openTabsRef = React.useRef(openTabs);
+  useEffect(() => { openTabsRef.current = openTabs; }, [openTabs]);
+
+  // Watch workspace for external file changes (Electron only; no-op in browser)
+  useEffect(() => {
+    if (!workspacePath) return;
+
+    fs.watchDirectory(workspacePath).catch(() => {});
+
+    const cleanup = fs.onDirectoryChanged(({ filename }) => {
+      if (!filename) return;
+      const changedPath = workspacePath + '/' + filename.replace(/\\/g, '/');
+      const tab = openTabsRef.current.find(t => t.path === changedPath);
+      if (!tab) return;
+
+      if (tab.isDirty) {
+        showToast(`"${tab.name}" changed on disk. Close and reopen to reload.`, 'warning');
+      } else {
+        reloadTabFromDisk(tab.id);
+      }
+    });
+
+    return cleanup;
+  }, [workspacePath, showToast, reloadTabFromDisk]);
+
   // Frontmatter operations
   const updateFrontmatter = useCallback((tabId, key, value) => {
     setOpenTabs(prev => prev.map(t => {
@@ -587,6 +664,7 @@ export function WorkspaceProvider({ children }) {
     closeOtherTabs,
     setTabDirty,
     snapshotTab,
+    reloadTabFromDisk,
     // Git status
     gitChangeCount,
     updateGitChangeCount,

@@ -103,42 +103,18 @@ function AppContent() {
   const handleSendToTerminal = useCallback(() => {
     if (!editorInstance) return;
 
-    const json = editorInstance.getJSON();
-    let output = '';
-
-    const serializeNode = (node) => {
-      if (node.type === 'text') {
-        const commentMark = node.marks?.find(m => m.type === 'comment');
-        if (commentMark) {
-          return `<commented>${node.text}</commented><comment>${commentMark.attrs.comment}</comment>`;
-        }
-        return node.text;
-      }
-
-      if (node.content) {
-        return node.content.map(serializeNode).join('');
-      }
-
-      if (node.type === 'paragraph') {
-        return (node.content ? node.content.map(serializeNode).join('') : '') + '\n';
-      }
-
-      return '';
-    };
-
-    if (json.content) {
-      output = json.content.map(serializeNode).join('');
-    }
+    const text = editorInstance.getText();
+    if (!text.trim()) return;
 
     if (terminalRef.current) {
       terminalRef.current.focus();
       if (isClaudeRunning) {
-        terminalRef.current.write(output + "\n");
+        terminalRef.current.write(text + "\n");
       } else {
         terminalRef.current.write("claude\n");
         setIsClaudeRunning(true);
         setTimeout(() => {
-          terminalRef.current.write(output + "\n");
+          terminalRef.current.write(text + "\n");
         }, 2000);
       }
     }
