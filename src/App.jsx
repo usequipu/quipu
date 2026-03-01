@@ -29,6 +29,12 @@ function AppContent() {
   const [isQuickOpenVisible, setIsQuickOpenVisible] = useState(false);
   const [quickOpenInitialValue, setQuickOpenInitialValue] = useState('');
   const [isClaudeRunning, setIsClaudeRunning] = useState(false);
+
+  // Reset Claude running state when workspace changes (terminal restarts)
+  useEffect(() => {
+    setIsClaudeRunning(false);
+  }, [workspacePath]);
+
   const sidePanelRef = usePanelRef();
   const terminalPanelRef = usePanelRef();
 
@@ -106,12 +112,17 @@ function AppContent() {
 
     if (terminalRef.current) {
       terminalRef.current.focus();
-      terminalRef.current.write("claude\r");
-      setTimeout(() => {
+      if (isClaudeRunning) {
         terminalRef.current.write(output + "\r");
-      }, 1000);
+      } else {
+        terminalRef.current.write("claude\r");
+        setIsClaudeRunning(true);
+        setTimeout(() => {
+          terminalRef.current.write(output + "\r");
+        }, 1000);
+      }
     }
-  }, [editorInstance]);
+  }, [editorInstance, isClaudeRunning]);
 
   const handleSendToClaude = useCallback(async () => {
     if (!activeFile || !workspacePath) {
