@@ -506,7 +506,120 @@ const Editor = ({
     };
 
     return (
-        <div className="flex h-full w-full bg-bg-surface overflow-hidden">
+        <div className="flex flex-col h-full w-full bg-bg-surface overflow-hidden">
+            {editorMode === 'richtext' && editor && (
+                <div className="shrink-0 flex items-center gap-1 px-4 py-2 border-b border-border bg-bg-surface">
+                    <ToolbarButton
+                        onClick={() => editor.chain().focus().toggleBold().run()}
+                        isActive={editor.isActive('bold')}
+                        title="Bold (Ctrl+B)"
+                    >
+                        <TextBIcon size={16} weight="bold" />
+                    </ToolbarButton>
+                    <ToolbarButton
+                        onClick={() => editor.chain().focus().toggleItalic().run()}
+                        isActive={editor.isActive('italic')}
+                        title="Italic (Ctrl+I)"
+                    >
+                        <TextItalicIcon size={16} />
+                    </ToolbarButton>
+                    <ToolbarButton
+                        onClick={() => editor.chain().focus().toggleStrike().run()}
+                        isActive={editor.isActive('strike')}
+                        title="Strikethrough"
+                    >
+                        <TextStrikethroughIcon size={16} />
+                    </ToolbarButton>
+
+                    <ToolbarSeparator />
+
+                    <ToolbarButton
+                        onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+                        isActive={editor.isActive('heading', { level: 1 })}
+                        title="Heading 1"
+                    >
+                        <TextHOneIcon size={16} />
+                    </ToolbarButton>
+                    <ToolbarButton
+                        onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+                        isActive={editor.isActive('heading', { level: 2 })}
+                        title="Heading 2"
+                    >
+                        <TextHTwoIcon size={16} />
+                    </ToolbarButton>
+                    <ToolbarButton
+                        onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+                        isActive={editor.isActive('heading', { level: 3 })}
+                        title="Heading 3"
+                    >
+                        <TextHThreeIcon size={16} />
+                    </ToolbarButton>
+
+                    <ToolbarSeparator />
+
+                    <ToolbarButton
+                        onClick={() => editor.chain().focus().toggleBulletList().run()}
+                        isActive={editor.isActive('bulletList')}
+                        title="Bullet List"
+                    >
+                        <ListBulletsIcon size={16} />
+                    </ToolbarButton>
+                    <ToolbarButton
+                        onClick={() => editor.chain().focus().toggleOrderedList().run()}
+                        isActive={editor.isActive('orderedList')}
+                        title="Ordered List"
+                    >
+                        <ListNumbersIcon size={16} />
+                    </ToolbarButton>
+
+                    <ToolbarSeparator />
+
+                    <ToolbarButton
+                        onClick={() => editor.chain().focus().toggleBlockquote().run()}
+                        isActive={editor.isActive('blockquote')}
+                        title="Blockquote"
+                    >
+                        <QuotesIcon size={16} />
+                    </ToolbarButton>
+                    <ToolbarButton
+                        onClick={() => editor.chain().focus().toggleCode().run()}
+                        isActive={editor.isActive('code')}
+                        title="Inline Code"
+                    >
+                        <CodeIcon size={16} />
+                    </ToolbarButton>
+                    <ToolbarButton
+                        onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+                        isActive={editor.isActive('codeBlock')}
+                        title="Code Block"
+                    >
+                        <CodeBlockIcon size={16} />
+                    </ToolbarButton>
+
+                    <div className="flex-1" />
+
+                    <button
+                        onClick={toggleEditorMode}
+                        className="text-[11px] text-text-tertiary hover:text-text-secondary px-2 py-1 rounded hover:bg-bg-elevated transition-colors"
+                        title="Switch to Obsidian mode"
+                    >
+                        Rich Text
+                    </button>
+                </div>
+            )}
+
+            {editorMode === 'obsidian' && editor && (
+                <div className="shrink-0 flex items-center justify-end px-4 py-1.5 border-b border-border bg-bg-surface">
+                    <button
+                        onClick={toggleEditorMode}
+                        className="text-[11px] text-text-tertiary hover:text-text-secondary px-2 py-1 rounded hover:bg-bg-elevated transition-colors"
+                        title="Switch to Rich Text mode"
+                    >
+                        Obsidian
+                    </button>
+                </div>
+            )}
+
             <div className={cn(
                 "flex-1 flex justify-center items-start overflow-y-auto relative",
                 "py-12 px-16",
@@ -588,119 +701,6 @@ const Editor = ({
                             </button>
                         </div>
                     )}
-                    {editorMode === 'richtext' && editor && (
-                        <div className="flex items-center gap-1 px-4 py-2 border-b border-page-border -mx-16 mb-4 bg-page-bg/50">
-                            <ToolbarButton
-                                onClick={() => editor.chain().focus().toggleBold().run()}
-                                isActive={editor.isActive('bold')}
-                                title="Bold (Ctrl+B)"
-                            >
-                                <TextBIcon size={16} weight="bold" />
-                            </ToolbarButton>
-                            <ToolbarButton
-                                onClick={() => editor.chain().focus().toggleItalic().run()}
-                                isActive={editor.isActive('italic')}
-                                title="Italic (Ctrl+I)"
-                            >
-                                <TextItalicIcon size={16} />
-                            </ToolbarButton>
-                            <ToolbarButton
-                                onClick={() => editor.chain().focus().toggleStrike().run()}
-                                isActive={editor.isActive('strike')}
-                                title="Strikethrough"
-                            >
-                                <TextStrikethroughIcon size={16} />
-                            </ToolbarButton>
-
-                            <ToolbarSeparator />
-
-                            <ToolbarButton
-                                onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-                                isActive={editor.isActive('heading', { level: 1 })}
-                                title="Heading 1"
-                            >
-                                <TextHOneIcon size={16} />
-                            </ToolbarButton>
-                            <ToolbarButton
-                                onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-                                isActive={editor.isActive('heading', { level: 2 })}
-                                title="Heading 2"
-                            >
-                                <TextHTwoIcon size={16} />
-                            </ToolbarButton>
-                            <ToolbarButton
-                                onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
-                                isActive={editor.isActive('heading', { level: 3 })}
-                                title="Heading 3"
-                            >
-                                <TextHThreeIcon size={16} />
-                            </ToolbarButton>
-
-                            <ToolbarSeparator />
-
-                            <ToolbarButton
-                                onClick={() => editor.chain().focus().toggleBulletList().run()}
-                                isActive={editor.isActive('bulletList')}
-                                title="Bullet List"
-                            >
-                                <ListBulletsIcon size={16} />
-                            </ToolbarButton>
-                            <ToolbarButton
-                                onClick={() => editor.chain().focus().toggleOrderedList().run()}
-                                isActive={editor.isActive('orderedList')}
-                                title="Ordered List"
-                            >
-                                <ListNumbersIcon size={16} />
-                            </ToolbarButton>
-
-                            <ToolbarSeparator />
-
-                            <ToolbarButton
-                                onClick={() => editor.chain().focus().toggleBlockquote().run()}
-                                isActive={editor.isActive('blockquote')}
-                                title="Blockquote"
-                            >
-                                <QuotesIcon size={16} />
-                            </ToolbarButton>
-                            <ToolbarButton
-                                onClick={() => editor.chain().focus().toggleCode().run()}
-                                isActive={editor.isActive('code')}
-                                title="Inline Code"
-                            >
-                                <CodeIcon size={16} />
-                            </ToolbarButton>
-                            <ToolbarButton
-                                onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-                                isActive={editor.isActive('codeBlock')}
-                                title="Code Block"
-                            >
-                                <CodeBlockIcon size={16} />
-                            </ToolbarButton>
-
-                            <div className="flex-1" />
-
-                            <button
-                                onClick={toggleEditorMode}
-                                className="text-[11px] text-text-tertiary hover:text-text-secondary px-2 py-1 rounded hover:bg-bg-elevated transition-colors"
-                                title="Switch to Obsidian mode"
-                            >
-                                Rich Text
-                            </button>
-                        </div>
-                    )}
-
-                    {editorMode === 'obsidian' && (
-                        <div className="flex items-center justify-end px-4 py-1.5 border-b border-page-border -mx-16 mb-4 bg-page-bg/50">
-                            <button
-                                onClick={toggleEditorMode}
-                                className="text-[11px] text-text-tertiary hover:text-text-secondary px-2 py-1 rounded hover:bg-bg-elevated transition-colors"
-                                title="Switch to Rich Text mode"
-                            >
-                                Obsidian
-                            </button>
-                        </div>
-                    )}
-
                     <div className={editorMode === 'richtext' ? 'editor-richtext' : 'editor-obsidian'}>
                         <EditorContent editor={editor} />
                     </div>
