@@ -113,13 +113,13 @@ function AppContent() {
     if (terminalRef.current) {
       terminalRef.current.focus();
       if (isClaudeRunning) {
-        terminalRef.current.write(output + "\r");
+        terminalRef.current.write(output + "\n");
       } else {
-        terminalRef.current.write("claude\r");
+        terminalRef.current.write("claude\n");
         setIsClaudeRunning(true);
         setTimeout(() => {
-          terminalRef.current.write(output + "\r");
-        }, 1000);
+          terminalRef.current.write(output + "\n");
+        }, 2000);
       }
     }
   }, [editorInstance, isClaudeRunning]);
@@ -144,20 +144,20 @@ function AppContent() {
       terminalPanelRef.current.expand();
     }
 
-    // Build context with file path and FRAME summary
+    // Build prompt referencing FRAME skill, file path, and FRAME path
     const relativePath = activeFile.path.replace(workspacePath + '/', '');
-    let prompt = `Review and work with: ${relativePath}`;
+    const framePath = `.quipu/meta/${relativePath}.frame.json`;
+    let prompt = `Use the /frame skill. Read the file at ${relativePath} and its FRAME at ${framePath}. Review the code and address any annotations.`;
 
-    // Try to load FRAME context
+    // Append brief context if FRAME exists
     try {
       const frame = await frameService.readFrame(workspacePath, activeFile.path);
       if (frame) {
-        if (frame.instructions) {
-          prompt += `\n\nFile context: ${frame.instructions}`;
-        }
         if (frame.annotations?.length > 0) {
-          const notes = frame.annotations.map(a => `  - Line ${a.line}: [${a.type}] ${a.text}`).join('\n');
-          prompt += `\n\nAnnotations:\n${notes}`;
+          prompt += ` There are ${frame.annotations.length} annotation(s) to address.`;
+        }
+        if (frame.instructions) {
+          prompt += ` Context: ${frame.instructions}`;
         }
       }
     } catch {
@@ -167,15 +167,13 @@ function AppContent() {
     terminalRef.current.focus();
 
     if (isClaudeRunning) {
-      // Claude is already running — send prompt directly
-      terminalRef.current.write(prompt + "\r");
+      terminalRef.current.write(prompt + "\n");
     } else {
-      // Launch Claude then send prompt
-      terminalRef.current.write("claude\r");
+      terminalRef.current.write("claude\n");
       setIsClaudeRunning(true);
       setTimeout(() => {
-        terminalRef.current.write(prompt + "\r");
-      }, 1000);
+        terminalRef.current.write(prompt + "\n");
+      }, 2000);
     }
   }, [activeFile, workspacePath, editorInstance, activeTab, saveFile, terminalPanelRef, isClaudeRunning, showToast]);
 
@@ -316,6 +314,9 @@ function AppContent() {
         break;
       case 'terminal.claude':
         handleSendToClaude();
+        break;
+      case 'editor.toggleMode':
+        window.__quipuToggleEditorMode?.();
         break;
     }
   }, [editorInstance, activeFile, saveFile, activeTabId, closeTab, sidePanelRef, handlePanelToggle, handleToggleSidebar, handleToggleTerminal, toggleTheme, handleSendToClaude]);
