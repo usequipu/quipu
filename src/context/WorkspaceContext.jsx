@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import jsYaml from 'js-yaml';
 import fs from '../services/fileSystem';
 import claudeInstaller from '../services/claudeInstaller';
+import storage, { isElectronRuntime } from '../services/storageService';
 import { useToast } from '../components/Toast';
 
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
@@ -18,6 +19,16 @@ export function WorkspaceProvider({ children }) {
   const [activeTabId, setActiveTabId] = useState(null);
   const [expandedFolders, setExpandedFolders] = useState(new Set());
   const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const [recentWorkspaces, setRecentWorkspaces] = useState([]);
+  const [gitChangeCount, setGitChangeCount] = useState(0);
+
+  const updateGitChangeCount = useCallback((count) => {
+    setGitChangeCount(count);
+  }, []);
+
+  // Ref to access current openTabs inside intervals/event listeners without stale closures
+  const openTabsRef = useRef(openTabs);
+  useEffect(() => { openTabsRef.current = openTabs; }, [openTabs]);
 
   // Derived values (computed, not useState)
   const activeTab = openTabs.find(t => t.id === activeTabId) || null;
@@ -28,6 +39,41 @@ export function WorkspaceProvider({ children }) {
     isQuipu: activeTab.isQuipu,
   } : null;
   const isDirty = activeTab?.isDirty ?? false;
+
+  // Load workspace history on mount; auto-open last workspace in Electron
+  useEffect(() => {
+    (async () => {
+      const recent = await storage.get('recentWorkspaces') || [];
+      setRecentWorkspaces(recent);
+
+      if (isElectronRuntime() && recent.length > 0) {
+        const last = recent[0];
+        try {
+          const entries = await fs.readDirectory(last.path);
+          setWorkspacePath(last.path);
+          setFileTree(entries);
+          claudeInstaller.installFrameSkills(last.path).catch(() => {});
+        } catch {
+          showToast(`Last workspace not found: ${last.name || last.path}`, 'warning');
+        }
+      }
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const updateRecentWorkspaces = useCallback(async (folderPath) => {
+    const name = folderPath.split(/[\\/]/).filter(Boolean).pop() || folderPath;
+    const entry = { path: folderPath, name, lastOpened: new Date().toISOString() };
+    const recent = await storage.get('recentWorkspaces') || [];
+    const deduped = recent.filter(r => r.path !== folderPath);
+    const updated = [entry, ...deduped].slice(0, 10);
+    await storage.set('recentWorkspaces', updated);
+    setRecentWorkspaces(updated);
+  }, []);
+
+  const clearRecentWorkspaces = useCallback(async () => {
+    await storage.set('recentWorkspaces', []);
+    setRecentWorkspaces([]);
+  }, []);
 
   const openFolder = useCallback(async () => {
     // Try native dialog first (Electron)
@@ -54,11 +100,14 @@ export function WorkspaceProvider({ children }) {
       showToast('Failed to read directory: ' + err.message, 'error');
     }
 
+    // Save to workspace history (fire-and-forget)
+    updateRecentWorkspaces(folderPath).catch(() => {});
+
     // Auto-install FRAME skills for Claude Code (fire-and-forget)
     claudeInstaller.installFrameSkills(folderPath).catch((err) => {
       console.warn('Claude skills install failed:', err);
     });
-  }, [showToast]);
+  }, [showToast, updateRecentWorkspaces]);
 
   const cancelFolderPicker = useCallback(() => {
     setShowFolderPicker(false);
@@ -240,6 +289,49 @@ export function WorkspaceProvider({ children }) {
     ));
   }, []);
 
+  const addFrontmatterTag = useCallback((tabId, key, tagValue) => {
+    setOpenTabs(prev => prev.map(t => {
+      if (t.id !== tabId) return t;
+      const existing = Array.isArray(t.frontmatter?.[key]) ? t.frontmatter[key] : [];
+      return { ...t, frontmatter: { ...t.frontmatter, [key]: [...existing, tagValue] }, isDirty: true };
+    }));
+  }, []);
+
+  const removeFrontmatterTag = useCallback((tabId, key, index) => {
+    setOpenTabs(prev => prev.map(t => {
+      if (t.id !== tabId) return t;
+      const existing = Array.isArray(t.frontmatter?.[key]) ? [...t.frontmatter[key]] : [];
+      existing.splice(index, 1);
+      return { ...t, frontmatter: { ...t.frontmatter, [key]: existing }, isDirty: true };
+    }));
+  }, []);
+
+  const updateFrontmatterTag = useCallback((tabId, key, index, newValue) => {
+    setOpenTabs(prev => prev.map(t => {
+      if (t.id !== tabId) return t;
+      const existing = Array.isArray(t.frontmatter?.[key]) ? [...t.frontmatter[key]] : [];
+      existing[index] = newValue;
+      return { ...t, frontmatter: { ...t.frontmatter, [key]: existing }, isDirty: true };
+    }));
+  }, []);
+
+  const extractFrontmatter = useCallback((rawContent) => {
+    const match = rawContent.match(FRONTMATTER_REGEX);
+    if (!match) return { frontmatter: null, frontmatterRaw: null, body: rawContent };
+
+    try {
+      const parsed = jsYaml.load(match[1]);
+      return {
+        frontmatter: typeof parsed === 'object' && parsed !== null ? parsed : null,
+        frontmatterRaw: match[1],
+        body: rawContent.slice(match[0].length),
+      };
+    } catch {
+      showToast('Malformed YAML frontmatter', 'warning');
+      return { frontmatter: null, frontmatterRaw: match[1], body: rawContent.slice(match[0].length) };
+    }
+  }, [showToast]);
+
   const openFile = useCallback(async (filePath, fileName) => {
     // Check if already open
     const existing = openTabs.find(t => t.path === filePath);
@@ -269,7 +361,8 @@ export function WorkspaceProvider({ children }) {
         scrollPosition: 0,
         frontmatter: null,
         frontmatterRaw: null,
-        frontmatterCollapsed: false,
+        diskContent: null,
+        frontmatterCollapsed: true,
       };
       setOpenTabs(prev => [...prev, newTab]);
       setActiveTabId(newTab.id);
@@ -314,7 +407,8 @@ export function WorkspaceProvider({ children }) {
         scrollPosition: 0,
         frontmatter,
         frontmatterRaw,
-        frontmatterCollapsed: false,
+        diskContent: content, // Raw content as read from disk, for change detection
+        frontmatterCollapsed: true,
       };
 
       setOpenTabs(prev => [...prev, newTab]);
@@ -395,13 +489,16 @@ export function WorkspaceProvider({ children }) {
 
     try {
       await fs.writeFile(activeTab.path, content);
-      setTabDirty(activeTab.id, false);
+      // Update diskContent so file watcher doesn't trigger on our own save
+      setOpenTabs(prev => prev.map(t =>
+        t.id === activeTab.id ? { ...t, isDirty: false, diskContent: content } : t
+      ));
       showToast('File saved', 'success');
     } catch (err) {
       console.error('Failed to save file:', err);
       showToast('Failed to save file: ' + err.message, 'error');
     }
-  }, [activeTab, setTabDirty, showToast]);
+  }, [activeTab, showToast]);
 
   const createNewFile = useCallback(async (parentPath, name) => {
     const filePath = parentPath + '/' + name;
@@ -454,6 +551,88 @@ export function WorkspaceProvider({ children }) {
     }
   }, [workspacePath, refreshDirectory, showToast]);
 
+  // Helper: apply a fresh file content to a tab (parse frontmatter, reset dirty)
+  const applyFreshContent = useCallback((tab, fresh) => {
+    const isMarkdown = tab.name.endsWith('.md') || tab.name.endsWith('.markdown');
+    let frontmatter = null, frontmatterRaw = null, bodyContent = fresh;
+    if (isMarkdown && typeof fresh === 'string') {
+      const fm = extractFrontmatter(fresh);
+      frontmatter = fm.frontmatter;
+      frontmatterRaw = fm.frontmatterRaw;
+      bodyContent = fm.body;
+    }
+    return { content: bodyContent, tiptapJSON: null, isDirty: false, diskContent: fresh, frontmatter, frontmatterRaw };
+  }, [extractFrontmatter]);
+
+  // Electron: use native directory watcher
+  useEffect(() => {
+    if (!window.electronAPI || !workspacePath) return;
+
+    fs.watchDirectory(workspacePath);
+
+    const cleanup = fs.onDirectoryChanged(async ({ filename }) => {
+      if (!filename) return;
+      const fullPath = workspacePath + '/' + filename.replace(/\\/g, '/');
+      const tab = openTabsRef.current.find(t => t.path === fullPath);
+      if (!tab || tab.isMedia) return;
+
+      try {
+        const fresh = await fs.readFile(fullPath);
+        if (fresh === tab.diskContent) return;
+
+        if (tab.isDirty) {
+          showToast(`"${tab.name}" changed on disk (unsaved changes preserved)`, 'warning');
+          setOpenTabs(prev => prev.map(t => t.id === tab.id ? { ...t, diskContent: fresh } : t));
+        } else {
+          const updates = applyFreshContent(tab, fresh);
+          setOpenTabs(prev => prev.map(t =>
+            t.id === tab.id ? { ...t, ...updates, reloadKey: (t.reloadKey || 0) + 1 } : t
+          ));
+        }
+      } catch { /* file may be temporarily inaccessible */ }
+    });
+
+    return cleanup;
+  }, [workspacePath, showToast, applyFreshContent]);
+
+  // Browser: poll open files every 5 seconds for external changes
+  useEffect(() => {
+    if (window.electronAPI || !workspacePath) return;
+
+    const id = setInterval(async () => {
+      const tabs = openTabsRef.current;
+      const reloads = [];
+      const warnings = [];
+
+      for (const tab of tabs) {
+        if (tab.isMedia || !tab.diskContent) continue;
+        try {
+          const fresh = await fs.readFile(tab.path);
+          if (fresh === tab.diskContent) continue;
+
+          if (tab.isDirty) {
+            warnings.push({ id: tab.id, name: tab.name, diskContent: fresh });
+          } else {
+            reloads.push({ tab, fresh });
+          }
+        } catch { /* ignore read errors */ }
+      }
+
+      if (reloads.length > 0 || warnings.length > 0) {
+        setOpenTabs(prev => prev.map(t => {
+          const reload = reloads.find(r => r.tab.id === t.id);
+          if (reload) return { ...t, ...applyFreshContent(reload.tab, reload.fresh), reloadKey: (t.reloadKey || 0) + 1 };
+          const warn = warnings.find(w => w.id === t.id);
+          if (warn) return { ...t, diskContent: warn.diskContent };
+          return t;
+        }));
+        warnings.forEach(w => showToast(`"${w.name}" changed on disk (unsaved changes preserved)`, 'warning'));
+      }
+    }, 5000);
+
+    return () => clearInterval(id);
+  }, [workspacePath, showToast, applyFreshContent]);
+
   const value = {
     workspacePath,
     fileTree,
@@ -461,9 +640,11 @@ export function WorkspaceProvider({ children }) {
     isDirty,
     expandedFolders,
     showFolderPicker,
+    recentWorkspaces,
     openFolder,
     selectFolder,
     cancelFolderPicker,
+    clearRecentWorkspaces,
     openFile,
     saveFile,
     setIsDirty,
@@ -484,12 +665,18 @@ export function WorkspaceProvider({ children }) {
     setTabDirty,
     snapshotTab,
     reloadTabFromDisk,
+    // Git status
+    gitChangeCount,
+    updateGitChangeCount,
     // Frontmatter functions
     updateFrontmatter,
     addFrontmatterProperty,
     removeFrontmatterProperty,
     renameFrontmatterKey,
     toggleFrontmatterCollapsed,
+    addFrontmatterTag,
+    removeFrontmatterTag,
+    updateFrontmatterTag,
   };
 
   return (

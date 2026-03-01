@@ -26,6 +26,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     searchFiles: (dirPath, query, options) => ipcRenderer.invoke('search-files', dirPath, query, options),
     listFilesRecursive: (dirPath, limit) => ipcRenderer.invoke('list-files-recursive', dirPath, limit),
 
+    // Storage
+    storageGet: (key) => ipcRenderer.invoke('storage-get', key),
+    storageSet: (key, value) => ipcRenderer.invoke('storage-set', key, value),
+
     // Git
     gitStatus: (dirPath) => ipcRenderer.invoke('git-status', dirPath),
     gitDiff: (dirPath, file, staged) => ipcRenderer.invoke('git-diff', dirPath, file, staged),

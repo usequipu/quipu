@@ -39,7 +39,7 @@ const STATUS_COLORS = {
 };
 
 function SourceControlPanel({ onOpenDiff }) {
-  const { workspacePath } = useWorkspace();
+  const { workspacePath, updateGitChangeCount } = useWorkspace();
   const { showToast } = useToast();
 
   const [isLoading, setIsLoading] = useState(false);
@@ -66,10 +66,14 @@ function SourceControlPanel({ onOpenDiff }) {
 
     try {
       const status = await gitService.status(workspacePath);
-      setStaged(status.staged || []);
-      setUnstaged(status.unstaged || []);
-      setUntracked(status.untracked || []);
+      const newStaged = status.staged || [];
+      const newUnstaged = status.unstaged || [];
+      const newUntracked = status.untracked || [];
+      setStaged(newStaged);
+      setUnstaged(newUnstaged);
+      setUntracked(newUntracked);
       setIsGitRepo(true);
+      updateGitChangeCount(newStaged.length + newUnstaged.length + newUntracked.length);
     } catch (err) {
       const msg = err.message || '';
       if (msg.includes('not a git repository')) {
@@ -77,9 +81,10 @@ function SourceControlPanel({ onOpenDiff }) {
         setStaged([]);
         setUnstaged([]);
         setUntracked([]);
+        updateGitChangeCount(0);
       }
     }
-  }, [workspacePath]);
+  }, [workspacePath, updateGitChangeCount]);
 
   const fetchBranches = useCallback(async () => {
     if (!workspacePath) return;

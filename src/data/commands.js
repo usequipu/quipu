@@ -47,6 +47,7 @@ export const menus = [
     items: [
       commands.find(c => c.action === 'file.new'),
       commands.find(c => c.action === 'file.openFolder'),
+      { type: 'openRecent' },
       sep,
       commands.find(c => c.action === 'file.save'),
       sep,

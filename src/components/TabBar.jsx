@@ -25,7 +25,7 @@ export default function TabBar() {
                     <div
                         key={tab.id}
                         className={cn(
-                            "group flex items-center gap-1.5 px-3",
+                            "group/tab flex items-center gap-1.5 px-3",
                             "cursor-pointer border-r border-border whitespace-nowrap",
                             "text-[13px] text-text-primary opacity-70",
                             "min-w-0 shrink-0 relative",
@@ -42,28 +42,45 @@ export default function TabBar() {
                         <span className="overflow-hidden text-ellipsis max-w-[150px] font-sans">
                             {tab.name}
                         </span>
-                        {tab.isDirty && (
-                            <CircleIcon
-                                weight="fill"
-                                size={8}
-                                className="shrink-0 text-accent"
-                                aria-label="unsaved changes"
-                            />
-                        )}
-                        <button
-                            className={cn(
-                                "bg-transparent border-none text-text-primary",
-                                "cursor-pointer px-0.5 rounded-sm leading-none shrink-0",
-                                "opacity-0 group-hover:opacity-60",
-                                "hover:!opacity-100 hover:bg-white/10",
-                                "transition-opacity",
-                                isActive && "opacity-60",
+                        <div className="w-4 h-4 flex items-center justify-center flex-shrink-0">
+                            {tab.isDirty ? (
+                                <>
+                                    <CircleIcon
+                                        weight="fill"
+                                        size={8}
+                                        className="text-accent group-hover/tab:hidden"
+                                        aria-label="unsaved changes"
+                                    />
+                                    <button
+                                        className={cn(
+                                            "hidden group-hover/tab:flex items-center justify-center",
+                                            "bg-transparent border-none text-text-primary",
+                                            "cursor-pointer px-0.5 rounded-sm leading-none",
+                                            "opacity-60 hover:!opacity-100 hover:bg-white/10",
+                                        )}
+                                        onClick={(e) => handleClose(e, tab.id)}
+                                        aria-label={`Close ${tab.name}`}
+                                    >
+                                        <XIcon size={14} />
+                                    </button>
+                                </>
+                            ) : (
+                                <button
+                                    className={cn(
+                                        "bg-transparent border-none text-text-primary",
+                                        "cursor-pointer px-0.5 rounded-sm leading-none",
+                                        "opacity-0 group-hover/tab:opacity-60",
+                                        "hover:!opacity-100 hover:bg-white/10",
+                                        "transition-opacity",
+                                        isActive && "opacity-60",
+                                    )}
+                                    onClick={(e) => handleClose(e, tab.id)}
+                                    aria-label={`Close ${tab.name}`}
+                                >
+                                    <XIcon size={14} />
+                                </button>
                             )}
-                            onClick={(e) => handleClose(e, tab.id)}
-                            aria-label={`Close ${tab.name}`}
-                        >
-                            <XIcon size={14} />
-                        </button>
+                        </div>
                     </div>
                 );
             })}

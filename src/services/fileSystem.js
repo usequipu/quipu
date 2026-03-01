@@ -114,7 +114,8 @@ const browserFS = {
 
   getFileUrl: (filePath) => `${GO_SERVER}/file?path=${encodeURIComponent(filePath)}`,
 
-  watchDirectory: () => Promise.resolve(),
+  watchDirectory: async () => null,
+
   onDirectoryChanged: () => {
     return () => {};
   },
