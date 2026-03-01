@@ -1,0 +1,87 @@
+@import "tailwindcss" layer(utilities);
+
+@theme {
+  /* Background layers (light) */
+  --color-bg-base: #f0f0f0;
+  --color-bg-surface: #ffffff;
+  --color-bg-elevated: #f5f5f5;
+  --color-bg-overlay: #e8e8e8;
+
+  /* Text */
+  --color-text-primary: #1e1e1e;
+  --color-text-secondary: #616161;
+  --color-text-tertiary: #9e9e9e;
+
+  /* Accent - terracotta/clay */
+  --color-accent: #c4835a;
+  --color-accent-hover: #b57348;
+  --color-accent-muted: #f5e6d8;
+
+  /* Borders */
+  --color-border: #e0e0e0;
+  --color-border-focus: #c4835a;
+
+  /* Editor page (matches surface for full-bleed) */
+  --color-page-bg: #ffffff;
+  --color-page-text: #1e1e1e;
+  --color-page-border: #e0e0e0;
+
+  /* Semantic */
+  --color-success: #2ea043;
+  --color-warning: #bf8700;
+  --color-error: #cf222e;
+  --color-info: #0969da;
+
+  /* Git status */
+  --color-git-modified: #bf8700;
+  --color-git-added: #2ea043;
+  --color-git-deleted: #cf222e;
+  --color-git-renamed: #0969da;
+  --color-git-untracked: #9e9e9e;
+
+  /* Fonts */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Animations */
+  --animate-toast-in: toast-slide-in 0.3s ease-out;
+  --animate-toast-out: toast-slide-out 0.2s ease-in forwards;
+  --animate-menu-fade-in: menu-fade-in 0.1s ease;
+}
+
+@keyframes toast-slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes toast-slide-out {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(100%); opacity: 0; }
+}
+
+@keyframes menu-fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* RevealMarkdown decoration styles.
+   ProseMirror decorations use DOM API, so Tailwind utilities can't be applied
+   directly. These are thin component classes. */
+.reveal-syntax {
+  color: var(--color-accent);
+  opacity: 0.45;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  user-select: none;
+  pointer-events: none;
+}
+
+.reveal-prefix {
+  margin-right: 2px;
+}
+
+.reveal-fence {
+  display: block;
+  margin: 4px 0;
+  font-size: 0.8em;
+}

@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { IconContext } from '@phosphor-icons/react';
+import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
 import Editor from './components/Editor';
 import Terminal from './components/Terminal';
 import FileExplorer from './components/FileExplorer';
@@ -8,23 +10,55 @@ import ActivityBar from './components/ActivityBar';
 import SearchPanel from './components/SearchPanel';
 import SourceControlPanel from './components/SourceControlPanel';
 import QuickOpen from './components/QuickOpen';
+import TitleBar from './components/TitleBar';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { ToastProvider } from './components/Toast';
-import './App.css';
 
 function AppContent() {
   const [editorInstance, setEditorInstance] = useState(null);
   const terminalRef = React.useRef(null);
   const {
-    activeFile, isDirty, saveFile, setIsDirty, showFolderPicker, selectFolder, cancelFolderPicker,
+    activeFile, saveFile, setIsDirty, showFolderPicker, selectFolder, cancelFolderPicker,
     activeTabId, activeTab, snapshotTab, openTabs, closeTab, switchTab,
+    updateFrontmatter, addFrontmatterProperty, removeFrontmatterProperty,
+    renameFrontmatterKey, toggleFrontmatterCollapsed,
   } = useWorkspace();
   const [activePanel, setActivePanel] = useState('explorer');
   const [isQuickOpenVisible, setIsQuickOpenVisible] = useState(false);
+  const sidePanelRef = usePanelRef();
+  const terminalPanelRef = usePanelRef();
 
   const handlePanelToggle = useCallback((panelId) => {
-    setActivePanel(prev => prev === panelId ? null : panelId);
-  }, []);
+    const isCollapsed = sidePanelRef.current?.isCollapsed();
+    if (isCollapsed) {
+      setActivePanel(panelId);
+      sidePanelRef.current?.expand();
+    } else if (activePanel === panelId) {
+      setActivePanel(null);
+      sidePanelRef.current?.collapse();
+    } else {
+      setActivePanel(panelId);
+    }
+  }, [activePanel, sidePanelRef]);
+
+  const handleToggleSidebar = useCallback(() => {
+    const isCollapsed = sidePanelRef.current?.isCollapsed();
+    if (isCollapsed) {
+      sidePanelRef.current?.expand();
+      setActivePanel(prev => prev || 'explorer');
+    } else {
+      sidePanelRef.current?.collapse();
+      setActivePanel(null);
+    }
+  }, [sidePanelRef]);
+
+  const handleToggleTerminal = useCallback(() => {
+    if (terminalPanelRef.current?.isCollapsed()) {
+      terminalPanelRef.current.expand();
+    } else {
+      terminalPanelRef.current?.collapse();
+    }
+  }, [terminalPanelRef]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -37,7 +71,7 @@ function AppContent() {
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
         e.preventDefault();
-        setActivePanel(prev => prev ? null : 'explorer');
+        handleToggleSidebar();
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
         e.preventDefault();
@@ -61,15 +95,29 @@ function AppContent() {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'F') {
         e.preventDefault();
         setActivePanel('search');
+        if (sidePanelRef.current?.isCollapsed()) {
+          sidePanelRef.current?.expand();
+        }
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
         e.preventDefault();
         setIsQuickOpenVisible(prev => !prev);
       }
+      if ((e.ctrlKey || e.metaKey) && e.key === '`') {
+        e.preventDefault();
+        handleToggleTerminal();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'Enter') {
+        e.preventDefault();
+        if (terminalPanelRef.current?.isCollapsed()) {
+          terminalPanelRef.current.expand();
+        }
+        handleSendToTerminal();
+      }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [editorInstance, activeFile, saveFile, activeTabId, openTabs, closeTab, switchTab]);
+  }, [editorInstance, activeFile, saveFile, activeTabId, openTabs, closeTab, switchTab, handleToggleSidebar, handleToggleTerminal, sidePanelRef, terminalPanelRef]);
 
   const handleSendToTerminal = () => {
     if (!editorInstance) return;
@@ -120,70 +168,120 @@ function AppContent() {
     }
   }, [activeFile, setIsDirty]);
 
+  const handleMenuAction = useCallback((action) => {
+    switch (action) {
+      case 'file.save':
+        if (editorInstance && activeFile) saveFile(editorInstance);
+        break;
+      case 'file.closeTab':
+        if (activeTabId) closeTab(activeTabId);
+        break;
+      case 'edit.undo':
+        editorInstance?.commands.undo();
+        break;
+      case 'edit.redo':
+        editorInstance?.commands.redo();
+        break;
+      case 'edit.findInFiles':
+      case 'view.search':
+        setActivePanel('search');
+        if (sidePanelRef.current?.isCollapsed()) sidePanelRef.current?.expand();
+        break;
+      case 'view.explorer':
+        handlePanelToggle('explorer');
+        break;
+      case 'view.git':
+        handlePanelToggle('git');
+        break;
+      case 'view.toggleSidebar':
+        handleToggleSidebar();
+        break;
+      case 'view.toggleTerminal':
+      case 'terminal.toggle':
+        handleToggleTerminal();
+        break;
+      case 'view.quickOpen':
+        setIsQuickOpenVisible(true);
+        break;
+      case 'terminal.send':
+        handleSendToTerminal();
+        break;
+    }
+  }, [editorInstance, activeFile, saveFile, activeTabId, closeTab, sidePanelRef, handlePanelToggle, handleToggleSidebar, handleToggleTerminal]);
+
   // Build title
-  let title = 'Quipu Simple';
+  let title = 'Quipu';
   if (activeFile) {
-    title = activeFile.name + (isDirty ? ' \u2022' : '');
+    title = activeFile.name;
   }
 
   return (
-    <div className="app-container">
+    <div className="flex flex-col h-screen w-screen">
       {showFolderPicker && (
         <FolderPicker onSelect={selectFolder} onCancel={cancelFolderPicker} />
       )}
       <QuickOpen isOpen={isQuickOpenVisible} onClose={() => setIsQuickOpenVisible(false)} />
-      <ActivityBar activePanel={activePanel} onPanelToggle={handlePanelToggle} />
-      {activePanel && (
-        <div className="side-panel">
-          {activePanel === 'explorer' && <FileExplorer />}
-          {activePanel === 'search' && <SearchPanel />}
-          {activePanel === 'git' && <SourceControlPanel />}
-        </div>
-      )}
-      <div className="main-area">
-        <div className="editor-pane">
-          <div className="editor-header">
-            <div className="header-left">
-              <button
-                className="sidebar-toggle"
-                onClick={() => setActivePanel(prev => prev ? null : 'explorer')}
-                title="Toggle sidebar (Ctrl+B)"
-              >
-                {'\u2630'}
-              </button>
-              <span className="window-title">{title}</span>
-            </div>
-            <div className="header-right">
-              {activeFile && isDirty && (
-                <button className="save-btn" onClick={() => saveFile(editorInstance)}>
-                  Save
-                </button>
-              )}
-              {activeFile && (
-                <button className="send-btn" onClick={handleSendToTerminal}>Send to Terminal</button>
-              )}
-            </div>
+      <TitleBar title={title} onAction={handleMenuAction} />
+      <div className="flex flex-row flex-1 overflow-hidden">
+        <ActivityBar activePanel={activePanel} onPanelToggle={handlePanelToggle} />
+        <Group orientation="horizontal" style={{ flex: 1, overflow: 'hidden' }}>
+        <Panel
+          panelRef={sidePanelRef}
+          collapsible
+          collapsedSize={0}
+          minSize={200}
+          maxSize={400}
+          defaultSize={250}
+        >
+          <div className="h-full overflow-hidden flex flex-col bg-bg-surface">
+            {activePanel === 'explorer' && <FileExplorer />}
+            {activePanel === 'search' && <SearchPanel activePanel={activePanel} />}
+            {activePanel === 'git' && <SourceControlPanel />}
           </div>
-          <TabBar />
-          {activeFile ? (
-            <Editor
-              onEditorReady={handleEditorReady}
-              onContentChange={handleContentChange}
-              activeFile={activeFile}
-              activeTabId={activeTabId}
-              activeTab={activeTab}
-              snapshotTab={snapshotTab}
-            />
-          ) : (
-            <div className="welcome-screen">
-              <div className="welcome-message">Open a file to start editing</div>
-              <div className="welcome-hint">Use the Explorer or press Ctrl+P</div>
-            </div>
-          )}
-        </div>
-        <div className="terminal-pane">
-          <Terminal ref={terminalRef} />
-        </div>
+        </Panel>
+        <Separator className="shrink-0 w-0 cursor-col-resize bg-transparent" style={{ WebkitAppRegion: 'no-drag' }} />
+        <Panel>
+          <Group orientation="vertical" style={{ height: '100%' }}>
+            <Panel minSize={100}>
+              <div className="h-full flex flex-col overflow-hidden relative">
+                <TabBar />
+                {activeFile ? (
+                  <Editor
+                    onEditorReady={handleEditorReady}
+                    onContentChange={handleContentChange}
+                    activeFile={activeFile}
+                    activeTabId={activeTabId}
+                    activeTab={activeTab}
+                    snapshotTab={snapshotTab}
+                    updateFrontmatter={updateFrontmatter}
+                    addFrontmatterProperty={addFrontmatterProperty}
+                    removeFrontmatterProperty={removeFrontmatterProperty}
+                    renameFrontmatterKey={renameFrontmatterKey}
+                    toggleFrontmatterCollapsed={toggleFrontmatterCollapsed}
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full w-full bg-bg-surface">
+                    <div className="text-xl text-text-primary opacity-50 mb-2">Open a file to start editing</div>
+                    <div className="text-sm text-text-primary opacity-35 italic">Use the Explorer or press Ctrl+P</div>
+                  </div>
+                )}
+              </div>
+            </Panel>
+            <Separator className="shrink-0 h-px cursor-row-resize bg-border transition-colors hover:bg-accent/50 active:bg-accent" style={{ WebkitAppRegion: 'no-drag' }} />
+            <Panel
+              panelRef={terminalPanelRef}
+              collapsible
+              collapsedSize={0}
+              minSize={100}
+              defaultSize={300}
+            >
+              <div className="h-full bg-bg-base">
+                <Terminal ref={terminalRef} />
+              </div>
+            </Panel>
+          </Group>
+        </Panel>
+      </Group>
       </div>
     </div>
   );
@@ -191,11 +289,13 @@ function AppContent() {
 
 function App() {
   return (
-    <ToastProvider>
-      <WorkspaceProvider>
-        <AppContent />
-      </WorkspaceProvider>
-    </ToastProvider>
+    <IconContext.Provider value={{ color: "currentColor", weight: "regular", size: 16 }}>
+      <ToastProvider>
+        <WorkspaceProvider>
+          <AppContent />
+        </WorkspaceProvider>
+      </ToastProvider>
+    </IconContext.Provider>
   );
 }
 
