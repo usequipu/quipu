@@ -1,7 +1,7 @@
 ---
 title: "feat: Search Result Click Highlight with Sigmoid Fade Animation"
 type: feat
-status: active
+status: done
 date: 2026-03-01
 ---
 
@@ -38,11 +38,11 @@ Currently, clicking a search result (`SearchPanel.jsx:89-95`) opens the file but
 
 ## Acceptance Criteria
 
-- [ ] Clicking a search result line opens the file AND scrolls to the matched line
-- [ ] The matched line gets a visible highlight (accent-colored background)
-- [ ] Highlight fades out over ~2 seconds with a sigmoid/smooth easing curve
-- [ ] Multiple rapid clicks reset the animation (don't stack highlights)
-- [ ] Works with all three themes (light, dark, tinted)
+- [x] Clicking a search result line opens the file AND scrolls to the matched line
+- [x] The matched line gets a visible highlight (accent-colored background)
+- [x] Highlight fades out over ~2 seconds with a sigmoid/smooth easing curve
+- [x] Multiple rapid clicks reset the animation (don't stack highlights)
+- [x] Works with all three themes (light, dark, tinted)
 
 ## Success Metrics
 

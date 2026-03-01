@@ -1,3 +1,5 @@
+@import 'highlight.js/styles/github.css';
+
 /* ProseMirror / TipTap editor styles */
 /* These stay as plain CSS because TipTap generates its own DOM.
    Tailwind v4 preflight resets all element styles, so we must restore
