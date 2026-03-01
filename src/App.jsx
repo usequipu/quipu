@@ -26,7 +26,9 @@ function AppContent() {
     activeFile, saveFile, setIsDirty, showFolderPicker, selectFolder, cancelFolderPicker,
     activeTabId, activeTab, snapshotTab, openTabs, closeTab, switchTab,
     updateFrontmatter, addFrontmatterProperty, removeFrontmatterProperty,
-    renameFrontmatterKey, toggleFrontmatterCollapsed, workspacePath,
+    renameFrontmatterKey, toggleFrontmatterCollapsed,
+    addFrontmatterTag, removeFrontmatterTag, updateFrontmatterTag,
+    workspacePath,
   } = useWorkspace();
   const { showToast } = useToast();
   const [activePanel, setActivePanel] = useState('explorer');
@@ -406,6 +408,9 @@ function AppContent() {
                       removeFrontmatterProperty={removeFrontmatterProperty}
                       renameFrontmatterKey={renameFrontmatterKey}
                       toggleFrontmatterCollapsed={toggleFrontmatterCollapsed}
+                      addFrontmatterTag={addFrontmatterTag}
+                      removeFrontmatterTag={removeFrontmatterTag}
+                      updateFrontmatterTag={updateFrontmatterTag}
                     />
                   )
                 ) : (

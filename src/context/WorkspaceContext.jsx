@@ -163,6 +163,32 @@ export function WorkspaceProvider({ children }) {
     ));
   }, []);
 
+  const addFrontmatterTag = useCallback((tabId, key, tagValue) => {
+    setOpenTabs(prev => prev.map(t => {
+      if (t.id !== tabId) return t;
+      const existing = Array.isArray(t.frontmatter?.[key]) ? t.frontmatter[key] : [];
+      return { ...t, frontmatter: { ...t.frontmatter, [key]: [...existing, tagValue] }, isDirty: true };
+    }));
+  }, []);
+
+  const removeFrontmatterTag = useCallback((tabId, key, index) => {
+    setOpenTabs(prev => prev.map(t => {
+      if (t.id !== tabId) return t;
+      const existing = Array.isArray(t.frontmatter?.[key]) ? [...t.frontmatter[key]] : [];
+      existing.splice(index, 1);
+      return { ...t, frontmatter: { ...t.frontmatter, [key]: existing }, isDirty: true };
+    }));
+  }, []);
+
+  const updateFrontmatterTag = useCallback((tabId, key, index, newValue) => {
+    setOpenTabs(prev => prev.map(t => {
+      if (t.id !== tabId) return t;
+      const existing = Array.isArray(t.frontmatter?.[key]) ? [...t.frontmatter[key]] : [];
+      existing[index] = newValue;
+      return { ...t, frontmatter: { ...t.frontmatter, [key]: existing }, isDirty: true };
+    }));
+  }, []);
+
   const extractFrontmatter = useCallback((rawContent) => {
     const match = rawContent.match(FRONTMATTER_REGEX);
     if (!match) return { frontmatter: null, frontmatterRaw: null, body: rawContent };
@@ -209,7 +235,7 @@ export function WorkspaceProvider({ children }) {
         scrollPosition: 0,
         frontmatter: null,
         frontmatterRaw: null,
-        frontmatterCollapsed: false,
+        frontmatterCollapsed: true,
       };
       setOpenTabs(prev => [...prev, newTab]);
       setActiveTabId(newTab.id);
@@ -254,7 +280,7 @@ export function WorkspaceProvider({ children }) {
         scrollPosition: 0,
         frontmatter,
         frontmatterRaw,
-        frontmatterCollapsed: false,
+        frontmatterCollapsed: true,
       };
 
       setOpenTabs(prev => [...prev, newTab]);
@@ -429,6 +455,9 @@ export function WorkspaceProvider({ children }) {
     removeFrontmatterProperty,
     renameFrontmatterKey,
     toggleFrontmatterCollapsed,
+    addFrontmatterTag,
+    removeFrontmatterTag,
+    updateFrontmatterTag,
   };
 
   return (
