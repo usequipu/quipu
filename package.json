@@ -85,6 +85,12 @@
     "win": {
       "target": [
         {
+          "target": "msi",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
           "target": "nsis",
           "arch": [
             "x64"
@@ -96,7 +102,22 @@
             "x64"
           ]
         }
+      ],
+      "fileAssociations": [
+        {
+          "ext": "quipu",
+          "name": "Quipu Document",
+          "description": "Quipu rich text document",
+          "role": "Editor"
+        }
       ]
+    },
+    "msi": {
+      "oneClick": false,
+      "perMachine": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Quipu"
     },
     "nsis": {
       "oneClick": false,

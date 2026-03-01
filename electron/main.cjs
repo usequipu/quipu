@@ -16,6 +16,24 @@ try {
 
 const HIDDEN_DIRS = new Set(['.git']);
 
+// Storage: simple JSON file in app userData directory
+function getStorageFile() {
+    return path.join(app.getPath('userData'), 'quipu-state.json');
+}
+
+function readStorage() {
+    try {
+        const data = fs.readFileSync(getStorageFile(), 'utf-8');
+        return JSON.parse(data);
+    } catch {
+        return {};
+    }
+}
+
+function writeStorage(data) {
+    fs.writeFileSync(getStorageFile(), JSON.stringify(data, null, 2), 'utf-8');
+}
+
 let mainWindow;
 let ptyProcess;
 
@@ -64,6 +82,18 @@ app.whenReady().then(() => {
         }
         // Return null — the renderer will use its built-in folder picker
         return null;
+    });
+
+    ipcMain.handle('storage-get', (event, key) => {
+        const store = readStorage();
+        return store[key] ?? null;
+    });
+
+    ipcMain.handle('storage-set', (event, key, value) => {
+        const store = readStorage();
+        store[key] = value;
+        writeStorage(store);
+        return { success: true };
     });
 
     ipcMain.handle('get-home-dir', async () => {

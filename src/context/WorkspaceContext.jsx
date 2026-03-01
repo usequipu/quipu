@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import jsYaml from 'js-yaml';
 import fs from '../services/fileSystem';
 import claudeInstaller from '../services/claudeInstaller';
+import storage, { isElectronRuntime } from '../services/storageService';
 import { useToast } from '../components/Toast';
 
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
@@ -18,6 +19,7 @@ export function WorkspaceProvider({ children }) {
   const [activeTabId, setActiveTabId] = useState(null);
   const [expandedFolders, setExpandedFolders] = useState(new Set());
   const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const [recentWorkspaces, setRecentWorkspaces] = useState([]);
 
   // Derived values (computed, not useState)
   const activeTab = openTabs.find(t => t.id === activeTabId) || null;
@@ -28,6 +30,41 @@ export function WorkspaceProvider({ children }) {
     isQuipu: activeTab.isQuipu,
   } : null;
   const isDirty = activeTab?.isDirty ?? false;
+
+  // Load workspace history on mount; auto-open last workspace in Electron
+  useEffect(() => {
+    (async () => {
+      const recent = await storage.get('recentWorkspaces') || [];
+      setRecentWorkspaces(recent);
+
+      if (isElectronRuntime() && recent.length > 0) {
+        const last = recent[0];
+        try {
+          const entries = await fs.readDirectory(last.path);
+          setWorkspacePath(last.path);
+          setFileTree(entries);
+          claudeInstaller.installFrameSkills(last.path).catch(() => {});
+        } catch {
+          showToast(`Last workspace not found: ${last.name || last.path}`, 'warning');
+        }
+      }
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const updateRecentWorkspaces = useCallback(async (folderPath) => {
+    const name = folderPath.split(/[\\/]/).filter(Boolean).pop() || folderPath;
+    const entry = { path: folderPath, name, lastOpened: new Date().toISOString() };
+    const recent = await storage.get('recentWorkspaces') || [];
+    const deduped = recent.filter(r => r.path !== folderPath);
+    const updated = [entry, ...deduped].slice(0, 10);
+    await storage.set('recentWorkspaces', updated);
+    setRecentWorkspaces(updated);
+  }, []);
+
+  const clearRecentWorkspaces = useCallback(async () => {
+    await storage.set('recentWorkspaces', []);
+    setRecentWorkspaces([]);
+  }, []);
 
   const openFolder = useCallback(async () => {
     // Try native dialog first (Electron)
@@ -54,11 +91,14 @@ export function WorkspaceProvider({ children }) {
       showToast('Failed to read directory: ' + err.message, 'error');
     }
 
+    // Save to workspace history (fire-and-forget)
+    updateRecentWorkspaces(folderPath).catch(() => {});
+
     // Auto-install FRAME skills for Claude Code (fire-and-forget)
     claudeInstaller.installFrameSkills(folderPath).catch((err) => {
       console.warn('Claude skills install failed:', err);
     });
-  }, [showToast]);
+  }, [showToast, updateRecentWorkspaces]);
 
   const cancelFolderPicker = useCallback(() => {
     setShowFolderPicker(false);
@@ -401,9 +441,11 @@ export function WorkspaceProvider({ children }) {
     isDirty,
     expandedFolders,
     showFolderPicker,
+    recentWorkspaces,
     openFolder,
     selectFolder,
     cancelFolderPicker,
+    clearRecentWorkspaces,
     openFile,
     saveFile,
     setIsDirty,
