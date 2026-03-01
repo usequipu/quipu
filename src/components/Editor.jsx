@@ -200,7 +200,7 @@ const Editor = ({
         }
     }, [editor, onEditorReady]);
 
-    // Load content when active tab changes
+    // Load content when active tab changes or is externally reloaded
     useEffect(() => {
         if (!editor) return;
         if (!activeFile || !activeTabId) {
@@ -208,23 +208,28 @@ const Editor = ({
             editor.commands.setContent('', { emitUpdate: false });
             return;
         }
-        if (loadedTabRef.current === activeTabId) return;
 
-        // Snapshot previous tab before switching
-        if (loadedTabRef.current && snapshotTab) {
-            snapshotTab(loadedTabRef.current, editor.getJSON(), 0);
+        // Compound key: tabId + reloadKey ensures external reloads re-run this effect
+        const tabKey = `${activeTabId}:${activeTab?.reloadKey ?? 0}`;
+        if (loadedTabRef.current === tabKey) return;
+
+        // Snapshot previous tab before switching (not on reload of same tab)
+        const prevTabId = loadedTabRef.current ? loadedTabRef.current.split(':')[0] : null;
+        if (prevTabId && prevTabId !== activeTabId && snapshotTab) {
+            snapshotTab(prevTabId, editor.getJSON(), 0);
         }
 
-        loadedTabRef.current = activeTabId;
+        loadedTabRef.current = tabKey;
 
         // If tab has a tiptapJSON snapshot, use it (returning to a previously viewed tab)
+        // Skip snapshot on external reload (tiptapJSON is null after reload)
         if (activeTab && activeTab.tiptapJSON) {
             editor.commands.setContent(activeTab.tiptapJSON, { emitUpdate: false });
             extractComments(editor);
             return;
         }
 
-        // Otherwise load from file content (first time opening this tab)
+        // Otherwise load from file content (first time opening this tab, or after external reload)
         if (activeFile.isQuipu && typeof activeFile.content === 'object') {
             // Quipu format - load TipTap JSON directly
             editor.commands.setContent(activeFile.content, { emitUpdate: false });

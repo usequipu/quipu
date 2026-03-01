@@ -37,6 +37,7 @@ const electronFS = {
   renamePath: (oldPath, newPath) => window.electronAPI.renamePath(oldPath, newPath),
   deletePath: (targetPath) => window.electronAPI.deletePath(targetPath),
   getFileUrl: (filePath) => `file://${filePath}`,
+  watchDirectory: (dirPath) => window.electronAPI.watchDirectory(dirPath),
   onDirectoryChanged: (callback) => {
     window.electronAPI.onDirectoryChanged(callback);
     return () => window.electronAPI.removeDirectoryListener();
@@ -112,6 +113,8 @@ const browserFS = {
   },
 
   getFileUrl: (filePath) => `${GO_SERVER}/file?path=${encodeURIComponent(filePath)}`,
+
+  watchDirectory: async () => null,
 
   onDirectoryChanged: () => {
     return () => {};
