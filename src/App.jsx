@@ -3,6 +3,7 @@ import { IconContext } from '@phosphor-icons/react';
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
 import Editor from './components/Editor';
 import MediaViewer from './components/MediaViewer';
+import CodeViewer from './components/CodeViewer';
 import Terminal from './components/Terminal';
 import FileExplorer from './components/FileExplorer';
 import FolderPicker from './components/FolderPicker';
@@ -15,6 +16,7 @@ import TitleBar from './components/TitleBar';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { ToastProvider, useToast } from './components/Toast';
 import frameService from './services/frameService.js';
+import { isCodeFile } from './utils/fileTypes';
 
 function AppContent() {
   const [editorInstance, setEditorInstance] = useState(null);
@@ -365,21 +367,23 @@ function AppContent() {
                 {activeFile ? (
                   activeTab?.isMedia ? (
                     <MediaViewer filePath={activeTab.path} fileName={activeTab.name} />
+                  ) : isCodeFile(activeFile.name) && !activeFile.isQuipu ? (
+                    <CodeViewer content={activeFile.content} fileName={activeFile.name} />
                   ) : (
-                  <Editor
-                    onEditorReady={handleEditorReady}
-                    onContentChange={handleContentChange}
-                    activeFile={activeFile}
-                    activeTabId={activeTabId}
-                    activeTab={activeTab}
-                    snapshotTab={snapshotTab}
-                    workspacePath={workspacePath}
-                    updateFrontmatter={updateFrontmatter}
-                    addFrontmatterProperty={addFrontmatterProperty}
-                    removeFrontmatterProperty={removeFrontmatterProperty}
-                    renameFrontmatterKey={renameFrontmatterKey}
-                    toggleFrontmatterCollapsed={toggleFrontmatterCollapsed}
-                  />
+                    <Editor
+                      onEditorReady={handleEditorReady}
+                      onContentChange={handleContentChange}
+                      activeFile={activeFile}
+                      activeTabId={activeTabId}
+                      activeTab={activeTab}
+                      snapshotTab={snapshotTab}
+                      workspacePath={workspacePath}
+                      updateFrontmatter={updateFrontmatter}
+                      addFrontmatterProperty={addFrontmatterProperty}
+                      removeFrontmatterProperty={removeFrontmatterProperty}
+                      renameFrontmatterKey={renameFrontmatterKey}
+                      toggleFrontmatterCollapsed={toggleFrontmatterCollapsed}
+                    />
                   )
                 ) : (
                   <div className="flex flex-col items-center justify-center h-full w-full bg-bg-surface">
