@@ -194,6 +194,28 @@ export function WorkspaceProvider({ children }) {
       return;
     }
 
+    const isMedia = /\.(jpe?g|png|gif|svg|webp|bmp|ico|mp4|webm|ogg|mov)$/i.test(fileName);
+    if (isMedia) {
+      const newTab = {
+        id: crypto.randomUUID(),
+        path: filePath,
+        name: fileName,
+        content: null,
+        tiptapJSON: null,
+        isDirty: false,
+        isQuipu: false,
+        isMarkdown: false,
+        isMedia: true,
+        scrollPosition: 0,
+        frontmatter: null,
+        frontmatterRaw: null,
+        frontmatterCollapsed: false,
+      };
+      setOpenTabs(prev => [...prev, newTab]);
+      setActiveTabId(newTab.id);
+      return;
+    }
+
     try {
       const content = await fs.readFile(filePath);
       const isQuipu = fileName.endsWith('.quipu');

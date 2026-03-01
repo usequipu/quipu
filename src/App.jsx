@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { IconContext } from '@phosphor-icons/react';
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
 import Editor from './components/Editor';
+import MediaViewer from './components/MediaViewer';
 import CodeViewer from './components/CodeViewer';
 import Terminal from './components/Terminal';
 import FileExplorer from './components/FileExplorer';
@@ -364,7 +365,9 @@ function AppContent() {
               <div className="h-full flex flex-col overflow-hidden relative">
                 <TabBar />
                 {activeFile ? (
-                  isCodeFile(activeFile.name) && !activeFile.isQuipu ? (
+                  activeTab?.isMedia ? (
+                    <MediaViewer filePath={activeTab.path} fileName={activeTab.name} />
+                  ) : isCodeFile(activeFile.name) && !activeFile.isQuipu ? (
                     <CodeViewer content={activeFile.content} fileName={activeFile.name} />
                   ) : (
                     <Editor

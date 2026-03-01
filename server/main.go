@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"os/exec"
@@ -195,7 +196,13 @@ func handleReadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	ext := filepath.Ext(absPath)
+	mimeType := mime.TypeByExtension(ext)
+	if mimeType != "" {
+		w.Header().Set("Content-Type", mimeType)
+	} else {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	}
 	w.Write(content)
 }
 
