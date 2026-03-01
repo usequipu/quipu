@@ -36,6 +36,7 @@ const electronFS = {
   createFolder: (folderPath) => window.electronAPI.createFolder(folderPath),
   renamePath: (oldPath, newPath) => window.electronAPI.renamePath(oldPath, newPath),
   deletePath: (targetPath) => window.electronAPI.deletePath(targetPath),
+  getFileUrl: (filePath) => `file://${filePath}`,
   onDirectoryChanged: (callback) => {
     window.electronAPI.onDirectoryChanged(callback);
     return () => window.electronAPI.removeDirectoryListener();
@@ -109,6 +110,8 @@ const browserFS = {
     if (!res.ok) throw new Error(`Failed to delete: ${res.statusText}`);
     return res.json();
   },
+
+  getFileUrl: (filePath) => `${GO_SERVER}/file?path=${encodeURIComponent(filePath)}`,
 
   onDirectoryChanged: () => {
     return () => {};

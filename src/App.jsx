@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { IconContext } from '@phosphor-icons/react';
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
 import Editor from './components/Editor';
+import MediaViewer from './components/MediaViewer';
 import Terminal from './components/Terminal';
 import FileExplorer from './components/FileExplorer';
 import FolderPicker from './components/FolderPicker';
@@ -362,6 +363,9 @@ function AppContent() {
               <div className="h-full flex flex-col overflow-hidden relative">
                 <TabBar />
                 {activeFile ? (
+                  activeTab?.isMedia ? (
+                    <MediaViewer filePath={activeTab.path} fileName={activeTab.name} />
+                  ) : (
                   <Editor
                     onEditorReady={handleEditorReady}
                     onContentChange={handleContentChange}
@@ -376,6 +380,7 @@ function AppContent() {
                     renameFrontmatterKey={renameFrontmatterKey}
                     toggleFrontmatterCollapsed={toggleFrontmatterCollapsed}
                   />
+                  )
                 ) : (
                   <div className="flex flex-col items-center justify-center h-full w-full bg-bg-surface">
                     <div className="text-xl text-text-primary opacity-50 mb-2">Open a file to start editing</div>
