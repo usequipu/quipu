@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
     XIcon, TextBIcon, TextItalicIcon, TextStrikethroughIcon,
     TextHOneIcon, TextHTwoIcon, TextHThreeIcon,
@@ -92,6 +92,11 @@ const Editor = ({
         window.__quipuToggleEditorMode = toggleEditorMode;
         return () => { delete window.__quipuToggleEditorMode; };
     }, [toggleEditorMode]);
+
+    const displayTitle = useMemo(() => {
+        if (!activeFile?.name) return '';
+        return activeFile.name.replace(/\.(md|markdown|quipu)$/i, '');
+    }, [activeFile?.name]);
 
     // New state for adjusted positions
     const [adjustedPositions, setAdjustedPositions] = useState({});
@@ -518,6 +523,11 @@ const Editor = ({
                     )}
                     ref={pageRef}
                 >
+                    {displayTitle && (
+                        <h1 className="text-5xl font-bold text-page-text mb-6 font-editor leading-tight tracking-tight select-none">
+                            {displayTitle}
+                        </h1>
+                    )}
                     {activeTab && (activeTab.frontmatter || activeTab.frontmatterRaw) && (
                         <div className="-mx-16 -mt-16 mb-6 rounded-t border-b border-page-border">
                             <FrontmatterProperties
