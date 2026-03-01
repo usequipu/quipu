@@ -14,6 +14,8 @@ try {
     // electron-squirrel-startup not available outside of Squirrel installer context
 }
 
+const HIDDEN_DIRS = new Set(['.git']);
+
 let mainWindow;
 let ptyProcess;
 
@@ -71,7 +73,7 @@ app.whenReady().then(() => {
     ipcMain.handle('read-directory', async (event, dirPath) => {
         const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
         return entries
-            .filter(e => !e.name.startsWith('.'))
+            .filter(e => !HIDDEN_DIRS.has(e.name))
             .map(e => ({
                 name: e.name,
                 path: path.join(dirPath, e.name),
@@ -167,7 +169,7 @@ app.whenReady().then(() => {
                 ];
                 if (!isCaseSensitive) args.push('--ignore-case');
                 if (!isRegex) args.push('--fixed-strings');
-                ['node_modules', '.git', '.quipu', 'build', 'dist'].forEach(d => {
+                ['node_modules', '.git', 'build', 'dist'].forEach(d => {
                     args.push('--glob', '!' + d);
                 });
                 args.push(query, dirPath);
@@ -193,7 +195,7 @@ app.whenReady().then(() => {
             const args = ['-rn', '--color=never'];
             if (!isCaseSensitive) args.push('-i');
             if (!isRegex) args.push('-F');
-            ['node_modules', '.git', '.quipu', 'build', 'dist'].forEach(d => {
+            ['node_modules', '.git', 'build', 'dist'].forEach(d => {
                 args.push('--exclude-dir=' + d);
             });
             args.push(query, dirPath);
@@ -212,7 +214,7 @@ app.whenReady().then(() => {
 
     // List all files recursively
     ipcMain.handle('list-files-recursive', async (event, dirPath, limit = 5000) => {
-        const excludeDirs = new Set(['node_modules', '.git', '.quipu', 'build', 'dist']);
+        const excludeDirs = new Set(['node_modules', '.git', 'build', 'dist']);
         const files = [];
         let truncated = false;
 
@@ -228,8 +230,7 @@ app.whenReady().then(() => {
             for (const entry of entries) {
                 if (truncated) break;
 
-                // Skip hidden entries and excluded dirs
-                if (entry.name.startsWith('.')) continue;
+                // Skip excluded dirs
                 if (entry.isDirectory() && excludeDirs.has(entry.name)) continue;
 
                 const fullPath = path.join(dir, entry.name);

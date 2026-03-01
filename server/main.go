@@ -149,7 +149,7 @@ func handleListFiles(w http.ResponseWriter, r *http.Request) {
 
 	var files []FileEntry
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".") {
+		if hiddenDirs[e.Name()] {
 			continue
 		}
 		files = append(files, FileEntry{
@@ -422,11 +422,13 @@ type FilesRecursiveResponse struct {
 	Truncated bool            `json:"truncated"`
 }
 
+// hiddenDirs are never shown in the file explorer (readdir).
+var hiddenDirs = map[string]bool{".git": true}
+
 // Directories to exclude from recursive file listing and search
 var excludeDirs = map[string]bool{
 	"node_modules": true,
 	".git":         true,
-	".quipu":       true,
 	"build":        true,
 	"dist":         true,
 }
@@ -638,14 +640,6 @@ func handleFilesRecursive(w http.ResponseWriter, r *http.Request) {
 		// Skip excluded directories
 		if d.IsDir() && excludeDirs[d.Name()] {
 			return filepath.SkipDir
-		}
-
-		// Skip hidden directories and files
-		if strings.HasPrefix(d.Name(), ".") && d.Name() != "." {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
 		}
 
 		// Only include files, not directories
