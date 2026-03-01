@@ -54,6 +54,7 @@
   --animate-toast-in: toast-slide-in 0.3s ease-out;
   --animate-toast-out: toast-slide-out 0.2s ease-in forwards;
   --animate-menu-fade-in: menu-fade-in 0.1s ease;
+  --animate-search-highlight: search-highlight-fade 2s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
 }
 
 /* Dark theme overrides (Claude.ai-inspired) */
@@ -161,6 +162,23 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+@keyframes search-highlight-fade {
+  0% {
+    background-color: var(--color-accent-muted);
+  }
+  15% {
+    background-color: var(--color-accent-muted);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.search-highlight-line {
+  animation: var(--animate-search-highlight);
+  border-radius: 2px;
 }
 
 /* RevealMarkdown decoration styles.

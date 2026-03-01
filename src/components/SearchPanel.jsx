@@ -15,6 +15,7 @@ export default function SearchPanel({ activePanel }) {
   const [error, setError] = useState(null);
   const debounceRef = useRef(null);
   const inputRef = useRef(null);
+  const highlightTimeoutRef = useRef(null);
 
   // Focus input when this panel becomes active
   useEffect(() => {
@@ -86,13 +87,40 @@ export default function SearchPanel({ activePanel }) {
     setIsRegex(prev => !prev);
   }, []);
 
-  const handleResultClick = useCallback((filePath) => {
+  const highlightEditorLine = useCallback((lineNumber) => {
+    // Clear any pending highlight and remove existing ones
+    if (highlightTimeoutRef.current) {
+      clearTimeout(highlightTimeoutRef.current);
+    }
+    document.querySelectorAll('.search-highlight-line').forEach(el => {
+      el.classList.remove('search-highlight-line');
+    });
+
+    // Wait briefly for the file to load in the editor, then highlight
+    highlightTimeoutRef.current = setTimeout(() => {
+      const editorEl = document.querySelector('.ProseMirror');
+      if (!editorEl) return;
+      const blocks = Array.from(editorEl.children);
+      const targetEl = blocks[lineNumber - 1];
+      if (!targetEl) return;
+      targetEl.classList.add('search-highlight-line');
+      targetEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      highlightTimeoutRef.current = setTimeout(() => {
+        targetEl.classList.remove('search-highlight-line');
+      }, 2500);
+    }, 300);
+  }, []);
+
+  const handleResultClick = useCallback((filePath, lineNumber) => {
     if (!workspacePath) return;
     // Build absolute path from workspace + relative path
     const absolutePath = workspacePath + '/' + filePath;
     const fileName = filePath.split('/').pop();
     openFile(absolutePath, fileName);
-  }, [workspacePath, openFile]);
+    if (lineNumber) {
+      highlightEditorLine(lineNumber);
+    }
+  }, [workspacePath, openFile, highlightEditorLine]);
 
   // Group results by file
   const groupedResults = React.useMemo(() => {
@@ -191,7 +219,7 @@ export default function SearchPanel({ activePanel }) {
               <div
                 key={`${group.file}:${match.line}:${idx}`}
                 className="flex items-baseline py-0.5 pr-3 pl-5 cursor-pointer text-xs gap-2 hover:bg-white/5"
-                onClick={() => handleResultClick(group.file)}
+                onClick={() => handleResultClick(group.file, match.line)}
               >
                 <span className="shrink-0 font-mono text-[11px] text-accent min-w-7 text-right">{match.line}</span>
                 <span className="font-mono text-xs text-text-primary overflow-hidden text-ellipsis whitespace-nowrap min-w-0">{match.text}</span>
