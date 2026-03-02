@@ -19,7 +19,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 )
 
@@ -27,15 +26,26 @@ import (
 // Set via -workspace flag or auto-detected on the first /files request.
 var workspaceRoot string
 
-var allowedOrigins = map[string]bool{
-	"http://localhost:5173": true,
-	"http://localhost:3000": true,
+// isLocalOrigin returns true for origins that are localhost, 127.0.0.1,
+// or file:// (Electron thin-shell loads from disk).
+func isLocalOrigin(origin string) bool {
+	if origin == "" || origin == "null" || origin == "file://" {
+		return true
+	}
+	for _, prefix := range []string{
+		"http://localhost", "http://127.0.0.1",
+		"https://localhost", "https://127.0.0.1",
+	} {
+		if strings.HasPrefix(origin, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		origin := r.Header.Get("Origin")
-		return allowedOrigins[origin]
+		return isLocalOrigin(r.Header.Get("Origin"))
 	},
 }
 
@@ -69,7 +79,7 @@ type RenameRequest struct {
 func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if allowedOrigins[origin] {
+		if isLocalOrigin(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
@@ -346,44 +356,38 @@ func handleTerminal(w http.ResponseWriter, r *http.Request) {
 		shell = "powershell.exe"
 	}
 
-	cmd := exec.Command(shell)
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
-	if workspaceRoot != "" {
-		cmd.Dir = workspaceRoot
+	dir := workspaceRoot
+	if cwd := r.URL.Query().Get("cwd"); cwd != "" {
+		dir = cwd
 	}
 
-	// Start with a reasonable default size, but resize will handle the rest
-	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 30, Cols: 80})
+	// Start platform-specific PTY
+	sess, err := startPTY(shell, dir, 80, 30)
 	if err != nil {
 		log.Print("pty start:", err)
 		c.WriteMessage(websocket.TextMessage, []byte("Error starting PTY: "+err.Error()))
 		return
 	}
-	defer func() { _ = ptmx.Close() }() // Best effort close
+	defer sess.Close()
 
-	// Resize logic
+	// Read from WebSocket, write to PTY (handles resize + input)
 	go func() {
 		for {
 			_, message, err := c.ReadMessage()
 			if err != nil {
-				// Normal close
 				return
 			}
 
 			// Check if it's a resize message (JSON) or raw input
-			// Simple protocol: If starts with '{', try to parse as resize
 			if len(message) > 0 && message[0] == '{' {
 				var size WindowSize
 				if err := json.Unmarshal(message, &size); err == nil {
-					if err := pty.Setsize(ptmx, &pty.Winsize{Rows: uint16(size.Rows), Cols: uint16(size.Cols), X: 0, Y: 0}); err != nil {
-						// Log but continue, resizing might fail if pty closed
-					}
+					_ = sess.Resize(uint16(size.Cols), uint16(size.Rows))
 					continue
 				}
 			}
 
-			// Otherwise treat as input
-			if _, err := ptmx.Write(message); err != nil {
+			if _, err := sess.Write(message); err != nil {
 				return
 			}
 		}
@@ -392,7 +396,7 @@ func handleTerminal(w http.ResponseWriter, r *http.Request) {
 	// Copy PTY output to WebSocket
 	buf := make([]byte, 1024)
 	for {
-		n, err := ptmx.Read(buf)
+		n, err := sess.Read(buf)
 		if err != nil {
 			if err != io.EOF {
 				log.Println("read from pty:", err)

@@ -3,6 +3,9 @@ module quipu-terminal-server
 go 1.23.3
 
 require (
-	github.com/creack/pty v1.1.24 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
+	github.com/UserExistsError/conpty v0.1.4
+	github.com/creack/pty v1.1.24
+	github.com/gorilla/websocket v1.5.3
 )
+
+require golang.org/x/sys v0.8.0 // indirect

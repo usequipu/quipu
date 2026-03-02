@@ -173,6 +173,13 @@ function AppContent() {
     }
   }, [activeFile, workspacePath, editorInstance, activeTab, saveFile, terminalPanelRef, isClaudeRunning, showToast]);
 
+  // Refs to hold latest callback values — avoids TDZ errors caused by
+  // esbuild reordering const declarations in the production bundle.
+  const sendToTerminalRef = React.useRef(handleSendToTerminal);
+  sendToTerminalRef.current = handleSendToTerminal;
+  const sendToClaudeRef = React.useRef(handleSendToClaude);
+  sendToClaudeRef.current = handleSendToClaude;
+
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e) => {
@@ -232,16 +239,16 @@ function AppContent() {
         if (terminalPanelRef.current?.isCollapsed()) {
           terminalPanelRef.current.expand();
         }
-        handleSendToTerminal();
+        sendToTerminalRef.current();
       }
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'L') {
         e.preventDefault();
-        handleSendToClaude();
+        sendToClaudeRef.current();
       }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [editorInstance, activeFile, saveFile, activeTabId, openTabs, closeTab, switchTab, handleToggleSidebar, handleToggleTerminal, handleSendToTerminal, handleSendToClaude, sidePanelRef, terminalPanelRef]);
+  }, [editorInstance, activeFile, saveFile, activeTabId, openTabs, closeTab, switchTab, handleToggleSidebar, handleToggleTerminal, sidePanelRef, terminalPanelRef]);
 
   const handleEditorReady = useCallback((editor) => {
     setEditorInstance(editor);
