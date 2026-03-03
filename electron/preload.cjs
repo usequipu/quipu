@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     createFolder: (folderPath) => ipcRenderer.invoke('create-folder', folderPath),
     renamePath: (oldPath, newPath) => ipcRenderer.invoke('rename-path', oldPath, newPath),
     deletePath: (targetPath) => ipcRenderer.invoke('delete-path', targetPath),
+    uploadImage: (filePath, base64Data) => ipcRenderer.invoke('upload-image', filePath, base64Data),
     watchDirectory: (dirPath) => ipcRenderer.invoke('watch-directory', dirPath),
     onDirectoryChanged: (callback) => ipcRenderer.on('directory-changed', (event, data) => callback(data)),
     removeDirectoryListener: () => ipcRenderer.removeAllListeners('directory-changed'),

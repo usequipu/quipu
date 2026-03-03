@@ -176,6 +176,17 @@ app.whenReady().then(() => {
         return { success: true };
     });
 
+    ipcMain.handle('upload-image', async (event, filePath, base64Data) => {
+        // Ensure parent directory exists
+        const dir = path.dirname(filePath);
+        await fs.promises.mkdir(dir, { recursive: true });
+
+        // Decode base64 and write binary data
+        const buffer = Buffer.from(base64Data, 'base64');
+        await fs.promises.writeFile(filePath, buffer);
+        return { success: true, path: filePath };
+    });
+
     // Search files using ripgrep with grep fallback
     ipcMain.handle('search-files', async (event, dirPath, query, options = {}) => {
         const maxResults = 500;

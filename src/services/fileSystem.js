@@ -37,6 +37,7 @@ const electronFS = {
   renamePath: (oldPath, newPath) => window.electronAPI.renamePath(oldPath, newPath),
   deletePath: (targetPath) => window.electronAPI.deletePath(targetPath),
   getFileUrl: (filePath) => `file://${filePath}`,
+  uploadImage: (filePath, base64Data) => window.electronAPI.uploadImage(filePath, base64Data),
   watchDirectory: (dirPath) => window.electronAPI.watchDirectory(dirPath),
   onDirectoryChanged: (callback) => {
     window.electronAPI.onDirectoryChanged(callback);
@@ -113,6 +114,16 @@ const browserFS = {
   },
 
   getFileUrl: (filePath) => `${GO_SERVER}/file?path=${encodeURIComponent(filePath)}`,
+
+  uploadImage: async (filePath, base64Data) => {
+    const res = await fetch(`${GO_SERVER}/upload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: filePath, data: base64Data }),
+    });
+    if (!res.ok) throw new Error(`Failed to upload image: ${res.statusText}`);
+    return res.json();
+  },
 
   watchDirectory: async () => null,
 
