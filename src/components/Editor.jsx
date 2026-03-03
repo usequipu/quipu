@@ -325,7 +325,9 @@ const Editor = ({
         extractComments(editor);
     }, [editor, activeFile, activeTabId, activeTab, snapshotTab]);
 
-    // Load FRAME annotations as comment marks when switching tabs
+    // Load FRAME annotations as comment marks when switching tabs or when FRAME files change externally
+    const frameReloadKey = activeTab?.frameReloadKey ?? 0;
+
     useEffect(() => {
         if (!editor || !activeFile?.path || !workspacePath || !activeTabId) return;
 
@@ -333,27 +335,53 @@ const Editor = ({
         if (activeFile.isQuipu) return;
 
         let cancelled = false;
+        const isExternalReload = frameReloadKey > 0;
 
         const loadFrameAnnotations = async () => {
             try {
                 const frame = await frameService.readFrame(workspacePath, activeFile.path);
-                if (cancelled || !frame?.annotations?.length) return;
+                if (cancelled) return;
 
                 const { doc } = editor.state;
                 const { tr } = editor.state;
                 let applied = false;
 
-                // Collect existing comment IDs to avoid duplicates
-                const existingIds = new Set();
-                doc.descendants((node) => {
-                    if (node.marks) {
-                        const cm = node.marks.find((m) => m.type.name === 'comment');
-                        if (cm?.attrs.id) existingIds.add(cm.attrs.id);
+                // On external FRAME reload, clear all existing comment marks first
+                // so we get a fresh set from the updated FRAME file
+                if (isExternalReload) {
+                    doc.descendants((node, pos) => {
+                        if (node.marks) {
+                            const commentMark = node.marks.find((m) => m.type.name === 'comment');
+                            if (commentMark) {
+                                tr.removeMark(pos, pos + node.nodeSize, commentMark.type);
+                                applied = true;
+                            }
+                        }
+                    });
+                }
+
+                if (!frame?.annotations?.length) {
+                    // If there were marks to clear but no new annotations, dispatch the removal
+                    if (applied && !cancelled) {
+                        editor.view.dispatch(tr);
+                        extractComments(editor);
                     }
-                });
+                    return;
+                }
+
+                // Collect existing comment IDs to avoid duplicates (only for initial load, not external reload)
+                const existingIds = new Set();
+                if (!isExternalReload) {
+                    doc.descendants((node) => {
+                        if (node.marks) {
+                            const cm = node.marks.find((m) => m.type.name === 'comment');
+                            if (cm?.attrs.id) existingIds.add(cm.attrs.id);
+                        }
+                    });
+                }
 
                 for (const annotation of frame.annotations) {
-                    if (existingIds.has(annotation.id)) continue;
+                    if (!isExternalReload && existingIds.has(annotation.id)) continue;
 
                     const pos = lineNumberToPos(doc, annotation.line);
                     if (pos <= 0 || pos >= doc.content.size) continue;
@@ -389,7 +417,7 @@ const Editor = ({
             cancelled = true;
             clearTimeout(timer);
         };
-    }, [activeTabId, editor, workspacePath, activeFile?.path, activeFile?.isQuipu]);
+    }, [activeTabId, editor, workspacePath, activeFile?.path, activeFile?.isQuipu, frameReloadKey]);
 
     // Effect to calculate positions preventing overlap
     useEffect(() => {

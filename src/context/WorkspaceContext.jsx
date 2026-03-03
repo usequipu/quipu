@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import jsYaml from 'js-yaml';
 import fs from '../services/fileSystem';
 import fileWatcher from '../services/fileWatcher';
+import frameService from '../services/frameService';
 import claudeInstaller from '../services/claudeInstaller';
 import storage, { isElectronRuntime } from '../services/storageService';
 import { useToast } from '../components/Toast';
@@ -304,36 +305,18 @@ export function WorkspaceProvider({ children }) {
           content: bodyContent,
           tiptapJSON: null,
           isDirty: false,
+          diskContent: content,
           frontmatter,
           frontmatterRaw,
+          hasConflict: false,
+          conflictDiskContent: null,
+          reloadKey: (t.reloadKey || 0) + 1,
         } : t
       ));
     } catch (err) {
       showToast('Failed to reload file: ' + err.message, 'error');
     }
   }, [openTabs, extractFrontmatter, showToast]);
-
-  // Watch workspace for external file changes (Electron only; no-op in browser)
-  useEffect(() => {
-    if (!workspacePath) return;
-
-    fs.watchDirectory(workspacePath).catch(() => {});
-
-    const cleanup = fs.onDirectoryChanged(({ filename }) => {
-      if (!filename) return;
-      const changedPath = workspacePath + '/' + filename.replace(/\\/g, '/');
-      const tab = openTabsRef.current.find(t => t.path === changedPath);
-      if (!tab) return;
-
-      if (tab.isDirty) {
-        showToast(`"${tab.name}" changed on disk. Close and reopen to reload.`, 'warning');
-      } else {
-        reloadTabFromDisk(tab.id);
-      }
-    });
-
-    return cleanup;
-  }, [workspacePath, showToast, reloadTabFromDisk]);
 
   // Frontmatter operations
   const updateFrontmatter = useCallback((tabId, key, value) => {
@@ -572,8 +555,9 @@ export function WorkspaceProvider({ children }) {
     try {
       await fs.writeFile(activeTab.path, content);
       // Update diskContent so file watcher doesn't trigger on our own save
+      // Also clear any conflict state since saving resolves it
       setOpenTabs(prev => prev.map(t =>
-        t.id === activeTab.id ? { ...t, isDirty: false, diskContent: content } : t
+        t.id === activeTab.id ? { ...t, isDirty: false, diskContent: content, hasConflict: false, conflictDiskContent: null } : t
       ));
       showToast('File saved', 'success');
     } catch (err) {
@@ -646,6 +630,34 @@ export function WorkspaceProvider({ children }) {
     return { content: bodyContent, tiptapJSON: null, isDirty: false, diskContent: fresh, frontmatter, frontmatterRaw };
   }, [extractFrontmatter]);
 
+  // Conflict resolution: reload from disk (discard local changes)
+  const resolveConflictReload = useCallback(async (tabId) => {
+    const tab = openTabsRef.current.find(t => t.id === tabId);
+    if (!tab) return;
+
+    try {
+      const fresh = tab.conflictDiskContent || await fs.readFile(tab.path);
+      const updates = applyFreshContent(tab, fresh);
+      setOpenTabs(prev => prev.map(t =>
+        t.id === tabId ? { ...t, ...updates, hasConflict: false, conflictDiskContent: null, reloadKey: (t.reloadKey || 0) + 1 } : t
+      ));
+    } catch (err) {
+      showToast('Failed to reload file: ' + err.message, 'error');
+    }
+  }, [applyFreshContent, showToast]);
+
+  // Conflict resolution: keep local changes (acknowledge the disk change)
+  const resolveConflictKeep = useCallback((tabId) => {
+    setOpenTabs(prev => prev.map(t =>
+      t.id === tabId ? { ...t, hasConflict: false, conflictDiskContent: null } : t
+    ));
+  }, []);
+
+  // Conflict resolution: dismiss (same as keep)
+  const resolveConflictDismiss = useCallback((tabId) => {
+    resolveConflictKeep(tabId);
+  }, [resolveConflictKeep]);
+
   // Electron: use native directory watcher
   useEffect(() => {
     if (!window.electronAPI || !workspacePath) return;
@@ -663,8 +675,10 @@ export function WorkspaceProvider({ children }) {
         if (fresh === tab.diskContent) return;
 
         if (tab.isDirty) {
-          showToast(`"${tab.name}" changed on disk (unsaved changes preserved)`, 'warning');
-          setOpenTabs(prev => prev.map(t => t.id === tab.id ? { ...t, diskContent: fresh } : t));
+          // Show conflict bar instead of just a toast
+          setOpenTabs(prev => prev.map(t =>
+            t.id === tab.id ? { ...t, diskContent: fresh, hasConflict: true, conflictDiskContent: fresh } : t
+          ));
         } else {
           const updates = applyFreshContent(tab, fresh);
           setOpenTabs(prev => prev.map(t =>
@@ -675,7 +689,7 @@ export function WorkspaceProvider({ children }) {
     });
 
     return cleanup;
-  }, [workspacePath, showToast, applyFreshContent]);
+  }, [workspacePath, applyFreshContent]);
 
   // Browser: use fileWatcher WebSocket for push-based file change notifications
   useEffect(() => {
@@ -694,8 +708,9 @@ export function WorkspaceProvider({ children }) {
         if (fresh === tab.diskContent) return;
 
         if (tab.isDirty) {
-          showToast(`"${tab.name}" changed on disk (unsaved changes preserved)`, 'warning');
-          setOpenTabs(prev => prev.map(t => t.id === tab.id ? { ...t, diskContent: fresh } : t));
+          setOpenTabs(prev => prev.map(t =>
+            t.id === tab.id ? { ...t, diskContent: fresh, hasConflict: true, conflictDiskContent: fresh } : t
+          ));
         } else {
           const updates = applyFreshContent(tab, fresh);
           setOpenTabs(prev => prev.map(t =>
@@ -709,7 +724,48 @@ export function WorkspaceProvider({ children }) {
       cleanup();
       fileWatcher.unwatch().catch(() => {});
     };
-  }, [workspacePath, showToast, applyFreshContent]);
+  }, [workspacePath, applyFreshContent]);
+
+  // FRAME file watching: detect external changes to .frame.json files
+  // and increment frameReloadKey on affected tabs so Editor re-loads annotations
+  const frameCleanupRef = useRef(null);
+
+  useEffect(() => {
+    if (!workspacePath) return;
+
+    const cleanup = frameService.watchFrames(workspacePath, (changedFilePath) => {
+      const tab = openTabsRef.current.find(t => t.path === changedFilePath);
+      if (!tab) return;
+
+      setOpenTabs(prev => prev.map(t =>
+        t.id === tab.id ? { ...t, frameReloadKey: (t.frameReloadKey || 0) + 1 } : t
+      ));
+      showToast('Annotations updated', 'info');
+    });
+
+    frameCleanupRef.current = cleanup;
+
+    if (cleanup.registerPath) {
+      for (const tab of openTabsRef.current) {
+        if (!tab.isMedia && !tab.isQuipu) {
+          cleanup.registerPath(frameService.getFramePath(workspacePath, tab.path));
+        }
+      }
+    }
+
+    return cleanup;
+  }, [workspacePath, showToast]);
+
+  useEffect(() => {
+    const cleanup = frameCleanupRef.current;
+    if (!cleanup?.registerPath || !workspacePath) return;
+
+    for (const tab of openTabs) {
+      if (!tab.isMedia && !tab.isQuipu) {
+        cleanup.registerPath(frameService.getFramePath(workspacePath, tab.path));
+      }
+    }
+  }, [openTabs, workspacePath]);
 
   const value = {
     workspacePath,
@@ -751,6 +807,10 @@ export function WorkspaceProvider({ children }) {
     switchTerminalTab,
     setTerminalClaudeRunning,
     clearAllTerminals,
+    // Conflict resolution
+    resolveConflictReload,
+    resolveConflictKeep,
+    resolveConflictDismiss,
     // Git status
     gitChangeCount,
     updateGitChangeCount,

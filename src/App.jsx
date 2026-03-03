@@ -15,6 +15,7 @@ import DiffViewer from './components/DiffViewer';
 import QuickOpen from './components/QuickOpen';
 import TitleBar from './components/TitleBar';
 import ContextMenu from './components/ContextMenu';
+import FileConflictBar from './components/FileConflictBar';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { ToastProvider, useToast } from './components/Toast';
 import frameService from './services/frameService.js';
@@ -32,6 +33,7 @@ function AppContent() {
     addFrontmatterTag, removeFrontmatterTag, updateFrontmatterTag,
     workspacePath,
     terminalTabs, activeTerminalId, createTerminalTab, setTerminalClaudeRunning,
+    resolveConflictReload, resolveConflictKeep, resolveConflictDismiss,
   } = useWorkspace();
   const { showToast } = useToast();
   const [activePanel, setActivePanel] = useState('explorer');
@@ -641,6 +643,14 @@ function AppContent() {
                 <div data-context="tab-bar">
                   <TabBar />
                 </div>
+                {activeTab?.hasConflict && (
+                  <FileConflictBar
+                    fileName={activeTab.name}
+                    onReload={() => resolveConflictReload(activeTab.id)}
+                    onKeep={() => resolveConflictKeep(activeTab.id)}
+                    onDismiss={() => resolveConflictDismiss(activeTab.id)}
+                  />
+                )}
                 {activeDiff ? (
                   <DiffViewer
                     filePath={activeDiff.filePath}

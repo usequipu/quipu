@@ -29,6 +29,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onDirectoryChanged: (callback) => ipcRenderer.on('directory-changed', (event, data) => callback(data)),
     removeDirectoryListener: () => ipcRenderer.removeAllListeners('directory-changed'),
 
+    // FRAME file watching
+    watchFrameDirectory: (workspacePath) => ipcRenderer.invoke('watch-frame-directory', workspacePath),
+    onFrameChanged: (callback) => ipcRenderer.on('frame-changed', (event, data) => callback(data)),
+    removeFrameListener: () => ipcRenderer.removeAllListeners('frame-changed'),
+
     // Search
     searchFiles: (dirPath, query, options) => ipcRenderer.invoke('search-files', dirPath, query, options),
     listFilesRecursive: (dirPath, limit) => ipcRenderer.invoke('list-files-recursive', dirPath, limit),

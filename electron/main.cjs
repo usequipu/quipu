@@ -567,6 +567,30 @@ app.whenReady().then(() => {
         return { success: true };
     });
 
+    // FRAME file watcher — watches .quipu/meta/ for annotation changes
+    let frameWatcher = null;
+    ipcMain.handle('watch-frame-directory', async (event, workspacePath) => {
+        if (frameWatcher) {
+            frameWatcher.close();
+            frameWatcher = null;
+        }
+        if (!workspacePath) return { success: true };
+
+        const metaDir = path.join(workspacePath, '.quipu', 'meta');
+        try {
+            await fs.promises.mkdir(metaDir, { recursive: true });
+            frameWatcher = fs.watch(metaDir, { recursive: true }, (eventType, filename) => {
+                if (!filename || !filename.endsWith('.frame.json')) return;
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('frame-changed', { eventType, filename });
+                }
+            });
+        } catch (err) {
+            console.warn('FRAME directory watch failed:', err.message);
+        }
+        return { success: true };
+    });
+
     // Setup Terminal IPC (multi-terminal with terminalId multiplexing)
     ipcMain.handle('terminal-create', async (event, options) => {
         if (ptyProcesses.size >= MAX_TERMINALS) {

@@ -1281,6 +1281,46 @@ func diffSnapshots(old, current fileSnapshot, root string) []watchEvent {
 	return events
 }
 
+// GET /file/stat?path=<file> — returns mtime for polling-based change detection
+func handleFileStat(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	filePath := r.URL.Query().Get("path")
+	if filePath == "" {
+		jsonError(w, "path parameter required", http.StatusBadRequest)
+		return
+	}
+
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		jsonError(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	if !isWithinWorkspace(absPath) {
+		jsonError(w, "path outside workspace", http.StatusForbidden)
+		return
+	}
+
+	info, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			jsonError(w, "file not found", http.StatusNotFound)
+			return
+		}
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, map[string]interface{}{
+		"mtime": info.ModTime().UnixMilli(),
+		"size":  info.Size(),
+	})
+}
+
 func main() {
 	var addr = flag.String("addr", "localhost:3000", "http service address")
 	var workspace = flag.String("workspace", "", "workspace root directory (auto-detected from first /files request if not set)")
@@ -1338,6 +1378,9 @@ func main() {
 
 	// File watch endpoint (WebSocket)
 	http.HandleFunc("/watch", handleWatch)
+
+	// File stat endpoint (for browser polling — returns mtime)
+	http.HandleFunc("/file/stat", corsMiddleware(handleFileStat))
 
 	// Terminal endpoint
 	http.HandleFunc("/term", handleTerminal)

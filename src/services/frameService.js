@@ -1,4 +1,5 @@
 import fs from './fileSystem.js';
+import { SERVER_URL } from '../config.js';
 
 const FRAME_VERSION = 1;
 const MAX_HISTORY_ENTRIES = 20;
@@ -119,15 +120,108 @@ async function updateInstructions(workspacePath, filePath, instructions) {
   return writeFrame(workspacePath, filePath, frame);
 }
 
+// --- FRAME file watching ---
+
+// Flag to suppress watcher events during our own writes
+let isWritingFrame = false;
+
+// Wrap writeFrame to set the writing flag
+const originalWriteFrame = writeFrame;
+async function writeFrameWithFlag(workspacePath, filePath, frame) {
+  isWritingFrame = true;
+  try {
+    const result = await originalWriteFrame(workspacePath, filePath, frame);
+    // Keep flag set briefly to absorb delayed fs events
+    setTimeout(() => { isWritingFrame = false; }, 600);
+    return result;
+  } catch (err) {
+    isWritingFrame = false;
+    throw err;
+  }
+}
+
+/**
+ * Watch for FRAME file changes. Returns a cleanup function.
+ * - Electron: uses native fs.watch via IPC on .quipu/meta/
+ * - Browser: polls mtime every 5 seconds
+ */
+function watchFrames(workspacePath, onFrameChanged) {
+  if (!workspacePath) return () => {};
+
+  if (window.electronAPI && window.electronAPI.watchFrameDirectory) {
+    // Electron: native watcher
+    window.electronAPI.watchFrameDirectory(workspacePath).catch(() => {});
+
+    let debounceTimer = null;
+    const handler = ({ filename }) => {
+      if (!filename || isWritingFrame) return;
+
+      // Debounce rapid events (write-then-rename patterns)
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        // filename is relative to .quipu/meta/, e.g. "src/App.jsx.frame.json"
+        // Strip .frame.json suffix to get the relative file path
+        const relativePath = filename.replace(/\.frame\.json$/, '').replace(/\\/g, '/');
+        const fullPath = workspacePath + '/' + relativePath;
+        onFrameChanged(fullPath);
+      }, 500);
+    };
+
+    window.electronAPI.onFrameChanged(handler);
+
+    return () => {
+      clearTimeout(debounceTimer);
+      window.electronAPI.removeFrameListener();
+    };
+  }
+
+  // Browser: poll mtime of FRAME files via /file/stat endpoint
+  // Tracks all .frame.json files that have been accessed
+  const mtimeCache = {};
+
+  // Auto-discover frame paths by scanning open tab paths from the caller
+  // The caller can register specific paths via cleanup.registerPath()
+  const id = setInterval(async () => {
+    if (isWritingFrame) return;
+
+    for (const [framePath, lastMtime] of Object.entries(mtimeCache)) {
+      try {
+        const res = await fetch(`${SERVER_URL}/file/stat?path=${encodeURIComponent(framePath)}`);
+        if (!res.ok) continue;
+        const { mtime } = await res.json();
+        if (lastMtime && mtime !== lastMtime) {
+          // Extract source file path from frame path
+          const metaPrefix = workspacePath + '/.quipu/meta/';
+          const relativePath = framePath.replace(metaPrefix, '').replace(/\.frame\.json$/, '');
+          const fullPath = workspacePath + '/' + relativePath;
+          onFrameChanged(fullPath);
+        }
+        mtimeCache[framePath] = mtime;
+      } catch { /* ignore transient errors */ }
+    }
+  }, 5000);
+
+  const cleanup = () => clearInterval(id);
+  // Allow external code to register frame paths for polling
+  cleanup.registerPath = (framePath) => {
+    if (!(framePath in mtimeCache)) {
+      mtimeCache[framePath] = null; // Will be populated on first poll tick
+    }
+  };
+  return cleanup;
+}
+
 const frameService = {
   getFramePath,
   readFrame,
-  writeFrame,
+  writeFrame: writeFrameWithFlag,
   createFrame,
   addAnnotation,
   removeAnnotation,
   addHistoryEntry,
   updateInstructions,
+  watchFrames,
+  isWritingFrame: () => isWritingFrame,
 };
 
 export default frameService;
