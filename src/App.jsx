@@ -30,18 +30,17 @@ function AppContent() {
     renameFrontmatterKey, toggleFrontmatterCollapsed,
     addFrontmatterTag, removeFrontmatterTag, updateFrontmatterTag,
     workspacePath,
+    terminalTabs, activeTerminalId, createTerminalTab, setTerminalClaudeRunning,
   } = useWorkspace();
   const { showToast } = useToast();
   const [activePanel, setActivePanel] = useState('explorer');
   const [isQuickOpenVisible, setIsQuickOpenVisible] = useState(false);
   const [quickOpenInitialValue, setQuickOpenInitialValue] = useState('');
-  const [isClaudeRunning, setIsClaudeRunning] = useState(false);
   const [activeDiff, setActiveDiff] = useState(null); // { filePath, diffText, isStaged }
 
-  // Reset Claude running state when workspace changes (terminal restarts)
-  useEffect(() => {
-    setIsClaudeRunning(false);
-  }, [workspacePath]);
+  // Derive isClaudeRunning from the active terminal tab
+  const activeTerminalTab = terminalTabs.find(t => t.id === activeTerminalId);
+  const isClaudeRunning = activeTerminalTab?.isClaudeRunning ?? false;
 
   // Clear diff view when user switches to a different tab
   useEffect(() => {
@@ -137,12 +136,12 @@ function AppContent() {
       terminalRef.current.write(command + "\n");
     } else {
       terminalRef.current.write("claude\n");
-      setIsClaudeRunning(true);
+      if (activeTerminalId) setTerminalClaudeRunning(activeTerminalId, true);
       setTimeout(() => {
         terminalRef.current.write(command + "\n");
       }, 2000);
     }
-  }, [activeFile, workspacePath, editorInstance, activeTab, saveFile, terminalPanelRef, isClaudeRunning, showToast]);
+  }, [activeFile, workspacePath, editorInstance, activeTab, saveFile, terminalPanelRef, isClaudeRunning, activeTerminalId, setTerminalClaudeRunning, showToast]);
 
   const handleSendToClaude = useCallback(async () => {
     if (!activeFile || !workspacePath) {
@@ -190,12 +189,12 @@ function AppContent() {
       terminalRef.current.write(prompt + "\n");
     } else {
       terminalRef.current.write("claude\n");
-      setIsClaudeRunning(true);
+      if (activeTerminalId) setTerminalClaudeRunning(activeTerminalId, true);
       setTimeout(() => {
         terminalRef.current.write(prompt + "\n");
       }, 2000);
     }
-  }, [activeFile, workspacePath, editorInstance, activeTab, saveFile, terminalPanelRef, isClaudeRunning, showToast]);
+  }, [activeFile, workspacePath, editorInstance, activeTab, saveFile, terminalPanelRef, isClaudeRunning, activeTerminalId, setTerminalClaudeRunning, showToast]);
 
   // Refs to hold latest callback values — avoids TDZ errors caused by
   // esbuild reordering const declarations in the production bundle.
@@ -254,6 +253,14 @@ function AppContent() {
         setQuickOpenInitialValue('');
         setIsQuickOpenVisible(prev => !prev);
       }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === '`') {
+        e.preventDefault();
+        createTerminalTab();
+        if (terminalPanelRef.current?.isCollapsed()) {
+          terminalPanelRef.current.expand();
+        }
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key === '`') {
         e.preventDefault();
         handleToggleTerminal();
@@ -272,7 +279,7 @@ function AppContent() {
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [editorInstance, activeFile, saveFile, activeTabId, openTabs, closeTab, switchTab, handleToggleSidebar, handleToggleTerminal, sidePanelRef, terminalPanelRef]);
+  }, [editorInstance, activeFile, saveFile, activeTabId, openTabs, closeTab, switchTab, handleToggleSidebar, handleToggleTerminal, createTerminalTab, sidePanelRef, terminalPanelRef]);
 
   const handleEditorReady = useCallback((editor) => {
     setEditorInstance(editor);
@@ -316,6 +323,10 @@ function AppContent() {
       case 'terminal.toggle':
         handleToggleTerminal();
         break;
+      case 'terminal.new':
+        createTerminalTab();
+        if (terminalPanelRef.current?.isCollapsed()) terminalPanelRef.current.expand();
+        break;
       case 'view.quickOpen':
         setQuickOpenInitialValue('');
         setIsQuickOpenVisible(true);
@@ -346,7 +357,7 @@ function AppContent() {
         window.__quipuToggleEditorMode?.();
         break;
     }
-  }, [editorInstance, activeFile, saveFile, activeTabId, closeTab, sidePanelRef, handlePanelToggle, handleToggleSidebar, handleToggleTerminal, toggleTheme, handleSendToClaude]);
+  }, [editorInstance, activeFile, saveFile, activeTabId, closeTab, sidePanelRef, terminalPanelRef, handlePanelToggle, handleToggleSidebar, handleToggleTerminal, createTerminalTab, toggleTheme, handleSendToTerminal, handleSendToClaude]);
 
   // Build title
   let title = 'Quipu';

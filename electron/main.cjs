@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 const { execFile } = require('child_process');
 const pty = require('node-pty');
 
@@ -35,7 +36,8 @@ function writeStorage(data) {
 }
 
 let mainWindow;
-let ptyProcess;
+const ptyProcesses = new Map(); // terminalId -> ptyProcess
+const MAX_TERMINALS = 5;
 
 const createWindow = () => {
     // Create the browser window.
@@ -545,41 +547,60 @@ app.whenReady().then(() => {
         return { success: true };
     });
 
-    // Setup Terminal IPC
-    ipcMain.on('terminal-create', (event, options) => {
-        const shell = process.env[os.platform() === 'win32' ? 'COMSPEC' : 'SHELL'];
-
-        if (ptyProcess) {
-            ptyProcess.kill();
+    // Setup Terminal IPC (multi-terminal with terminalId multiplexing)
+    ipcMain.handle('terminal-create', async (event, options) => {
+        if (ptyProcesses.size >= MAX_TERMINALS) {
+            throw new Error('Maximum number of terminals reached');
         }
 
+        const shell = process.env[os.platform() === 'win32' ? 'COMSPEC' : 'SHELL'];
+        const terminalId = crypto.randomUUID();
         const cwd = (options && options.cwd) || process.env.HOME;
 
-        ptyProcess = pty.spawn(shell, [], {
-            name: 'xterm-color',
+        const ptyProc = pty.spawn(shell, [], {
+            name: 'xterm-256color',
             cols: 80,
             rows: 30,
             cwd,
             env: process.env
         });
 
-        ptyProcess.on('data', function (data) {
+        ptyProcesses.set(terminalId, ptyProc);
+
+        ptyProc.on('data', function (data) {
             if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('terminal-incoming', data);
+                mainWindow.webContents.send('terminal-incoming', { terminalId, data });
             }
         });
+
+        ptyProc.on('exit', function () {
+            ptyProcesses.delete(terminalId);
+        });
+
+        return { terminalId };
     });
 
-    ipcMain.on('terminal-write', (event, data) => {
-        if (ptyProcess) {
-            ptyProcess.write(data);
+    ipcMain.on('terminal-write', (event, { terminalId, data }) => {
+        const ptyProc = ptyProcesses.get(terminalId);
+        if (ptyProc) {
+            ptyProc.write(data);
         }
     });
 
-    ipcMain.on('terminal-resize', (event, { cols, rows }) => {
-        if (ptyProcess) {
-            ptyProcess.resize(cols, rows);
+    ipcMain.on('terminal-resize', (event, { terminalId, cols, rows }) => {
+        const ptyProc = ptyProcesses.get(terminalId);
+        if (ptyProc) {
+            ptyProc.resize(cols, rows);
         }
+    });
+
+    ipcMain.handle('terminal-kill', async (event, { terminalId }) => {
+        const ptyProc = ptyProcesses.get(terminalId);
+        if (ptyProc) {
+            ptyProc.kill();
+            ptyProcesses.delete(terminalId);
+        }
+        return { success: true };
     });
 
     app.on('activate', () => {

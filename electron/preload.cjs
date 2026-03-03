@@ -1,12 +1,19 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
-    // Terminal
-    createTerminal: (options) => ipcRenderer.send('terminal-create', options),
-    onTerminalData: (callback) => ipcRenderer.on('terminal-incoming', (event, data) => callback(data)),
-    writeTerminal: (data) => ipcRenderer.send('terminal-write', data),
-    resizeTerminal: (cols, rows) => ipcRenderer.send('terminal-resize', { cols, rows }),
-    removeTerminalListener: () => ipcRenderer.removeAllListeners('terminal-incoming'),
+    // Terminal (multi-terminal with terminalId multiplexing)
+    createTerminal: (options) => ipcRenderer.invoke('terminal-create', options),
+    writeTerminal: (terminalId, data) => ipcRenderer.send('terminal-write', { terminalId, data }),
+    resizeTerminal: (terminalId, cols, rows) => ipcRenderer.send('terminal-resize', { terminalId, cols, rows }),
+    killTerminal: (terminalId) => ipcRenderer.invoke('terminal-kill', { terminalId }),
+    onTerminalData: (callback) => {
+        const handler = (event, payload) => callback(payload);
+        ipcRenderer.on('terminal-incoming', handler);
+        return handler;
+    },
+    removeTerminalDataListener: (handler) => {
+        ipcRenderer.removeListener('terminal-incoming', handler);
+    },
 
     // File system
     openFolderDialog: () => ipcRenderer.invoke('open-folder-dialog'),
