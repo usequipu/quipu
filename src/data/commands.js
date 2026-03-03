@@ -29,6 +29,7 @@ export const commands = [
 
   // Terminal
   { label: 'Toggle Terminal', shortcut: 'Ctrl+`', action: 'terminal.toggle', category: 'Terminal' },
+  { label: 'New Terminal', shortcut: 'Ctrl+Shift+`', action: 'terminal.new', category: 'Terminal' },
   { label: 'Send to Terminal', action: 'terminal.send', category: 'Terminal' },
 
   // Preferences
@@ -84,6 +85,8 @@ export const menus = [
     label: 'Terminal',
     items: [
       commands.find(c => c.action === 'terminal.toggle'),
+      commands.find(c => c.action === 'terminal.new'),
+      sep,
       commands.find(c => c.action === 'terminal.send'),
     ],
   },

@@ -10,6 +10,7 @@ const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 const WorkspaceContext = createContext(null);
 
 const MAX_TABS = 12;
+const MAX_TERMINALS = 5;
 
 export function WorkspaceProvider({ children }) {
   const { showToast } = useToast();
@@ -24,6 +25,57 @@ export function WorkspaceProvider({ children }) {
 
   const updateGitChangeCount = useCallback((count) => {
     setGitChangeCount(count);
+  }, []);
+
+  // Terminal tab state
+  const [terminalTabs, setTerminalTabs] = useState([]);
+  const [activeTerminalId, setActiveTerminalId] = useState(null);
+  const terminalCounterRef = useRef(0);
+
+  const createTerminalTab = useCallback(() => {
+    if (terminalTabs.length >= MAX_TERMINALS) {
+      showToast('Maximum of 5 terminals reached', 'warning');
+      return null;
+    }
+    terminalCounterRef.current += 1;
+    const tab = {
+      id: crypto.randomUUID(),
+      label: `Terminal ${terminalCounterRef.current}`,
+      isClaudeRunning: false,
+    };
+    setTerminalTabs(prev => [...prev, tab]);
+    setActiveTerminalId(tab.id);
+    return tab;
+  }, [terminalTabs.length, showToast]);
+
+  const closeTerminalTab = useCallback((tabId) => {
+    setTerminalTabs(prev => {
+      const filtered = prev.filter(t => t.id !== tabId);
+      // If closing the active terminal, switch to an adjacent one
+      if (activeTerminalId === tabId && filtered.length > 0) {
+        const idx = prev.findIndex(t => t.id === tabId);
+        const newIdx = Math.min(idx, filtered.length - 1);
+        setActiveTerminalId(filtered[newIdx].id);
+      } else if (filtered.length === 0) {
+        setActiveTerminalId(null);
+      }
+      return filtered;
+    });
+  }, [activeTerminalId]);
+
+  const switchTerminalTab = useCallback((tabId) => {
+    setActiveTerminalId(tabId);
+  }, []);
+
+  const setTerminalClaudeRunning = useCallback((tabId, isRunning) => {
+    setTerminalTabs(prev => prev.map(t =>
+      t.id === tabId ? { ...t, isClaudeRunning: isRunning } : t
+    ));
+  }, []);
+
+  const clearAllTerminals = useCallback(() => {
+    setTerminalTabs([]);
+    setActiveTerminalId(null);
   }, []);
 
   // Ref to access current openTabs inside intervals/event listeners without stale closures
@@ -92,6 +144,7 @@ export function WorkspaceProvider({ children }) {
     setOpenTabs([]);
     setActiveTabId(null);
     setExpandedFolders(new Set());
+    clearAllTerminals();
     try {
       const entries = await fs.readDirectory(folderPath);
       setFileTree(entries);
@@ -107,7 +160,7 @@ export function WorkspaceProvider({ children }) {
     claudeInstaller.installFrameSkills(folderPath).catch((err) => {
       console.warn('Claude skills install failed:', err);
     });
-  }, [showToast, updateRecentWorkspaces]);
+  }, [showToast, updateRecentWorkspaces, clearAllTerminals]);
 
   const cancelFolderPicker = useCallback(() => {
     setShowFolderPicker(false);
@@ -644,6 +697,14 @@ export function WorkspaceProvider({ children }) {
     setTabDirty,
     snapshotTab,
     reloadTabFromDisk,
+    // Terminal tabs
+    terminalTabs,
+    activeTerminalId,
+    createTerminalTab,
+    closeTerminalTab,
+    switchTerminalTab,
+    setTerminalClaudeRunning,
+    clearAllTerminals,
     // Git status
     gitChangeCount,
     updateGitChangeCount,

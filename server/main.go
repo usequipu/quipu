@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -342,7 +343,20 @@ func handleRename(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, map[string]bool{"success": true})
 }
 
+// activeTerminals tracks the number of concurrent terminal WebSocket connections.
+var activeTerminals int32
+const maxTerminals = 5
+
 func handleTerminal(w http.ResponseWriter, r *http.Request) {
+	// Enforce connection limit
+	current := atomic.AddInt32(&activeTerminals, 1)
+	if current > int32(maxTerminals) {
+		atomic.AddInt32(&activeTerminals, -1)
+		http.Error(w, "maximum number of terminals reached", http.StatusServiceUnavailable)
+		return
+	}
+	defer atomic.AddInt32(&activeTerminals, -1)
+
 	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Print("upgrade:", err)
