@@ -10,14 +10,17 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Highlight from '@tiptap/extension-highlight';
 import Placeholder from '@tiptap/extension-placeholder';
+import Image from '@tiptap/extension-image';
 import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { Markdown } from 'tiptap-markdown';
 import { RevealMarkdown } from '../extensions/RevealMarkdown';
+import { BlockDragHandle } from '../extensions/BlockDragHandle';
 import FrontmatterProperties from './FrontmatterProperties';
 import frameService from '../services/frameService.js';
+import fs from '../services/fileSystem.js';
 
 // Map an editor position to a 1-based line number (top-level block index)
 const posToLineNumber = (doc, pos) => {
@@ -172,6 +175,72 @@ const Editor = ({
     // New state for adjusted positions
     const [adjustedPositions, setAdjustedPositions] = useState({});
 
+    // Handle image upload from clipboard paste or file drop
+    const handleImageUpload = useCallback(async (file, view, insertPos) => {
+        if (!activeFile?.path || !workspacePath) {
+            // No active file context: insert as base64 data URL fallback
+            const reader = new FileReader();
+            reader.onload = () => {
+                const src = reader.result;
+                const pos = insertPos ?? view.state.selection.from;
+                const node = view.state.schema.nodes.image.create({ src });
+                const tr = view.state.tr.insert(pos, node);
+                view.dispatch(tr);
+            };
+            reader.readAsDataURL(file);
+            return;
+        }
+
+        try {
+            // Generate a unique filename
+            const ext = file.name?.split('.').pop() || file.type.split('/')[1] || 'png';
+            const timestamp = Date.now();
+            const filename = `image-${timestamp}.${ext}`;
+
+            // Determine target directory (same directory as the active file)
+            const filePath = activeFile.path;
+            const lastSep = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
+            const dir = lastSep >= 0 ? filePath.substring(0, lastSep) : workspacePath;
+            const targetPath = `${dir}/${filename}`;
+
+            // Convert blob to base64 for upload
+            const arrayBuffer = await file.arrayBuffer();
+            const bytes = new Uint8Array(arrayBuffer);
+            let binary = '';
+            for (let i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            const base64 = btoa(binary);
+
+            // Upload using the file system service
+            await fs.uploadImage(targetPath, base64);
+
+            // Build the image src URL
+            const src = fs.getFileUrl(targetPath);
+
+            // Insert the image node into the document
+            const pos = insertPos ?? view.state.selection.from;
+            const node = view.state.schema.nodes.image.create({
+                src,
+                alt: filename,
+            });
+            const tr = view.state.tr.insert(pos, node);
+            view.dispatch(tr);
+        } catch (err) {
+            console.warn('Image upload failed, falling back to base64:', err);
+            // Fallback: insert as base64 data URL
+            const reader = new FileReader();
+            reader.onload = () => {
+                const src = reader.result;
+                const pos = insertPos ?? view.state.selection.from;
+                const node = view.state.schema.nodes.image.create({ src });
+                const tr = view.state.tr.insert(pos, node);
+                view.dispatch(tr);
+            };
+            reader.readAsDataURL(file);
+        }
+    }, [activeFile?.path, workspacePath]);
+
     const editor = useEditor({
         extensions: [
             StarterKit,
@@ -179,6 +248,10 @@ const Editor = ({
             TableRow,
             TableHeader,
             TableCell,
+            Image.configure({
+                inline: false,
+                allowBase64: true,
+            }),
             Placeholder.configure({
                 placeholder: 'Start writing...',
             }),
@@ -190,6 +263,7 @@ const Editor = ({
                 transformCopiedText: true,
             }),
             RevealMarkdown,
+            BlockDragHandle,
             Highlight.configure({
                 multicolor: true,
             }).extend({
@@ -235,6 +309,44 @@ const Editor = ({
             }),
         ],
         content: '',
+        editorProps: {
+            handlePaste: (view, event) => {
+                const items = event.clipboardData?.items;
+                if (!items) return false;
+
+                for (const item of items) {
+                    if (item.type.startsWith('image/')) {
+                        event.preventDefault();
+                        const file = item.getAsFile();
+                        if (!file) return true;
+
+                        handleImageUpload(file, view);
+                        return true;
+                    }
+                }
+                return false;
+            },
+            handleDrop: (view, event) => {
+                const files = event.dataTransfer?.files;
+                if (!files || files.length === 0) return false;
+
+                // Check if any file is an image
+                const imageFile = Array.from(files).find(f => f.type.startsWith('image/'));
+                if (!imageFile) return false;
+
+                event.preventDefault();
+
+                // Get the drop position in the document
+                const coords = { left: event.clientX, top: event.clientY };
+                const pos = view.posAtCoords(coords);
+                if (pos) {
+                    handleImageUpload(imageFile, view, pos.pos);
+                } else {
+                    handleImageUpload(imageFile, view);
+                }
+                return true;
+            },
+        },
         onUpdate: ({ editor }) => {
             if (onContentChange) {
                 onContentChange();

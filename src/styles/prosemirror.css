@@ -17,6 +17,11 @@
   color: var(--color-page-text);
 }
 
+/* Top-level blocks need position: relative for the drag handle */
+.ProseMirror > * {
+  position: relative;
+}
+
 /* --- Typography reset (counters Tailwind preflight) --- */
 
 .ProseMirror h1 {
@@ -139,6 +144,14 @@
 .ProseMirror img {
   max-width: 100%;
   height: auto;
+  border-radius: 4px;
+  margin: 0.5em 0;
+  cursor: default;
+}
+
+.ProseMirror img.ProseMirror-selectednode {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 /* --- Tables --- */
@@ -235,4 +248,69 @@ mark.comment:hover {
   background: var(--color-border);
   margin: 0 4px;
   align-self: center;
+}
+
+/* --- Block Drag Handle --- */
+
+.block-drag-handle {
+  position: absolute;
+  left: -32px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--color-text-tertiary);
+  cursor: grab;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 150ms ease;
+  user-select: none;
+  z-index: 10;
+}
+
+.block-drag-handle:hover {
+  opacity: 0.8;
+  background: var(--color-bg-elevated);
+}
+
+/* Show handle when hovering near the left edge (parent has position: relative) */
+.ProseMirror > *:hover > .block-drag-handle,
+.ProseMirror .block-drag-handle {
+  opacity: 0.6;
+}
+
+.block-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* Drop indicator line between blocks */
+.block-drop-indicator {
+  height: 2px;
+  background: var(--color-accent);
+  border-radius: 1px;
+  margin: -1px 0;
+  pointer-events: none;
+  position: relative;
+  z-index: 20;
+}
+
+/* Dim source block while dragging */
+.block-drag-source {
+  opacity: 0.3;
+  transition: opacity 150ms ease;
+}
+
+.ProseMirror .image-upload-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1em;
+  margin: 0.5em 0;
+  border: 2px dashed var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text-tertiary);
+  font-size: 0.875em;
 }

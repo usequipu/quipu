@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -74,6 +75,11 @@ type CreateFolderRequest struct {
 type RenameRequest struct {
 	OldPath string `json:"oldPath"`
 	NewPath string `json:"newPath"`
+}
+
+type UploadImageRequest struct {
+	Path string `json:"path"`
+	Data string `json:"data"` // base64-encoded image data
 }
 
 // CORS middleware
@@ -341,6 +347,58 @@ func handleRename(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, map[string]bool{"success": true})
+}
+
+// POST /upload  { path, data }  — write base64-encoded binary (image) to disk
+func handleUploadImage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req UploadImageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Path == "" || req.Data == "" {
+		jsonError(w, "path and data required", http.StatusBadRequest)
+		return
+	}
+
+	absPath, err := filepath.Abs(req.Path)
+	if err != nil {
+		jsonError(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	if !isWithinWorkspace(absPath) {
+		jsonError(w, "path outside workspace", http.StatusForbidden)
+		return
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(req.Data)
+	if err != nil {
+		jsonError(w, "invalid base64 data: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	dir := filepath.Dir(absPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		jsonError(w, "failed to create directory: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := os.WriteFile(absPath, decoded, 0644); err != nil {
+		jsonError(w, "failed to write image: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, map[string]interface{}{
+		"success": true,
+		"path":    absPath,
+	})
 }
 
 // activeTerminals tracks the number of concurrent terminal WebSocket connections.
@@ -1312,6 +1370,7 @@ func main() {
 	}))
 	http.HandleFunc("/folder", corsMiddleware(handleCreateFolder))
 	http.HandleFunc("/rename", corsMiddleware(handleRename))
+	http.HandleFunc("/upload", corsMiddleware(handleUploadImage))
 	http.HandleFunc("/homedir", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		home, err := os.UserHomeDir()
 		if err != nil {
