@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   CaretRightIcon, CaretDownIcon, FileIcon as PhFileIcon, FolderIcon, FolderOpenIcon,
   NotebookIcon, FileJsIcon, FileJsxIcon, FileCssIcon, FileHtmlIcon,
-  FileCodeIcon, FileMdIcon, FileTextIcon,
+  FileCodeIcon, FileMdIcon, FileTextIcon, ArrowClockwiseIcon,
 } from '@phosphor-icons/react';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '../context/WorkspaceContext';
@@ -22,14 +22,21 @@ function getFileIcon(name) {
   }
 }
 
-function FileIconComponent({ name, isDirectory, isExpanded }) {
+function FileIconComponent({ name, isDirectory, isExpanded, isDirty }) {
   if (isDirectory) {
     return isExpanded
       ? <FolderOpenIcon size={16} className="shrink-0" />
       : <FolderIcon size={16} className="shrink-0" />;
   }
   const Icon = getFileIcon(name);
-  return <Icon size={16} className="shrink-0" />;
+  return (
+    <div className="relative shrink-0 w-4 h-4 flex items-center justify-center">
+      <Icon size={16} />
+      {isDirty && (
+        <span className="absolute -top-0.5 -right-0.5 w-[6px] h-[6px] rounded-full bg-accent" />
+      )}
+    </div>
+  );
 }
 
 function FileTreeItem({ entry, depth = 0 }) {
@@ -43,6 +50,7 @@ function FileTreeItem({ entry, depth = 0 }) {
     createNewFolder,
     deleteEntry,
     renameEntry,
+    openTabs,
   } = useWorkspace();
 
   const [children, setChildren] = useState([]);
@@ -56,6 +64,7 @@ function FileTreeItem({ entry, depth = 0 }) {
 
   const isExpanded = expandedFolders.has(entry.path);
   const isActive = activeFile && activeFile.path === entry.path;
+  const isDirtyFile = !entry.isDirectory && openTabs.some(t => t.path === entry.path && t.isDirty);
 
   useEffect(() => {
     if (entry.isDirectory && isExpanded) {
@@ -168,7 +177,7 @@ function FileTreeItem({ entry, depth = 0 }) {
             ? <CaretDownIcon size={14} className="shrink-0 text-text-tertiary" />
             : <CaretRightIcon size={14} className="shrink-0 text-text-tertiary" />
         )}
-        <FileIconComponent name={entry.name} isDirectory={entry.isDirectory} isExpanded={isExpanded} />
+        <FileIconComponent name={entry.name} isDirectory={entry.isDirectory} isExpanded={isExpanded} isDirty={isDirtyFile} />
         {isRenaming ? (
           <input
             ref={renameRef}
@@ -233,12 +242,28 @@ function FileTreeItem({ entry, depth = 0 }) {
 }
 
 export default function FileExplorer() {
-  const { workspacePath, fileTree, openFolder } = useWorkspace();
+  const { workspacePath, fileTree, openFolder, refreshDirectory } = useWorkspace();
+
+  const handleRefresh = useCallback(() => {
+    if (workspacePath) {
+      refreshDirectory(workspacePath);
+    }
+  }, [workspacePath, refreshDirectory]);
 
   return (
     <div className="bg-bg-surface text-text-primary flex flex-col select-none text-[13px] font-sans flex-1 overflow-hidden">
       <div className="h-[35px] flex items-center px-5 text-[11px] font-semibold tracking-wider text-text-tertiary uppercase border-b border-border shrink-0">
-        <span>EXPLORER</span>
+        <span className="flex-1">EXPLORER</span>
+        {workspacePath && (
+          <button
+            className="bg-transparent border-none text-text-tertiary cursor-pointer p-0.5 rounded-sm opacity-60 hover:opacity-100 hover:bg-white/[0.08] transition-opacity"
+            onClick={handleRefresh}
+            aria-label="Refresh file explorer"
+            title="Refresh"
+          >
+            <ArrowClockwiseIcon size={14} />
+          </button>
+        )}
       </div>
 
       {!workspacePath ? (

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import jsYaml from 'js-yaml';
 import fs from '../services/fileSystem';
+import fileWatcher from '../services/fileWatcher';
 import claudeInstaller from '../services/claudeInstaller';
 import storage, { isElectronRuntime } from '../services/storageService';
 import { useToast } from '../components/Toast';
@@ -627,42 +628,38 @@ export function WorkspaceProvider({ children }) {
     return cleanup;
   }, [workspacePath, showToast, applyFreshContent]);
 
-  // Browser: poll open files every 5 seconds for external changes
+  // Browser: use fileWatcher WebSocket for push-based file change notifications
   useEffect(() => {
     if (window.electronAPI || !workspacePath) return;
 
-    const id = setInterval(async () => {
-      const tabs = openTabsRef.current;
-      const reloads = [];
-      const warnings = [];
+    fileWatcher.watch(workspacePath).catch(() => {});
 
-      for (const tab of tabs) {
-        if (tab.isMedia || !tab.diskContent) continue;
-        try {
-          const fresh = await fs.readFile(tab.path);
-          if (fresh === tab.diskContent) continue;
+    const cleanup = fileWatcher.onChanged(async ({ filename }) => {
+      if (!filename) return;
+      const fullPath = workspacePath + '/' + filename.replace(/\\/g, '/');
+      const tab = openTabsRef.current.find(t => t.path === fullPath);
+      if (!tab || tab.isMedia) return;
 
-          if (tab.isDirty) {
-            warnings.push({ id: tab.id, name: tab.name, diskContent: fresh });
-          } else {
-            reloads.push({ tab, fresh });
-          }
-        } catch { /* ignore read errors */ }
-      }
+      try {
+        const fresh = await fs.readFile(fullPath);
+        if (fresh === tab.diskContent) return;
 
-      if (reloads.length > 0 || warnings.length > 0) {
-        setOpenTabs(prev => prev.map(t => {
-          const reload = reloads.find(r => r.tab.id === t.id);
-          if (reload) return { ...t, ...applyFreshContent(reload.tab, reload.fresh), reloadKey: (t.reloadKey || 0) + 1 };
-          const warn = warnings.find(w => w.id === t.id);
-          if (warn) return { ...t, diskContent: warn.diskContent };
-          return t;
-        }));
-        warnings.forEach(w => showToast(`"${w.name}" changed on disk (unsaved changes preserved)`, 'warning'));
-      }
-    }, 5000);
+        if (tab.isDirty) {
+          showToast(`"${tab.name}" changed on disk (unsaved changes preserved)`, 'warning');
+          setOpenTabs(prev => prev.map(t => t.id === tab.id ? { ...t, diskContent: fresh } : t));
+        } else {
+          const updates = applyFreshContent(tab, fresh);
+          setOpenTabs(prev => prev.map(t =>
+            t.id === tab.id ? { ...t, ...updates, reloadKey: (t.reloadKey || 0) + 1 } : t
+          ));
+        }
+      } catch { /* file may be temporarily inaccessible */ }
+    });
 
-    return () => clearInterval(id);
+    return () => {
+      cleanup();
+      fileWatcher.unwatch().catch(() => {});
+    };
   }, [workspacePath, showToast, applyFreshContent]);
 
   const value = {

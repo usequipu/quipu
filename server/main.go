@@ -1149,6 +1149,138 @@ func handleGitLog(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, map[string]interface{}{"entries": entries})
 }
 
+// handleWatch upgrades to a WebSocket and pushes file-change events by polling
+// the watched directory. Each event is JSON: {"eventType":"change","filename":"..."}
+func handleWatch(w http.ResponseWriter, r *http.Request) {
+	dirPath := r.URL.Query().Get("path")
+	if dirPath == "" {
+		jsonError(w, "path parameter required", http.StatusBadRequest)
+		return
+	}
+
+	absPath, err := filepath.Abs(dirPath)
+	if err != nil {
+		jsonError(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	if workspaceRoot != "" && !isWithinWorkspace(absPath) {
+		jsonError(w, "path outside workspace", http.StatusForbidden)
+		return
+	}
+
+	c, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Print("watch upgrade:", err)
+		return
+	}
+	defer c.Close()
+
+	// Build initial snapshot of modification times
+	snapshot := buildSnapshot(absPath)
+
+	// Read from WebSocket to detect close
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			if _, _, err := c.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			newSnapshot := buildSnapshot(absPath)
+			changes := diffSnapshots(snapshot, newSnapshot, absPath)
+			snapshot = newSnapshot
+
+			for _, change := range changes {
+				msg, _ := json.Marshal(change)
+				if err := c.WriteMessage(websocket.TextMessage, msg); err != nil {
+					return
+				}
+			}
+		}
+	}
+}
+
+type fileSnapshot map[string]time.Time
+
+type watchEvent struct {
+	EventType string `json:"eventType"`
+	Filename  string `json:"filename"`
+}
+
+func buildSnapshot(root string) fileSnapshot {
+	snap := make(fileSnapshot)
+	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if excludeDirs[name] || hiddenDirs[name] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		snap[path] = info.ModTime()
+		return nil
+	})
+	return snap
+}
+
+func diffSnapshots(old, current fileSnapshot, root string) []watchEvent {
+	var events []watchEvent
+
+	// Check for modified or new files
+	for path, modTime := range current {
+		oldTime, exists := old[path]
+		if !exists || !modTime.Equal(oldTime) {
+			relPath, err := filepath.Rel(root, path)
+			if err != nil {
+				relPath = path
+			}
+			eventType := "change"
+			if !exists {
+				eventType = "rename"
+			}
+			events = append(events, watchEvent{
+				EventType: eventType,
+				Filename:  relPath,
+			})
+		}
+	}
+
+	// Check for deleted files
+	for path := range old {
+		if _, exists := current[path]; !exists {
+			relPath, err := filepath.Rel(root, path)
+			if err != nil {
+				relPath = path
+			}
+			events = append(events, watchEvent{
+				EventType: "rename",
+				Filename:  relPath,
+			})
+		}
+	}
+
+	return events
+}
+
 func main() {
 	var addr = flag.String("addr", "localhost:3000", "http service address")
 	var workspace = flag.String("workspace", "", "workspace root directory (auto-detected from first /files request if not set)")
@@ -1203,6 +1335,9 @@ func main() {
 	http.HandleFunc("/git/branches", corsMiddleware(handleGitBranches))
 	http.HandleFunc("/git/checkout", corsMiddleware(handleGitCheckout))
 	http.HandleFunc("/git/log", corsMiddleware(handleGitLog))
+
+	// File watch endpoint (WebSocket)
+	http.HandleFunc("/watch", handleWatch)
 
 	// Terminal endpoint
 	http.HandleFunc("/term", handleTerminal)
