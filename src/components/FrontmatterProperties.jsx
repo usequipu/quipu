@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CaretRight, CaretDown, X, Plus } from '@phosphor-icons/react';
+import { useToast } from './Toast';
 
 const TagEditor = ({ tags, fieldKey, tabId, onAddTag, onRemoveTag, onUpdateTag }) => {
   const [newTag, setNewTag] = useState('');
@@ -212,6 +213,7 @@ const FrontmatterProperties = ({
   onRemoveTag,
   onUpdateTag,
 }) => {
+  const { showToast } = useToast();
   const [isEditingRaw, setIsEditingRaw] = useState(false);
   const [rawYaml, setRawYaml] = useState('');
 
@@ -250,8 +252,9 @@ const FrontmatterProperties = ({
         }
       }
       setIsEditingRaw(false);
-    } catch {
-      // Keep textarea open on parse error — user sees the invalid YAML
+    } catch (err) {
+      // Keep textarea open on parse error so user can fix the YAML
+      showToast('Invalid YAML: ' + (err.message || 'parse error'), 'error');
     }
   };
 
