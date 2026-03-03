@@ -110,6 +110,9 @@ export function WorkspaceProvider({ children }) {
           showToast(`Last workspace not found: ${last.name || last.path}`, 'warning');
         }
       }
+
+      // Asynchronously validate all recent workspace paths and prune stale entries
+      validateAndPruneWorkspaces(recent).catch(() => {});
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -128,6 +131,29 @@ export function WorkspaceProvider({ children }) {
     setRecentWorkspaces([]);
   }, []);
 
+  // Validate workspace paths and prune stale entries that no longer exist on disk
+  const validateAndPruneWorkspaces = useCallback(async (workspaces) => {
+    if (!workspaces || workspaces.length === 0) return workspaces;
+
+    const validated = [];
+    for (const ws of workspaces) {
+      try {
+        await fs.readDirectory(ws.path);
+        validated.push(ws);
+      } catch {
+        // Path no longer exists or is inaccessible — skip it
+      }
+    }
+
+    // If any entries were pruned, persist the cleaned list
+    if (validated.length < workspaces.length) {
+      await storage.set('recentWorkspaces', validated);
+      setRecentWorkspaces(validated);
+    }
+
+    return validated;
+  }, []);
+
   const openFolder = useCallback(async () => {
     // Try native dialog first (Electron)
     const folderPath = await fs.openFolderDialog();
@@ -139,8 +165,31 @@ export function WorkspaceProvider({ children }) {
     }
   }, []);
 
+  const removeFromRecentWorkspaces = useCallback(async (folderPath) => {
+    const recent = await storage.get('recentWorkspaces') || [];
+    const filtered = recent.filter(r => r.path !== folderPath);
+    if (filtered.length < recent.length) {
+      await storage.set('recentWorkspaces', filtered);
+      setRecentWorkspaces(filtered);
+    }
+  }, []);
+
   const selectFolder = useCallback(async (folderPath) => {
     setShowFolderPicker(false);
+
+    // Validate directory exists before resetting state
+    let entries;
+    try {
+      entries = await fs.readDirectory(folderPath);
+    } catch (err) {
+      console.error('Failed to read directory:', err);
+      showToast('Failed to open workspace: ' + err.message, 'error');
+      // Prune the stale path from recent workspaces (fire-and-forget)
+      removeFromRecentWorkspaces(folderPath).catch(() => {});
+      return;
+    }
+
+    // Directory read succeeded — now reset state and apply
     setWorkspacePath(folderPath);
     setOpenTabs([]);
     setActiveTabId(null);
@@ -161,7 +210,7 @@ export function WorkspaceProvider({ children }) {
     claudeInstaller.installFrameSkills(folderPath).catch((err) => {
       console.warn('Claude skills install failed:', err);
     });
-  }, [showToast, updateRecentWorkspaces, clearAllTerminals]);
+  }, [showToast, updateRecentWorkspaces, removeFromRecentWorkspaces, clearAllTerminals]);
 
   const cancelFolderPicker = useCallback(() => {
     setShowFolderPicker(false);

@@ -16,7 +16,13 @@ const browserStorage = {
     }
   },
   set: (key, value) => {
-    localStorage.setItem(key, JSON.stringify(value));
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      // Degrade silently on QuotaExceededError (localStorage is full)
+      if (e.name === 'QuotaExceededError') return Promise.resolve();
+      return Promise.reject(e);
+    }
     return Promise.resolve();
   },
 };
