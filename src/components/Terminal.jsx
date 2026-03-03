@@ -84,6 +84,22 @@ const Terminal = forwardRef(({ workspacePath }, ref) => {
       const instance = instancesRef.current.get(activeTerminalId);
       if (instance) instance.xterm.focus();
     },
+    hasSelection: () => {
+      if (!activeTerminalId) return false;
+      const instance = instancesRef.current.get(activeTerminalId);
+      return instance?.xterm?.hasSelection() ?? false;
+    },
+    getSelection: () => {
+      if (!activeTerminalId) return '';
+      const instance = instancesRef.current.get(activeTerminalId);
+      return instance?.xterm?.getSelection() ?? '';
+    },
+    paste: (text) => {
+      if (!activeTerminalId) return;
+      const instance = instancesRef.current.get(activeTerminalId);
+      if (!instance) return;
+      writeToInstance(instance, text);
+    },
   }));
 
   // Create a new xterm instance for a terminal tab

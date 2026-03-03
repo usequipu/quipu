@@ -53,6 +53,26 @@ const createWindow = () => {
         backgroundColor: '#ffffff', // Start white, can change
     });
 
+    // Zoom keybindings: Ctrl+= zoom in, Ctrl+- zoom out, Ctrl+0 reset
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+        if (input.control || input.meta) {
+            if (input.key === '=' || input.key === '+') {
+                const current = mainWindow.webContents.getZoomFactor();
+                mainWindow.webContents.setZoomFactor(Math.min(current + 0.1, 2.0));
+                event.preventDefault();
+            }
+            if (input.key === '-') {
+                const current = mainWindow.webContents.getZoomFactor();
+                mainWindow.webContents.setZoomFactor(Math.max(current - 0.1, 0.5));
+                event.preventDefault();
+            }
+            if (input.key === '0') {
+                mainWindow.webContents.setZoomFactor(1.0);
+                event.preventDefault();
+            }
+        }
+    });
+
     // Load the index.html of the app.
     if (process.env.VITE_DEV_SERVER_URL) {
         mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);

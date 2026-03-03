@@ -6,6 +6,7 @@ import {
 } from '@phosphor-icons/react';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '../context/WorkspaceContext';
+import ContextMenu from './ContextMenu';
 
 function getFileIcon(name) {
   const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
@@ -103,14 +104,6 @@ function FileTreeItem({ entry, depth = 0 }) {
     setContextMenu(null);
   }, []);
 
-  useEffect(() => {
-    if (contextMenu) {
-      const handler = () => closeContextMenu();
-      document.addEventListener('click', handler);
-      return () => document.removeEventListener('click', handler);
-    }
-  }, [contextMenu, closeContextMenu]);
-
   const handleRenameStart = useCallback(() => {
     setRenameValue(entry.name);
     setIsRenaming(true);
@@ -160,8 +153,54 @@ function FileTreeItem({ entry, depth = 0 }) {
     setCreateValue('');
   }, [createValue, isCreating, entry.path, createNewFile, createNewFolder]);
 
+  // Build context menu items for this entry
+  const contextMenuItems = useCallback(() => {
+    const items = [];
+
+    // Copy name to clipboard
+    items.push({
+      label: 'Copy Name',
+      onClick: () => {
+        navigator.clipboard.writeText(entry.name);
+      },
+    });
+
+    items.push({
+      label: 'Copy Path',
+      onClick: () => {
+        navigator.clipboard.writeText(entry.path);
+      },
+    });
+
+    items.push({ separator: true });
+
+    if (entry.isDirectory) {
+      items.push({
+        label: 'New File',
+        onClick: handleNewFile,
+      });
+      items.push({
+        label: 'New Folder',
+        onClick: handleNewFolder,
+      });
+      items.push({ separator: true });
+    }
+
+    items.push({
+      label: 'Rename',
+      onClick: handleRenameStart,
+    });
+    items.push({
+      label: 'Delete',
+      onClick: handleDelete,
+      danger: true,
+    });
+
+    return items;
+  }, [entry, handleNewFile, handleNewFolder, handleRenameStart, handleDelete]);
+
   return (
-    <div className="relative">
+    <div className="relative" data-context="file-tree-item">
       <div
         className={cn(
           "flex items-center h-[22px] cursor-pointer gap-1 whitespace-nowrap overflow-hidden",
@@ -197,20 +236,11 @@ function FileTreeItem({ entry, depth = 0 }) {
       </div>
 
       {contextMenu && (
-        <div
-          className="fixed bg-bg-elevated border border-border rounded shadow-lg py-1 min-w-[160px] z-[1000]"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-        >
-          {entry.isDirectory && (
-            <>
-              <div className="py-1 px-6 cursor-pointer text-[13px] text-text-secondary hover:bg-accent hover:text-white" onClick={handleNewFile}>New File</div>
-              <div className="py-1 px-6 cursor-pointer text-[13px] text-text-secondary hover:bg-accent hover:text-white" onClick={handleNewFolder}>New Folder</div>
-              <div className="h-px bg-border my-1" />
-            </>
-          )}
-          <div className="py-1 px-6 cursor-pointer text-[13px] text-text-secondary hover:bg-accent hover:text-white" onClick={handleRenameStart}>Rename</div>
-          <div className="py-1 px-6 cursor-pointer text-[13px] text-text-secondary hover:bg-error hover:text-white" onClick={handleDelete}>Delete</div>
-        </div>
+        <ContextMenu
+          items={contextMenuItems()}
+          position={{ x: contextMenu.x, y: contextMenu.y }}
+          onClose={closeContextMenu}
+        />
       )}
 
       {entry.isDirectory && isExpanded && (

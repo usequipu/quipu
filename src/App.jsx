@@ -14,6 +14,7 @@ import SourceControlPanel from './components/SourceControlPanel';
 import DiffViewer from './components/DiffViewer';
 import QuickOpen from './components/QuickOpen';
 import TitleBar from './components/TitleBar';
+import ContextMenu from './components/ContextMenu';
 import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { ToastProvider, useToast } from './components/Toast';
 import frameService from './services/frameService.js';
@@ -41,6 +42,12 @@ function AppContent() {
   // Derive isClaudeRunning from the active terminal tab
   const activeTerminalTab = terminalTabs.find(t => t.id === activeTerminalId);
   const isClaudeRunning = activeTerminalTab?.isClaudeRunning ?? false;
+
+  // Expose terminal ref globally for context menu access
+  useEffect(() => {
+    window.__quipuTerminalRef = terminalRef;
+    return () => { delete window.__quipuTerminalRef; };
+  }, []);
 
   // Clear diff view when user switches to a different tab
   useEffect(() => {
@@ -281,6 +288,231 @@ function AppContent() {
     return () => document.removeEventListener('keydown', handler);
   }, [editorInstance, activeFile, saveFile, activeTabId, openTabs, closeTab, switchTab, handleToggleSidebar, handleToggleTerminal, createTerminalTab, sidePanelRef, terminalPanelRef]);
 
+  // --- Global Context Menu ---
+  const [contextMenu, setContextMenu] = useState(null);
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(null);
+  }, []);
+
+  useEffect(() => {
+    const handleContextMenu = (e) => {
+      e.preventDefault();
+
+      // If the right-click originated inside the FileExplorer's own context menu
+      // items or its inline rename/create inputs, let its local handler win
+      const fileTreeItem = e.target.closest('[data-context="file-tree-item"]');
+      if (fileTreeItem) return;
+
+      const x = e.clientX;
+      const y = e.clientY;
+      const items = [];
+
+      // --- Detect context by walking up the DOM ---
+      const isEditor = !!e.target.closest('.ProseMirror');
+      const isTerminal = !!e.target.closest('.xterm');
+      const isTabBar = !!e.target.closest('[data-context="tab-bar"]');
+      const isExplorer = !!e.target.closest('[data-context="explorer"]');
+
+      // Check for text selection
+      const selection = window.getSelection();
+      const hasSelection = selection && selection.toString().trim().length > 0;
+
+      // Check for terminal selection
+      const termRef = window.__quipuTerminalRef;
+      const hasTerminalSelection = isTerminal && termRef?.current && typeof termRef.current.hasSelection === 'function' && termRef.current.hasSelection();
+
+      // --- Copy when text is selected (always first) ---
+      if (hasSelection && !isTerminal) {
+        const selectedText = selection.toString();
+        items.push({
+          label: 'Copy',
+          shortcut: 'Ctrl+C',
+          onClick: () => {
+            navigator.clipboard.writeText(selectedText);
+          },
+        });
+      }
+
+      if (hasTerminalSelection) {
+        const terminalText = termRef.current.getSelection();
+        items.push({
+          label: 'Copy',
+          shortcut: 'Ctrl+Shift+C',
+          onClick: () => {
+            navigator.clipboard.writeText(terminalText);
+          },
+        });
+      }
+
+      // --- Editor context ---
+      if (isEditor && editorInstance) {
+        const hasEditorSelection = !editorInstance.state.selection.empty;
+
+        if (hasEditorSelection && items.length === 0) {
+          // Selection exists but wasn't caught above (e.g., node selection)
+          items.push({
+            label: 'Copy',
+            shortcut: 'Ctrl+C',
+            onClick: () => document.execCommand('copy'),
+          });
+        }
+
+        if (hasEditorSelection) {
+          items.push({
+            label: 'Cut',
+            shortcut: 'Ctrl+X',
+            onClick: () => document.execCommand('cut'),
+          });
+        }
+
+        items.push({
+          label: 'Paste',
+          shortcut: 'Ctrl+V',
+          onClick: () => {
+            navigator.clipboard.readText().then((text) => {
+              editorInstance.commands.insertContent(text);
+            }).catch(() => {
+              document.execCommand('paste');
+            });
+          },
+        });
+
+        items.push({
+          label: 'Select All',
+          shortcut: 'Ctrl+A',
+          onClick: () => editorInstance.commands.selectAll(),
+        });
+
+        items.push({ separator: true });
+
+        items.push({
+          label: 'Bold',
+          shortcut: 'Ctrl+B',
+          onClick: () => editorInstance.chain().focus().toggleBold().run(),
+        });
+        items.push({
+          label: 'Italic',
+          shortcut: 'Ctrl+I',
+          onClick: () => editorInstance.chain().focus().toggleItalic().run(),
+        });
+        items.push({
+          label: 'Strikethrough',
+          onClick: () => editorInstance.chain().focus().toggleStrike().run(),
+        });
+
+        // Table context items (if cursor is inside a table)
+        if (editorInstance.isActive('table')) {
+          items.push({ separator: true });
+          items.push({
+            label: 'Add Row Below',
+            onClick: () => editorInstance.chain().focus().addRowAfter().run(),
+          });
+          items.push({
+            label: 'Add Column After',
+            onClick: () => editorInstance.chain().focus().addColumnAfter().run(),
+          });
+          items.push({
+            label: 'Delete Row',
+            onClick: () => editorInstance.chain().focus().deleteRow().run(),
+            danger: true,
+          });
+          items.push({
+            label: 'Delete Column',
+            onClick: () => editorInstance.chain().focus().deleteColumn().run(),
+            danger: true,
+          });
+        }
+      }
+
+      // --- Terminal context ---
+      else if (isTerminal) {
+        if (!hasTerminalSelection) {
+          // No selection — still offer paste
+        }
+
+        items.push({
+          label: 'Paste',
+          shortcut: 'Ctrl+Shift+V',
+          onClick: () => {
+            navigator.clipboard.readText().then((text) => {
+              if (window.electronAPI) {
+                window.electronAPI.writeTerminal(text);
+              } else if (termRef?.current) {
+                termRef.current.paste(text);
+              }
+            }).catch(() => {});
+          },
+        });
+
+        items.push({ separator: true });
+
+        items.push({
+          label: 'Clear Terminal',
+          onClick: () => {
+            const term = window.__quipuXtermInstance;
+            if (term) term.clear();
+          },
+        });
+      }
+
+      // --- Tab bar context ---
+      else if (isTabBar) {
+        const tabEl = e.target.closest('[data-tab-id]');
+        const tabId = tabEl?.dataset.tabId;
+
+        if (tabId) {
+          items.push({
+            label: 'Close Tab',
+            shortcut: 'Ctrl+W',
+            onClick: () => closeTab(tabId),
+          });
+          items.push({
+            label: 'Close Other Tabs',
+            onClick: () => {
+              openTabs.forEach((tab) => {
+                if (tab.id !== tabId) closeTab(tab.id);
+              });
+            },
+          });
+          items.push({
+            label: 'Close All Tabs',
+            onClick: () => {
+              openTabs.forEach((tab) => closeTab(tab.id));
+            },
+            danger: true,
+          });
+        }
+      }
+
+      // --- File Explorer context (fallback — tree items handle their own) ---
+      else if (isExplorer) {
+        // General explorer area right-click — nothing specific to offer
+        // beyond paste if clipboard has content
+      }
+
+      // --- General / empty area fallback ---
+      if (items.length === 0) {
+        items.push({
+          label: 'Paste',
+          shortcut: 'Ctrl+V',
+          onClick: () => {
+            navigator.clipboard.readText().then((text) => {
+              if (editorInstance) {
+                editorInstance.commands.insertContent(text);
+              }
+            }).catch(() => {});
+          },
+        });
+      }
+
+      setContextMenu({ x, y, items });
+    };
+
+    document.addEventListener('contextmenu', handleContextMenu);
+    return () => document.removeEventListener('contextmenu', handleContextMenu);
+  }, [editorInstance, closeTab, openTabs]);
+
   const handleEditorReady = useCallback((editor) => {
     setEditorInstance(editor);
   }, []);
@@ -367,6 +599,13 @@ function AppContent() {
 
   return (
     <div className="flex flex-col h-screen w-screen">
+      {contextMenu && (
+        <ContextMenu
+          items={contextMenu.items}
+          position={{ x: contextMenu.x, y: contextMenu.y }}
+          onClose={closeContextMenu}
+        />
+      )}
       {showFolderPicker && (
         <FolderPicker onSelect={selectFolder} onCancel={cancelFolderPicker} />
       )}
@@ -388,7 +627,7 @@ function AppContent() {
           maxSize={400}
           defaultSize={250}
         >
-          <div className="h-full overflow-hidden flex flex-col bg-bg-surface">
+          <div className="h-full overflow-hidden flex flex-col bg-bg-surface" data-context="explorer">
             {activePanel === 'explorer' && <FileExplorer />}
             {activePanel === 'search' && <SearchPanel activePanel={activePanel} />}
             {activePanel === 'git' && <SourceControlPanel onOpenDiff={handleOpenDiff} />}
@@ -399,7 +638,9 @@ function AppContent() {
           <Group orientation="vertical" style={{ height: '100%' }}>
             <Panel minSize={100}>
               <div className="h-full flex flex-col overflow-hidden relative">
-                <TabBar />
+                <div data-context="tab-bar">
+                  <TabBar />
+                </div>
                 {activeDiff ? (
                   <DiffViewer
                     filePath={activeDiff.filePath}

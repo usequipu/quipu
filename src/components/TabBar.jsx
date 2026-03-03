@@ -24,6 +24,7 @@ export default function TabBar() {
                 return (
                     <div
                         key={tab.id}
+                        data-tab-id={tab.id}
                         className={cn(
                             "group/tab flex items-center gap-1.5 px-3",
                             "cursor-pointer border-r border-border whitespace-nowrap",
