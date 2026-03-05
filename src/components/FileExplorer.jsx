@@ -52,6 +52,7 @@ function FileTreeItem({ entry, depth = 0 }) {
     deleteEntry,
     renameEntry,
     openTabs,
+    directoryVersion,
   } = useWorkspace();
 
   const [children, setChildren] = useState([]);
@@ -71,7 +72,7 @@ function FileTreeItem({ entry, depth = 0 }) {
     if (entry.isDirectory && isExpanded) {
       loadSubDirectory(entry.path).then(setChildren);
     }
-  }, [entry.path, entry.isDirectory, isExpanded, loadSubDirectory]);
+  }, [entry.path, entry.isDirectory, isExpanded, loadSubDirectory, directoryVersion]);
 
   useEffect(() => {
     if (isRenaming && renameRef.current) {
@@ -141,12 +142,12 @@ function FileTreeItem({ entry, depth = 0 }) {
     }
   }, [entry, isExpanded, toggleFolder, closeContextMenu]);
 
-  const handleCreateSubmit = useCallback(() => {
+  const handleCreateSubmit = useCallback(async () => {
     if (createValue) {
       if (isCreating === 'file') {
-        createNewFile(entry.path, createValue);
+        await createNewFile(entry.path, createValue);
       } else {
-        createNewFolder(entry.path, createValue);
+        await createNewFolder(entry.path, createValue);
       }
     }
     setIsCreating(null);
@@ -211,10 +212,12 @@ function FileTreeItem({ entry, depth = 0 }) {
         onClick={handleClick}
         onContextMenu={handleContextMenu}
       >
-        {entry.isDirectory && (
+        {entry.isDirectory ? (
           isExpanded
             ? <CaretDownIcon size={14} className="shrink-0 text-text-tertiary" />
             : <CaretRightIcon size={14} className="shrink-0 text-text-tertiary" />
+        ) : (
+          <span className="shrink-0 w-[14px]" />
         )}
         <FileIconComponent name={entry.name} isDirectory={entry.isDirectory} isExpanded={isExpanded} isDirty={isDirtyFile} />
         {isRenaming ? (

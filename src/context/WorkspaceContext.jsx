@@ -24,6 +24,7 @@ export function WorkspaceProvider({ children }) {
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [recentWorkspaces, setRecentWorkspaces] = useState([]);
   const [gitChangeCount, setGitChangeCount] = useState(0);
+  const [directoryVersion, setDirectoryVersion] = useState(0);
 
   const updateGitChangeCount = useCallback((count) => {
     setGitChangeCount(count);
@@ -570,6 +571,7 @@ export function WorkspaceProvider({ children }) {
     const filePath = parentPath + '/' + name;
     try {
       await fs.createFile(filePath);
+      setDirectoryVersion(v => v + 1);
       if (workspacePath) await refreshDirectory(workspacePath);
     } catch (err) {
       console.error('Failed to create file:', err);
@@ -581,6 +583,7 @@ export function WorkspaceProvider({ children }) {
     const folderPath = parentPath + '/' + name;
     try {
       await fs.createFolder(folderPath);
+      setDirectoryVersion(v => v + 1);
       if (workspacePath) await refreshDirectory(workspacePath);
     } catch (err) {
       console.error('Failed to create folder:', err);
@@ -596,6 +599,7 @@ export function WorkspaceProvider({ children }) {
       if (tab) {
         closeTab(tab.id);
       }
+      setDirectoryVersion(v => v + 1);
       if (workspacePath) await refreshDirectory(workspacePath);
     } catch (err) {
       console.error('Failed to delete:', err);
@@ -610,6 +614,7 @@ export function WorkspaceProvider({ children }) {
       setOpenTabs(prev => prev.map(t =>
         t.path === oldPath ? { ...t, path: newPath, name: newPath.split('/').pop() } : t
       ));
+      setDirectoryVersion(v => v + 1);
       if (workspacePath) await refreshDirectory(workspacePath);
     } catch (err) {
       console.error('Failed to rename:', err);
@@ -789,6 +794,7 @@ export function WorkspaceProvider({ children }) {
     deleteEntry,
     renameEntry,
     refreshDirectory,
+    directoryVersion,
     // Tab functions
     openTabs,
     activeTabId,
