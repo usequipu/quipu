@@ -146,40 +146,75 @@ const Terminal = forwardRef(({ workspacePath }, ref) => {
         showToast('Failed to create terminal: ' + err.message, 'error');
       }
     } else {
-      // Browser: each terminal gets its own WebSocket
+      // Browser: each terminal gets its own WebSocket with reconnection
       const wsUrl = workspacePath
         ? `${WS_URL}/term?cwd=${encodeURIComponent(workspacePath)}`
         : `${WS_URL}/term`;
-      const ws = new WebSocket(wsUrl);
-      ws.binaryType = "arraybuffer";
-      instance.ws = ws;
 
-      ws.onopen = () => {
-        xterm.writeln("\x1b[32mConnected to terminal server\x1b[0m");
-        ws.send(JSON.stringify({ cols: xterm.cols, rows: xterm.rows }));
+      const MAX_RETRIES = 5;
+      const RETRY_DELAY = 3000;
+      let retryCount = 0;
+      let intentionalClose = false;
+      let dataHandler = null;
+
+      const connect = () => {
+        const ws = new WebSocket(wsUrl);
+        ws.binaryType = "arraybuffer";
+        instance.ws = ws;
+
+        ws.onopen = () => {
+          retryCount = 0;
+          if (retryCount === 0) {
+            xterm.writeln("\x1b[32mConnected to terminal server\x1b[0m");
+          } else {
+            xterm.writeln("\x1b[32mReconnected to terminal server\x1b[0m");
+          }
+          ws.send(JSON.stringify({ cols: xterm.cols, rows: xterm.rows }));
+        };
+
+        ws.onmessage = (event) => {
+          if (event.data instanceof ArrayBuffer) {
+            xterm.write(new Uint8Array(event.data));
+          } else {
+            xterm.write(event.data);
+          }
+        };
+
+        ws.onclose = () => {
+          if (intentionalClose) return;
+          if (retryCount < MAX_RETRIES) {
+            retryCount++;
+            xterm.writeln(`\r\n\x1b[33mDisconnected. Reconnecting (${retryCount}/${MAX_RETRIES})...\x1b[0m`);
+            instance.reconnectTimer = setTimeout(connect, RETRY_DELAY);
+          } else {
+            xterm.writeln("\r\n\x1b[31mDisconnected from terminal server. Max retries reached.\x1b[0m");
+            xterm.writeln(`\x1b[2mServer URL: ${wsUrl}\x1b[0m`);
+          }
+        };
+
+        ws.onerror = () => {
+          // onclose will fire after onerror, so reconnection is handled there
+        };
+
+        // Remove previous data handler if reconnecting
+        if (dataHandler) dataHandler.dispose();
+        dataHandler = xterm.onData((data) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(data);
+          }
+        });
       };
 
-      ws.onmessage = (event) => {
-        if (event.data instanceof ArrayBuffer) {
-          xterm.write(new Uint8Array(event.data));
-        } else {
-          xterm.write(event.data);
+      // Method to stop reconnection attempts on intentional close
+      instance.stopReconnect = () => {
+        intentionalClose = true;
+        if (instance.reconnectTimer) {
+          clearTimeout(instance.reconnectTimer);
+          instance.reconnectTimer = null;
         }
       };
 
-      ws.onclose = () => {
-        xterm.writeln("\r\n\x1b[31mDisconnected from terminal server\x1b[0m");
-      };
-
-      ws.onerror = () => {
-        xterm.writeln("\r\n\x1b[31mWebSocket error\x1b[0m");
-      };
-
-      xterm.onData((data) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(data);
-        }
-      });
+      connect();
     }
   }, [workspacePath, showToast]);
 
@@ -229,8 +264,9 @@ const Terminal = forwardRef(({ workspacePath }, ref) => {
         // Kill backend
         if (isElectron() && instance.backendId) {
           terminalService.kill(instance.backendId);
-        } else if (instance.ws) {
-          instance.ws.close();
+        } else {
+          if (instance.stopReconnect) instance.stopReconnect();
+          if (instance.ws) instance.ws.close();
         }
         instance.xterm.dispose();
         instancesRef.current.delete(tabId);
@@ -311,8 +347,9 @@ const Terminal = forwardRef(({ workspacePath }, ref) => {
       for (const [, instance] of instancesRef.current) {
         if (isElectron() && instance.backendId) {
           terminalService.kill(instance.backendId);
-        } else if (instance.ws) {
-          instance.ws.close();
+        } else {
+          if (instance.stopReconnect) instance.stopReconnect();
+          if (instance.ws) instance.ws.close();
         }
         instance.xterm.dispose();
       }
@@ -465,8 +502,9 @@ const Terminal = forwardRef(({ workspacePath }, ref) => {
     if (instance) {
       if (isElectron() && instance.backendId) {
         terminalService.kill(instance.backendId);
-      } else if (instance.ws) {
-        instance.ws.close();
+      } else {
+        if (instance.stopReconnect) instance.stopReconnect();
+        if (instance.ws) instance.ws.close();
       }
     }
     closeTerminalTab(tabId);
