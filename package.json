@@ -16,6 +16,7 @@
     "build:release": "bash scripts/build-release.sh"
   },
   "dependencies": {
+    "@excalidraw/excalidraw": "^0.18.0",
     "@phosphor-icons/react": "^2.1.10",
     "@tailwindcss/vite": "^4.2.1",
     "@tiptap/extension-bubble-menu": "^3.15.3",

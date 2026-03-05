@@ -40,11 +40,16 @@ export function getLanguage(fileName) {
   return EXT_TO_LANG[getFileExtension(fileName)] || null;
 }
 
+export function isExcalidrawFile(fileName) {
+  return fileName.endsWith('.excalidraw');
+}
+
 export function getViewerType(tab) {
   if (!tab) return null;
   if (tab.isDiff) return 'diff';
   if (tab.isMedia) return 'media';
   if (tab.isQuipu) return 'editor';
+  if (isExcalidrawFile(tab.name)) return 'excalidraw';
   if (tab.name.endsWith('.md') || tab.name.endsWith('.markdown')) return 'editor';
   if (isCodeFile(tab.name)) return 'code';
   if (isMediaFile(tab.name)) return 'media';

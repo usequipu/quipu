@@ -20,13 +20,14 @@ import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { ToastProvider, useToast } from './components/Toast';
 import frameService from './services/frameService.js';
 import claudeInstaller from './services/claudeInstaller';
-import { isCodeFile } from './utils/fileTypes';
+import { isCodeFile, isExcalidrawFile } from './utils/fileTypes';
+import ExcalidrawViewer from './components/ExcalidrawViewer';
 
 function AppContent() {
   const [editorInstance, setEditorInstance] = useState(null);
   const terminalRef = React.useRef(null);
   const {
-    activeFile, saveFile, setIsDirty, showFolderPicker, selectFolder, cancelFolderPicker,
+    activeFile, saveFile, setIsDirty, updateTabContent, showFolderPicker, selectFolder, cancelFolderPicker,
     activeTabId, activeTab, snapshotTab, openTabs, closeTab, switchTab,
     updateFrontmatter, addFrontmatterProperty, removeFrontmatterProperty,
     renameFrontmatterKey, toggleFrontmatterCollapsed,
@@ -217,7 +218,7 @@ function AppContent() {
     const handler = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
-        if (editorInstance && activeFile) {
+        if (activeFile) {
           saveFile(editorInstance);
         }
       }
@@ -519,16 +520,20 @@ function AppContent() {
     setEditorInstance(editor);
   }, []);
 
-  const handleContentChange = useCallback(() => {
+  const handleContentChange = useCallback((content) => {
     if (activeFile) {
       setIsDirty(true);
+      // For non-TipTap editors (e.g., Excalidraw), store updated content on the tab
+      if (typeof content === 'string') {
+        updateTabContent(activeTabId, content);
+      }
     }
-  }, [activeFile, setIsDirty]);
+  }, [activeFile, activeTabId, setIsDirty, updateTabContent]);
 
   const handleMenuAction = useCallback((action) => {
     switch (action) {
       case 'file.save':
-        if (editorInstance && activeFile) saveFile(editorInstance);
+        if (activeFile) saveFile(editorInstance);
         break;
       case 'file.closeTab':
         if (activeTabId) closeTab(activeTabId);
@@ -661,6 +666,12 @@ function AppContent() {
                 ) : activeFile ? (
                   activeTab?.isMedia ? (
                     <MediaViewer filePath={activeTab.path} fileName={activeTab.name} />
+                  ) : isExcalidrawFile(activeFile.name) ? (
+                    <ExcalidrawViewer
+                      content={activeFile.content}
+                      filePath={activeTab.path}
+                      onContentChange={handleContentChange}
+                    />
                   ) : isCodeFile(activeFile.name) && !activeFile.isQuipu ? (
                     <CodeViewer content={activeFile.content} fileName={activeFile.name} />
                   ) : (

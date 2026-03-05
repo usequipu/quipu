@@ -825,6 +825,28 @@ const Editor = ({
 
                     <div className="flex-1" />
 
+                    <div className="flex items-center gap-0.5">
+                        <ToolbarButton
+                            onClick={handleZoomOut}
+                            disabled={zoomLevel <= ZOOM_MIN}
+                            title="Zoom out"
+                        >
+                            <MagnifyingGlassMinusIcon size={16} />
+                        </ToolbarButton>
+                        <span className="text-[11px] text-text-secondary min-w-[36px] text-center select-none">
+                            {zoomLevel}%
+                        </span>
+                        <ToolbarButton
+                            onClick={handleZoomIn}
+                            disabled={zoomLevel >= ZOOM_MAX}
+                            title="Zoom in"
+                        >
+                            <MagnifyingGlassPlusIcon size={16} />
+                        </ToolbarButton>
+                    </div>
+
+                    <ToolbarSeparator />
+
                     <button
                         onClick={toggleEditorMode}
                         className="text-[11px] text-text-tertiary hover:text-text-secondary px-2 py-1 rounded hover:bg-bg-elevated transition-colors"
@@ -836,7 +858,34 @@ const Editor = ({
             )}
 
             {editorMode === 'obsidian' && editor && (
-                <div className="shrink-0 flex items-center justify-end px-4 py-1.5 border-b border-border bg-bg-surface">
+                <div className="shrink-0 flex items-center justify-end gap-1 px-4 py-1.5 border-b border-border bg-bg-surface">
+                    <div className="flex items-center gap-0.5">
+                        <button
+                            onClick={handleZoomOut}
+                            disabled={zoomLevel <= ZOOM_MIN}
+                            className={cn(
+                                "p-1 rounded text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors",
+                                zoomLevel <= ZOOM_MIN && "opacity-30 cursor-not-allowed hover:bg-transparent hover:text-text-secondary",
+                            )}
+                            title="Zoom out"
+                        >
+                            <MagnifyingGlassMinusIcon size={14} />
+                        </button>
+                        <span className="text-[11px] text-text-secondary min-w-[36px] text-center select-none">
+                            {zoomLevel}%
+                        </span>
+                        <button
+                            onClick={handleZoomIn}
+                            disabled={zoomLevel >= ZOOM_MAX}
+                            className={cn(
+                                "p-1 rounded text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors",
+                                zoomLevel >= ZOOM_MAX && "opacity-30 cursor-not-allowed hover:bg-transparent hover:text-text-secondary",
+                            )}
+                            title="Zoom in"
+                        >
+                            <MagnifyingGlassPlusIcon size={14} />
+                        </button>
+                    </div>
                     <button
                         onClick={toggleEditorMode}
                         className="text-[11px] text-text-tertiary hover:text-text-secondary px-2 py-1 rounded hover:bg-bg-elevated transition-colors"
@@ -1014,37 +1063,6 @@ const Editor = ({
                             <div className="text-xs text-text-secondary border-l-2 border-warning pl-2 italic whitespace-nowrap overflow-hidden text-ellipsis">"{c.text}"</div>
                         </div>
                     ))}
-                </div>
-
-                {/* Zoom Controls */}
-                <div className="sticky bottom-4 left-0 right-0 flex justify-center pointer-events-none z-10">
-                    <div className="flex items-center gap-1 bg-bg-surface border border-border rounded-lg shadow-md px-2 py-1 pointer-events-auto">
-                        <button
-                            onClick={handleZoomOut}
-                            disabled={zoomLevel <= ZOOM_MIN}
-                            className={cn(
-                                "p-1 rounded text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors",
-                                zoomLevel <= ZOOM_MIN && "opacity-30 cursor-not-allowed hover:bg-transparent hover:text-text-secondary",
-                            )}
-                            title="Zoom out"
-                        >
-                            <MagnifyingGlassMinusIcon size={16} />
-                        </button>
-                        <span className="text-[11px] text-text-secondary min-w-[36px] text-center select-none">
-                            {zoomLevel}%
-                        </span>
-                        <button
-                            onClick={handleZoomIn}
-                            disabled={zoomLevel >= ZOOM_MAX}
-                            className={cn(
-                                "p-1 rounded text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors",
-                                zoomLevel >= ZOOM_MAX && "opacity-30 cursor-not-allowed hover:bg-transparent hover:text-text-secondary",
-                            )}
-                            title="Zoom in"
-                        >
-                            <MagnifyingGlassPlusIcon size={16} />
-                        </button>
-                    </div>
                 </div>
 
                 {/* Table Context Menu */}

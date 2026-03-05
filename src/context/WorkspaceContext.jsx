@@ -256,6 +256,12 @@ export function WorkspaceProvider({ children }) {
     ));
   }, []);
 
+  const updateTabContent = useCallback((tabId, content) => {
+    setOpenTabs(prev => prev.map(t =>
+      t.id === tabId ? { ...t, content } : t
+    ));
+  }, []);
+
   // Function to snapshot editor state for current tab before switching
   const snapshotTab = useCallback((tabId, tiptapJSON, scrollPosition) => {
     setOpenTabs(prev => prev.map(t =>
@@ -526,7 +532,24 @@ export function WorkspaceProvider({ children }) {
   }, [activeTabId, setTabDirty]);
 
   const saveFile = useCallback(async (editorInstance) => {
-    if (!activeTab || !editorInstance) return;
+    if (!activeTab) return;
+
+    // For non-TipTap files (e.g., excalidraw), save tab content directly
+    if (!editorInstance && activeTab.content) {
+      try {
+        await fs.writeFile(activeTab.path, activeTab.content);
+        setOpenTabs(prev => prev.map(t =>
+          t.id === activeTab.id ? { ...t, isDirty: false, diskContent: activeTab.content, hasConflict: false, conflictDiskContent: null } : t
+        ));
+        showToast('File saved', 'success');
+      } catch (err) {
+        console.error('Failed to save file:', err);
+        showToast('Failed to save file: ' + err.message, 'error');
+      }
+      return;
+    }
+
+    if (!editorInstance) return;
 
     let content;
     if (activeTab.isQuipu || activeTab.name.endsWith('.quipu')) {
@@ -782,6 +805,7 @@ export function WorkspaceProvider({ children }) {
     openFile,
     saveFile,
     setIsDirty,
+    updateTabContent,
     toggleFolder,
     loadSubDirectory,
     createNewFile,
