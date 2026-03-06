@@ -133,39 +133,6 @@ const Editor = ({
         setTableContextMenu(null);
     }, []);
 
-    const handleEditorContextMenu = useCallback((e) => {
-        if (!editor) return;
-
-        // Check if cursor is inside a table
-        const isInTable = editor.isActive('table');
-
-        if (isInTable) {
-            e.preventDefault();
-            setTableContextMenu({ x: e.clientX, y: e.clientY });
-        }
-        // else: allow native context menu
-    }, [editor]);
-
-    // Close table context menu on click outside, Escape, or scroll
-    useEffect(() => {
-        if (!tableContextMenu) return;
-
-        const handleClick = () => closeTableMenu();
-        const handleKeyDown = (e) => {
-            if (e.key === 'Escape') closeTableMenu();
-        };
-        const handleScroll = () => closeTableMenu();
-
-        document.addEventListener('click', handleClick);
-        document.addEventListener('keydown', handleKeyDown);
-        document.addEventListener('scroll', handleScroll, true);
-
-        return () => {
-            document.removeEventListener('click', handleClick);
-            document.removeEventListener('keydown', handleKeyDown);
-            document.removeEventListener('scroll', handleScroll, true);
-        };
-    }, [tableContextMenu, closeTableMenu]);
 
     const displayTitle = useMemo(() => {
         if (!activeFile?.name) return '';
@@ -374,6 +341,40 @@ const Editor = ({
             setShowMenu(true);
         },
     });
+
+    const handleEditorContextMenu = useCallback((e) => {
+        if (!editor) return;
+
+        // Check if cursor is inside a table
+        const isInTable = editor.isActive('table');
+
+        if (isInTable) {
+            e.preventDefault();
+            setTableContextMenu({ x: e.clientX, y: e.clientY });
+        }
+        // else: allow native context menu
+    }, [editor]);
+
+    // Close table context menu on click outside, Escape, or scroll
+    useEffect(() => {
+        if (!tableContextMenu) return;
+
+        const handleClick = () => closeTableMenu();
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape') closeTableMenu();
+        };
+        const handleScroll = () => closeTableMenu();
+
+        document.addEventListener('click', handleClick);
+        document.addEventListener('keydown', handleKeyDown);
+        document.addEventListener('scroll', handleScroll, true);
+
+        return () => {
+            document.removeEventListener('click', handleClick);
+            document.removeEventListener('keydown', handleKeyDown);
+            document.removeEventListener('scroll', handleScroll, true);
+        };
+    }, [tableContextMenu, closeTableMenu]);
 
     // Notify parent when editor is ready
     useEffect(() => {
