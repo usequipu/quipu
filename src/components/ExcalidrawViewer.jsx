@@ -55,13 +55,28 @@ const ExcalidrawViewer = ({ content, filePath, onContentChange }) => {
     };
   }, []);
 
+  // Intercept Ctrl+S before Excalidraw captures it
+  const handleKeyDown = useCallback((e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      e.stopPropagation();
+      // App-level Ctrl+S handler will fire from the window keydown listener
+    }
+  }, []);
+
   return (
-    <div className="h-full w-full">
+    <div className="h-full w-full" onKeyDownCapture={handleKeyDown}>
       <Excalidraw
         excalidrawAPI={(api) => setExcalidrawAPI(api)}
         initialData={initialDataRef.current}
         onChange={handleChange}
         theme="dark"
+        UIOptions={{
+          canvasActions: {
+            saveAsImage: false,
+            export: false,
+          },
+        }}
       />
     </div>
   );
