@@ -28,15 +28,20 @@ import (
 // Set via -workspace flag or auto-detected on the first /files request.
 var workspaceRoot string
 
+// workspaceExplicit is true when -workspace was passed on the command line.
+// When false (auto-detected), path sandboxing is relaxed to allow browsing
+// parent directories (e.g., folder picker).
+var workspaceExplicit bool
+
 // isLocalOrigin returns true for origins that are localhost, 127.0.0.1,
-// or file:// (Electron thin-shell loads from disk).
+// [::1] (IPv6 loopback), or file:// / null (Electron loads from disk).
 func isLocalOrigin(origin string) bool {
 	if origin == "" || origin == "null" || origin == "file://" {
 		return true
 	}
 	for _, prefix := range []string{
-		"http://localhost", "http://127.0.0.1",
-		"https://localhost", "https://127.0.0.1",
+		"http://localhost", "http://127.0.0.1", "http://[::1]",
+		"https://localhost", "https://127.0.0.1", "https://[::1]",
 	} {
 		if strings.HasPrefix(origin, prefix) {
 			return true
@@ -47,7 +52,12 @@ func isLocalOrigin(origin string) bool {
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return isLocalOrigin(r.Header.Get("Origin"))
+		origin := r.Header.Get("Origin")
+		ok := isLocalOrigin(origin)
+		if !ok {
+			log.Printf("WebSocket origin rejected: %q", origin)
+		}
+		return ok
 	},
 }
 
@@ -111,8 +121,14 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 }
 
 // isWithinWorkspace checks whether absPath is contained within the workspace root.
-// Returns false if the workspace root has not been set yet.
+// When the workspace was auto-detected (not set via -workspace flag), this is
+// permissive and allows any absolute path — the user needs to browse parent
+// directories for the folder picker.
 func isWithinWorkspace(absPath string) bool {
+	if !workspaceExplicit {
+		// No explicit sandbox — allow any path
+		return true
+	}
 	if workspaceRoot == "" {
 		return false
 	}
@@ -1391,7 +1407,8 @@ func main() {
 			log.Fatalf("Invalid workspace path: %v", err)
 		}
 		workspaceRoot = abs
-		log.Printf("Workspace root set to: %s", workspaceRoot)
+		workspaceExplicit = true
+		log.Printf("Workspace root set to: %s (sandboxed)", workspaceRoot)
 	}
 
 	// File system endpoints
@@ -1435,20 +1452,20 @@ func main() {
 	http.HandleFunc("/git/checkout", corsMiddleware(handleGitCheckout))
 	http.HandleFunc("/git/log", corsMiddleware(handleGitLog))
 
-	// File watch endpoint (WebSocket)
-	http.HandleFunc("/watch", handleWatch)
+	// File watch endpoint (WebSocket) — corsMiddleware for preflight, upgrader for WS origin
+	http.HandleFunc("/watch", corsMiddleware(handleWatch))
 
 	// File stat endpoint (for browser polling — returns mtime)
 	http.HandleFunc("/file/stat", corsMiddleware(handleFileStat))
 
-	// Terminal endpoint
-	http.HandleFunc("/term", handleTerminal)
+	// Terminal endpoint — corsMiddleware for preflight, upgrader for WS origin
+	http.HandleFunc("/term", corsMiddleware(handleTerminal))
 
 	// Health check endpoint (used by thin Electron shell to wait for server readiness)
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/health", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
-	})
+	}))
 
 	log.Printf("Listening on %s", *addr)
 	log.Fatal(http.ListenAndServe(*addr, nil))
