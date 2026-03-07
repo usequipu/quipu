@@ -98,6 +98,8 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		origin := r.Header.Get("Origin")
 		if isLocalOrigin(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
+		} else if origin != "" {
+			log.Printf("CORS: non-local origin %q for %s %s", origin, r.Method, r.URL.Path)
 		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
@@ -171,6 +173,7 @@ func handleListFiles(w http.ResponseWriter, r *http.Request) {
 
 	// Validate the path is within the workspace
 	if !isWithinWorkspace(absPath) {
+		log.Printf("403 /files: path %q outside workspace %q (explicit=%v)", absPath, workspaceRoot, workspaceExplicit)
 		jsonError(w, "path outside workspace", http.StatusForbidden)
 		return
 	}
@@ -1467,6 +1470,9 @@ func main() {
 		w.Write([]byte("ok"))
 	}))
 
-	log.Printf("Listening on %s", *addr)
+	if !workspaceExplicit {
+		log.Printf("No -workspace flag: path sandboxing disabled (any path allowed)")
+	}
+	log.Printf("Listening on %s (GOOS=%s)", *addr, runtime.GOOS)
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }
