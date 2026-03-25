@@ -219,7 +219,8 @@ function AppContent() {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
         if (activeFile) {
-          saveFile(editorInstance);
+          const isExcalidraw = activeFile.name.endsWith('.excalidraw');
+          saveFile(isExcalidraw ? null : editorInstance);
         }
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
@@ -533,7 +534,10 @@ function AppContent() {
   const handleMenuAction = useCallback((action) => {
     switch (action) {
       case 'file.save':
-        if (activeFile) saveFile(editorInstance);
+        if (activeFile) {
+          const isExcalidraw = activeFile.name.endsWith('.excalidraw');
+          saveFile(isExcalidraw ? null : editorInstance);
+        }
         break;
       case 'file.closeTab':
         if (activeTabId) closeTab(activeTabId);

@@ -223,6 +223,7 @@ export function WorkspaceProvider({ children }) {
     try {
       const entries = await fs.readDirectory(dirPath);
       setFileTree(entries);
+      setDirectoryVersion(v => v + 1);
     } catch (err) {
       console.error('Failed to refresh directory:', err);
       showToast('Failed to refresh directory: ' + err.message, 'error');
@@ -536,7 +537,8 @@ export function WorkspaceProvider({ children }) {
     if (!activeTab) return;
 
     // For non-TipTap files (e.g., excalidraw), save tab content directly
-    if (!editorInstance && activeTab.content) {
+    const isNonTipTapFile = activeTab.name.endsWith('.excalidraw') || activeTab.isMedia;
+    if ((isNonTipTapFile || !editorInstance) && activeTab.content) {
       try {
         await fs.writeFile(activeTab.path, activeTab.content);
         setOpenTabs(prev => prev.map(t =>
