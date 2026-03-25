@@ -56,7 +56,8 @@ const browserFS = {
   readDirectory: async (dirPath) => {
     const res = await fetch(`${GO_SERVER}/files?path=${encodeURIComponent(dirPath)}`);
     if (!res.ok) throw new Error(`Failed to read directory: ${res.statusText}`);
-    return res.json();
+    const data = await res.json();
+    return data || [];
   },
 
   readFile: async (filePath) => {

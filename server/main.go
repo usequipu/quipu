@@ -184,7 +184,7 @@ func handleListFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var files []FileEntry
+	files := []FileEntry{}
 	for _, e := range entries {
 		if hiddenDirs[e.Name()] {
 			continue
@@ -258,6 +258,11 @@ func handleWriteFile(w http.ResponseWriter, r *http.Request) {
 
 	if !isWithinWorkspace(absPath) {
 		jsonError(w, "path outside workspace", http.StatusForbidden)
+		return
+	}
+
+	if err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
