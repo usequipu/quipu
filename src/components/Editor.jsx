@@ -87,7 +87,8 @@ const Editor = ({
 
     const toggleEditorMode = useCallback(() => {
         setEditorMode(prev => {
-            const next = prev === 'richtext' ? 'obsidian' : 'richtext';
+            const cycle = { richtext: 'obsidian', obsidian: 'raw', raw: 'richtext' };
+            const next = cycle[prev] || 'richtext';
             localStorage.setItem('quipu-editor-mode', next);
             return next;
         });
@@ -408,7 +409,11 @@ const Editor = ({
         // Skip snapshot on external reload (tiptapJSON is null after reload)
         if (activeTab && activeTab.tiptapJSON) {
             editor.commands.setContent(activeTab.tiptapJSON, { emitUpdate: false });
-            extractComments(editor);
+            requestAnimationFrame(() => {
+                if (editor && !editor.isDestroyed) {
+                    extractComments(editor);
+                }
+            });
             return;
         }
 
@@ -435,7 +440,12 @@ const Editor = ({
                 }, { emitUpdate: false });
             }
         }
-        extractComments(editor);
+        // Use requestAnimationFrame to ensure TipTap has processed the content
+        requestAnimationFrame(() => {
+            if (editor && !editor.isDestroyed) {
+                extractComments(editor);
+            }
+        });
     }, [editor, activeFile, activeTabId, activeTab, snapshotTab]);
 
     // Load FRAME annotations as comment marks when switching tabs or when FRAME files change externally
@@ -986,8 +996,16 @@ const Editor = ({
                             </button>
                         </div>
                     )}
-                    <div className={editorMode === 'richtext' ? 'editor-richtext' : 'editor-obsidian'}>
-                        <EditorContent editor={editor} />
+                    <div className={editorMode === 'richtext' ? 'editor-richtext' : editorMode === 'obsidian' ? 'editor-obsidian' : 'editor-raw'}>
+                        {editorMode === 'raw' ? (
+                            <pre className="whitespace-pre-wrap font-mono text-sm p-4 text-page-text bg-page-bg min-h-full overflow-auto select-text" style={{ fontFamily: 'var(--font-mono)' }}>
+                                {activeFile?.isQuipu && typeof activeFile.content === 'object'
+                                    ? JSON.stringify(activeFile.content, null, 2)
+                                    : editor?.storage?.markdown?.getMarkdown?.() || (typeof activeFile?.content === 'string' ? activeFile.content : '')}
+                            </pre>
+                        ) : (
+                            <EditorContent editor={editor} />
+                        )}
                     </div>
                 </div>
 
@@ -1008,7 +1026,7 @@ const Editor = ({
                                 value={commentText}
                                 onChange={(e) => setCommentText(e.target.value)}
                                 onKeyDown={(e) => {
-                                    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                    if (((e.ctrlKey || e.metaKey) || e.shiftKey) && e.key === 'Enter') {
                                         e.preventDefault();
                                         addComment();
                                     }
