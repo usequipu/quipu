@@ -15,7 +15,7 @@ try {
     // electron-squirrel-startup not available outside of Squirrel installer context
 }
 
-const HIDDEN_DIRS = new Set(['.git', '.quipu']);
+const HIDDEN_DIRS = new Set(['.git']);
 
 // Storage: simple JSON file in app userData directory
 function getStorageFile() {

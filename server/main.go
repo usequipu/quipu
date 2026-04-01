@@ -530,7 +530,7 @@ type FilesRecursiveResponse struct {
 }
 
 // hiddenDirs are never shown in the file explorer (readdir).
-var hiddenDirs = map[string]bool{".git": true, ".quipu": true}
+var hiddenDirs = map[string]bool{".git": true}
 
 // Directories to exclude from recursive file listing and search
 var excludeDirs = map[string]bool{

@@ -35,6 +35,7 @@ function AppContent() {
     workspacePath,
     terminalTabs, activeTerminalId, createTerminalTab, setTerminalClaudeRunning,
     resolveConflictReload, resolveConflictKeep, resolveConflictDismiss,
+    reloadTabFromDisk,
   } = useWorkspace();
   const { showToast } = useToast();
   const [activePanel, setActivePanel] = useState('explorer');
@@ -287,10 +288,18 @@ function AppContent() {
         e.preventDefault();
         sendToClaudeRef.current();
       }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'R') {
+        e.preventDefault();
+        if (activeTabId) reloadTabFromDisk(activeTabId);
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'f') {
+        e.preventDefault();
+        window.__quipuToggleFind?.();
+      }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [editorInstance, activeFile, saveFile, activeTabId, openTabs, closeTab, switchTab, handleToggleSidebar, handleToggleTerminal, createTerminalTab, sidePanelRef, terminalPanelRef]);
+  }, [editorInstance, activeFile, saveFile, activeTabId, openTabs, closeTab, switchTab, handleToggleSidebar, handleToggleTerminal, createTerminalTab, sidePanelRef, terminalPanelRef, reloadTabFromDisk]);
 
   // --- Global Context Menu ---
   const [contextMenu, setContextMenu] = useState(null);

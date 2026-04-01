@@ -5,7 +5,7 @@ import '@excalidraw/excalidraw/index.css';
 const ExcalidrawViewer = ({ content, filePath, onContentChange }) => {
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const initialDataRef = useRef(null);
-  const changeCountRef = useRef(0);
+  const ignoreChangesRef = useRef(true);
   const debounceRef = useRef(null);
   const onContentChangeRef = useRef(onContentChange);
   onContentChangeRef.current = onContentChange;
@@ -28,11 +28,8 @@ const ExcalidrawViewer = ({ content, filePath, onContentChange }) => {
   }
 
   const handleChange = useCallback((elements, appState, files) => {
-    // Skip the first 2 onChange calls (Excalidraw initialization)
-    if (changeCountRef.current < 2) {
-      changeCountRef.current++;
-      return;
-    }
+    // Ignore onChange during initialization window to prevent false dirty state
+    if (ignoreChangesRef.current) return;
 
     // Debounce to avoid excessive state updates
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -42,10 +39,12 @@ const ExcalidrawViewer = ({ content, filePath, onContentChange }) => {
     }, 300);
   }, []);
 
-  // Reset when file changes
+  // Reset initialization window when file changes
   useEffect(() => {
     initialDataRef.current = null;
-    changeCountRef.current = 0;
+    ignoreChangesRef.current = true;
+    const timer = setTimeout(() => { ignoreChangesRef.current = false; }, 800);
+    return () => clearTimeout(timer);
   }, [filePath]);
 
   // Cleanup debounce on unmount

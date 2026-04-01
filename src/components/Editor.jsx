@@ -18,6 +18,8 @@ import { TableCell } from '@tiptap/extension-table-cell';
 import { Markdown } from 'tiptap-markdown';
 import { RevealMarkdown } from '../extensions/RevealMarkdown';
 import { BlockDragHandle } from '../extensions/BlockDragHandle';
+import { FindReplace } from '../extensions/FindReplace';
+import FindBar from './FindBar';
 import FrontmatterProperties from './FrontmatterProperties';
 import frameService from '../services/frameService.js';
 import fs from '../services/fileSystem.js';
@@ -80,6 +82,8 @@ const Editor = ({
     const commentsRef = useRef({});
     const loadedTabRef = useRef(null);
 
+    const [showFindBar, setShowFindBar] = useState(false);
+
     // Editor mode: 'richtext' (default) or 'obsidian'
     const [editorMode, setEditorMode] = useState(() => {
         return localStorage.getItem('quipu-editor-mode') || 'richtext';
@@ -99,6 +103,12 @@ const Editor = ({
         window.__quipuToggleEditorMode = toggleEditorMode;
         return () => { delete window.__quipuToggleEditorMode; };
     }, [toggleEditorMode]);
+
+    // Expose find bar toggle for App.jsx keyboard shortcut
+    useEffect(() => {
+        window.__quipuToggleFind = () => setShowFindBar(prev => !prev);
+        return () => { delete window.__quipuToggleFind; };
+    }, []);
 
     // Document zoom: 75%-200%, persisted in localStorage, independent of window zoom
     const ZOOM_MIN = 75;
@@ -142,6 +152,9 @@ const Editor = ({
 
     // New state for adjusted positions
     const [adjustedPositions, setAdjustedPositions] = useState({});
+
+    // Ref keeps handleImageUpload fresh inside the static editorProps closure
+    const handleImageUploadRef = useRef(null);
 
     // Handle image upload from clipboard paste or file drop
     const handleImageUpload = useCallback(async (file, view, insertPos) => {
@@ -208,6 +221,7 @@ const Editor = ({
             reader.readAsDataURL(file);
         }
     }, [activeFile?.path, workspacePath]);
+    handleImageUploadRef.current = handleImageUpload;
 
     const editor = useEditor({
         extensions: [
@@ -232,6 +246,7 @@ const Editor = ({
             }),
             RevealMarkdown,
             BlockDragHandle,
+            FindReplace,
             Highlight.configure({
                 multicolor: true,
             }).extend({
@@ -288,7 +303,7 @@ const Editor = ({
                         const file = item.getAsFile();
                         if (!file) return true;
 
-                        handleImageUpload(file, view);
+                        handleImageUploadRef.current(file, view);
                         return true;
                     }
                 }
@@ -308,9 +323,9 @@ const Editor = ({
                 const coords = { left: event.clientX, top: event.clientY };
                 const pos = view.posAtCoords(coords);
                 if (pos) {
-                    handleImageUpload(imageFile, view, pos.pos);
+                    handleImageUploadRef.current(imageFile, view, pos.pos);
                 } else {
-                    handleImageUpload(imageFile, view);
+                    handleImageUploadRef.current(imageFile, view);
                 }
                 return true;
             },
@@ -410,9 +425,11 @@ const Editor = ({
         if (activeTab && activeTab.tiptapJSON) {
             editor.commands.setContent(activeTab.tiptapJSON, { emitUpdate: false });
             requestAnimationFrame(() => {
-                if (editor && !editor.isDestroyed) {
-                    extractComments(editor);
-                }
+                requestAnimationFrame(() => {
+                    if (editor && !editor.isDestroyed) {
+                        extractComments(editor);
+                    }
+                });
             });
             return;
         }
@@ -440,11 +457,14 @@ const Editor = ({
                 }, { emitUpdate: false });
             }
         }
-        // Use requestAnimationFrame to ensure TipTap has processed the content
+        // Double rAF: first frame lets TipTap process the new state,
+        // second frame ensures the view's DOM positions are valid for coordsAtPos
         requestAnimationFrame(() => {
-            if (editor && !editor.isDestroyed) {
-                extractComments(editor);
-            }
+            requestAnimationFrame(() => {
+                if (editor && !editor.isDestroyed) {
+                    extractComments(editor);
+                }
+            });
         });
     }, [editor, activeFile, activeTabId, activeTab, snapshotTab]);
 
@@ -733,7 +753,7 @@ const Editor = ({
     };
 
     return (
-        <div className="flex flex-col h-full w-full bg-bg-surface overflow-hidden">
+        <div className="flex flex-col h-full w-full bg-bg-surface overflow-hidden relative">
             {editorMode === 'richtext' && editor && (
                 <div className="shrink-0 flex items-center gap-1 px-4 py-2 border-b border-border bg-bg-surface">
                     <ToolbarButton
@@ -900,11 +920,30 @@ const Editor = ({
                     <button
                         onClick={toggleEditorMode}
                         className="text-[11px] text-text-tertiary hover:text-text-secondary px-2 py-1 rounded hover:bg-bg-elevated transition-colors"
-                        title="Switch to Rich Text mode"
+                        title="Switch to Raw mode"
                     >
                         Obsidian
                     </button>
                 </div>
+            )}
+
+            {editorMode === 'raw' && (
+                <div className="shrink-0 flex items-center justify-end gap-1 px-4 py-1.5 border-b border-border bg-bg-surface">
+                    <button
+                        onClick={toggleEditorMode}
+                        className="text-[11px] text-text-tertiary hover:text-text-secondary px-2 py-1 rounded hover:bg-bg-elevated transition-colors"
+                        title="Switch to Rich Text mode"
+                    >
+                        Raw
+                    </button>
+                </div>
+            )}
+
+            {showFindBar && editorMode !== 'raw' && (
+                <FindBar
+                    editor={editor}
+                    onClose={() => setShowFindBar(false)}
+                />
             )}
 
             <div className={cn(

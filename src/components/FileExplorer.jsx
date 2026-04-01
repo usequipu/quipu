@@ -265,7 +265,7 @@ function FileTreeItem({ entry, depth = 0 }) {
               />
             </div>
           )}
-          {children.map((child) => (
+          {(children || []).map((child) => (
             <FileTreeItem key={child.path} entry={child} depth={depth + 1} />
           ))}
         </div>
