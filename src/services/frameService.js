@@ -74,7 +74,7 @@ async function createFrame(workspacePath, filePath) {
   return writeFrame(workspacePath, filePath, frame);
 }
 
-async function addAnnotation(workspacePath, filePath, { id, line, text, type = 'review', author = 'user' }) {
+async function addAnnotation(workspacePath, filePath, { id, line, text, type = 'review', author = 'user', page, selectedText, occurrence, topRatio }) {
   let frame = await readFrame(workspacePath, filePath);
   if (!frame) frame = createEmptyFrame(filePath, workspacePath);
 
@@ -84,6 +84,10 @@ async function addAnnotation(workspacePath, filePath, { id, line, text, type = '
     text,
     type,
     author,
+    page,
+    selectedText,
+    occurrence,
+    topRatio,
     timestamp: new Date().toISOString(),
   });
 

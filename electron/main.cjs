@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, protocol, net, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -88,6 +88,24 @@ const createWindow = () => {
     } else {
         mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
     }
+
+    // Open external links in system browser instead of navigating the app
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+            shell.openExternal(url);
+        }
+        return { action: 'deny' };
+    });
+
+    mainWindow.webContents.on('will-navigate', (event, url) => {
+        const appOrigin = process.env.VITE_DEV_SERVER_URL || 'file://';
+        if (!url.startsWith(appOrigin)) {
+            event.preventDefault();
+            if (url.startsWith('http://') || url.startsWith('https://')) {
+                shell.openExternal(url);
+            }
+        }
+    });
 };
 
 // This method will be called when Electron has finished

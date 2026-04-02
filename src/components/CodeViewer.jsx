@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { cn } from '@/lib/utils';
 import hljs from 'highlight.js/lib/core';
 import javascript from 'highlight.js/lib/languages/javascript';
@@ -41,7 +41,9 @@ const CodeViewer = ({ content, fileName, onContentChange }) => {
   const language = getLanguage(fileName);
   const textareaRef = useRef(null);
   const highlightRef = useRef(null);
+  const gutterRef = useRef(null);
   const [editableContent, setEditableContent] = useState(content || '');
+  const [gutterWidth, setGutterWidth] = useState(0);
 
   // Sync when file changes externally
   useEffect(() => {
@@ -59,6 +61,13 @@ const CodeViewer = ({ content, fileName, onContentChange }) => {
   const lineCount = useMemo(() => {
     return (editableContent || '').split('\n').length;
   }, [editableContent]);
+
+  // Measure gutter width dynamically so textarea paddingLeft matches
+  useLayoutEffect(() => {
+    if (gutterRef.current) {
+      setGutterWidth(gutterRef.current.offsetWidth);
+    }
+  }, [lineCount]);
 
   const handleChange = useCallback((e) => {
     const newContent = e.target.value;
@@ -126,7 +135,7 @@ const CodeViewer = ({ content, fileName, onContentChange }) => {
       )}>
         <div className="flex overflow-hidden relative">
           {/* Line numbers */}
-          <div className="shrink-0 py-4 pr-2 pl-4 text-right select-none">
+          <div ref={gutterRef} className="shrink-0 py-4 pr-2 pl-4 text-right select-none">
             {Array.from({ length: lineCount }, (_, i) => (
               <div key={i} className="font-mono text-xs leading-6 text-text-tertiary opacity-50">
                 {i + 1}
@@ -160,7 +169,7 @@ const CodeViewer = ({ content, fileName, onContentChange }) => {
               "resize-none outline-none border-none",
               "overflow-auto whitespace-pre",
             )}
-            style={{ paddingLeft: `${4 * 0.25 + 2.5}rem`, tabSize: 2 }}
+            style={{ paddingLeft: gutterWidth ? `${gutterWidth + 8}px` : '3.5rem', tabSize: 2 }}
           />
         </div>
       </div>

@@ -4,7 +4,7 @@ import fs from '../services/fileSystem';
 import fileWatcher from '../services/fileWatcher';
 import frameService from '../services/frameService';
 import claudeInstaller from '../services/claudeInstaller';
-import storage, { isElectronRuntime } from '../services/storageService';
+import storage from '../services/storageService';
 import { useToast } from '../components/Toast';
 import { isCodeFile, isMermaidFile } from '../utils/fileTypes';
 
@@ -102,7 +102,7 @@ export function WorkspaceProvider({ children }) {
       const recent = await storage.get('recentWorkspaces') || [];
       setRecentWorkspaces(recent);
 
-      if (isElectronRuntime() && recent.length > 0) {
+      if (recent.length > 0) {
         const last = recent[0];
         try {
           const entries = await fs.readDirectory(last.path);
