@@ -1,12 +1,13 @@
 {
   "name": "quipu_simple",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A web-based code editor with rich text, terminal, and git support",
   "author": {
     "name": "barelias",
     "email": "iago@visio.ai"
   },
+  "license": "MIT WITH Commons-Clause",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {

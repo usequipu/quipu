@@ -105,7 +105,7 @@ const Terminal = forwardRef(({ workspacePath }, ref) => {
   // Create a new xterm instance for a terminal tab
   const createXtermInstance = useCallback((tabId) => {
     const term = new XTerm({
-      fontFamily: '"MesloLGS NF", "JetBrains Mono", "Fira Code", monospace',
+      fontFamily: '"MesloLGS Nerd Font Mono", "MesloLGS NF", "JetBrains Mono", "Fira Code", monospace',
       fontSize: 14,
       theme: XTERM_THEME,
       cursorBlink: true,
