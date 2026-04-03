@@ -540,6 +540,12 @@ const Editor = ({
     // Keep editor ref in sync for toggleEditorMode
     useEffect(() => { editorRefForToggle.current = editor; }, [editor]);
 
+    // Set lang attribute for multilingual spellcheck (English + Portuguese)
+    useEffect(() => {
+        if (!editor?.view?.dom) return;
+        editor.view.dom.setAttribute('lang', 'en, pt-BR');
+    }, [editor]);
+
     // Notify parent when editor is ready
     useEffect(() => {
         if (editor && onEditorReady) {

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, protocol, net, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, protocol, net, shell, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -116,6 +116,9 @@ app.whenReady().then(() => {
         const filePath = decodeURIComponent(request.url.replace('quipu-file://', ''));
         return net.fetch('file://' + filePath);
     });
+
+    // Enable spellcheck for both English and Portuguese
+    session.defaultSession.setSpellCheckerLanguages(['en-US', 'pt-BR']);
 
     createWindow();
 
