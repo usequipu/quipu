@@ -112,14 +112,27 @@ describe('parseNotebook', () => {
     expect(result.nbformat).toBe(4);
   });
 
-  it('throws on nbformat 3', () => {
-    const nb = { nbformat: 3, worksheets: [{ cells: [] }] };
-    expect(() => parseNotebook(JSON.stringify(nb))).toThrow('nbformat 3 not supported');
+  it('normalizes nbformat 3 by extracting cells from worksheets', () => {
+    const v3Cell = { cell_type: 'code', input: ['print(1)'], outputs: [], prompt_number: 1 };
+    const nb = { nbformat: 3, worksheets: [{ cells: [v3Cell] }] };
+    const result = parseNotebook(JSON.stringify(nb));
+    expect(result.nbformat).toBe(4);
+    expect(result.cells).toHaveLength(1);
+    expect(result.cells[0].source).toEqual(['print(1)']);
+    expect(result.cells[0].execution_count).toBe(1);
   });
 
-  it('does not throw on notebooks with worksheets key but nbformat 4', () => {
+  it('handles nbformat 3 with no worksheets gracefully', () => {
+    const nb = { nbformat: 3 };
+    const result = parseNotebook(JSON.stringify(nb));
+    expect(result.cells).toEqual([]);
+  });
+
+  it('does not alter notebooks with worksheets key but nbformat 4', () => {
     const nb = { nbformat: 4, nbformat_minor: 5, cells: [], metadata: {}, worksheets: null };
-    expect(() => parseNotebook(JSON.stringify(nb))).not.toThrow();
+    const result = parseNotebook(JSON.stringify(nb));
+    expect(result.nbformat).toBe(4);
+    expect(result.cells).toEqual([]);
   });
 
   it('throws on invalid JSON', () => {
