@@ -54,4 +54,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     gitBranches: (dirPath) => ipcRenderer.invoke('git-branches', dirPath),
     gitCheckout: (dirPath, branch) => ipcRenderer.invoke('git-checkout', dirPath, branch),
     gitLog: (dirPath) => ipcRenderer.invoke('git-log', dirPath),
+
+    // Jupyter kernel management
+    kernelValidate: (venvPath) => ipcRenderer.invoke('jupyter-validate', venvPath),
+    kernelStart: (venvPath, workspaceRoot) => ipcRenderer.invoke('jupyter-start', venvPath, workspaceRoot),
+    kernelStop: () => ipcRenderer.invoke('jupyter-stop'),
+    kernelProxyRest: (method, apiPath, body) => ipcRenderer.invoke('jupyter-proxy-rest', method, apiPath, body),
+    kernelGetChannelUrl: (kernelId) => ipcRenderer.invoke('jupyter-get-channel-url', kernelId),
 });

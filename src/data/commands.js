@@ -32,6 +32,11 @@ export const commands = [
   { label: 'New Terminal', shortcut: 'Ctrl+Shift+`', action: 'terminal.new', category: 'Terminal' },
   { label: 'Send to Terminal', action: 'terminal.send', category: 'Terminal' },
 
+  // Kernel
+  { label: 'Kernel: Run All Cells', action: 'kernel.runAll', category: 'Kernel' },
+  { label: 'Kernel: Interrupt Kernel', action: 'kernel.interrupt', category: 'Kernel' },
+  { label: 'Kernel: Restart Kernel', action: 'kernel.restart', category: 'Kernel' },
+
   // Preferences
   { label: 'Cycle Theme (Light / Tinted / Dark)', action: 'theme.toggle', category: 'Preferences' },
   { label: 'Toggle Editor Mode (Rich Text / Obsidian)', action: 'editor.toggleMode', category: 'Preferences' },

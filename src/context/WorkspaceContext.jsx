@@ -112,6 +112,7 @@ export function WorkspaceProvider({ children }) {
           setWorkspacePath(last.path);
           setFileTree(entries);
           claudeInstaller.installFrameSkills(last.path).catch(() => {});
+          restoreSession(last.path).catch(() => {});
         } catch {
           showToast(`Last workspace not found: ${last.name || last.path}`, 'warning');
         }
@@ -212,11 +213,14 @@ export function WorkspaceProvider({ children }) {
     // Save to workspace history (fire-and-forget)
     updateRecentWorkspaces(folderPath).catch(() => {});
 
+    // Restore last session for this workspace (fire-and-forget)
+    restoreSession(folderPath).catch(() => {});
+
     // Auto-install FRAME skills for Claude Code (fire-and-forget)
     claudeInstaller.installFrameSkills(folderPath).catch((err) => {
       console.warn('Claude skills install failed:', err);
     });
-  }, [showToast, updateRecentWorkspaces, removeFromRecentWorkspaces, clearAllTerminals]);
+  }, [showToast, updateRecentWorkspaces, removeFromRecentWorkspaces, clearAllTerminals]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cancelFolderPicker = useCallback(() => {
     setShowFolderPicker(false);
@@ -315,6 +319,94 @@ export function WorkspaceProvider({ children }) {
       return { frontmatter: null, frontmatterRaw: match[1], body: rawContent.slice(match[0].length) };
     }
   }, [showToast]);
+
+  const restoreSession = useCallback(async (folderPath) => {
+    const session = await storage.get(`session:${folderPath}`);
+    if (!session?.openFilePaths?.length) return;
+
+    const savedPaths = session.openFilePaths.slice(0, MAX_TABS);
+    const tabsMap = new Map();
+
+    await Promise.all(savedPaths.map(async ({ path: filePath, scrollPosition }) => {
+      const fileName = filePath.split(/[\\/]/).pop();
+      const isPdf = /\.pdf$/i.test(fileName);
+      const isMedia = /\.(jpe?g|png|gif|svg|webp|bmp|ico|mp4|webm|ogg|mov)$/i.test(fileName);
+
+      if (isPdf || isMedia) {
+        tabsMap.set(filePath, {
+          id: crypto.randomUUID(),
+          path: filePath,
+          name: fileName,
+          content: null,
+          tiptapJSON: null,
+          isDirty: false,
+          isQuipu: false,
+          isMarkdown: false,
+          isMedia,
+          isPdf,
+          isNotebook: false,
+          scrollPosition: scrollPosition ?? 0,
+          frontmatter: null,
+          frontmatterRaw: null,
+          diskContent: null,
+          frontmatterCollapsed: true,
+        });
+        return;
+      }
+
+      try {
+        const content = await fs.readFile(filePath);
+        const isQuipu = fileName.endsWith('.quipu');
+        const isMarkdown = fileName.endsWith('.md') || fileName.endsWith('.markdown');
+
+        let parsedContent = null;
+        if (isQuipu) {
+          try {
+            const parsed = JSON.parse(content);
+            if (parsed.type === 'quipu' && parsed.content) parsedContent = parsed.content;
+          } catch { /* treat as text */ }
+        }
+
+        let frontmatter = null, frontmatterRaw = null, bodyContent = content;
+        if (isMarkdown && typeof content === 'string') {
+          const fm = extractFrontmatter(content);
+          frontmatter = fm.frontmatter;
+          frontmatterRaw = fm.frontmatterRaw;
+          bodyContent = fm.body;
+        }
+
+        tabsMap.set(filePath, {
+          id: crypto.randomUUID(),
+          path: filePath,
+          name: fileName,
+          content: isQuipu && parsedContent ? parsedContent : bodyContent,
+          tiptapJSON: null,
+          isDirty: false,
+          isQuipu: isQuipu && !!parsedContent,
+          isMarkdown,
+          isNotebook: isNotebookFile(fileName),
+          scrollPosition: scrollPosition ?? 0,
+          frontmatter,
+          frontmatterRaw,
+          diskContent: content,
+          frontmatterCollapsed: true,
+        });
+      } catch {
+        // File no longer exists — skip silently
+      }
+    }));
+
+    const tabs = savedPaths.map(({ path }) => tabsMap.get(path)).filter(Boolean);
+    if (tabs.length === 0) return;
+
+    setOpenTabs(tabs);
+    const active = tabs.find(t => t.path === session.activeFilePath) ?? tabs[tabs.length - 1];
+    setActiveTabId(active.id);
+
+    if (session.expandedFolders?.length) {
+      setExpandedFolders(new Set(session.expandedFolders));
+    }
+  }, [extractFrontmatter]);
 
   const reloadTabFromDisk = useCallback(async (tabId) => {
     const tab = openTabs.find(t => t.id === tabId);
@@ -843,6 +935,22 @@ export function WorkspaceProvider({ children }) {
       }
     }
   }, [openTabs, workspacePath]);
+
+  // Persist open tabs + expanded folders per workspace (debounced 500ms)
+  useEffect(() => {
+    if (!workspacePath) return;
+    const timer = setTimeout(() => {
+      const snapshot = {
+        openFilePaths: openTabs
+          .filter(t => t.path)
+          .map(t => ({ path: t.path, scrollPosition: t.scrollPosition ?? 0 })),
+        activeFilePath: openTabs.find(t => t.id === activeTabId)?.path ?? null,
+        expandedFolders: [...expandedFolders],
+      };
+      storage.set(`session:${workspacePath}`, snapshot).catch(() => {});
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [openTabs, activeTabId, expandedFolders, workspacePath]);
 
   const value = {
     workspacePath,

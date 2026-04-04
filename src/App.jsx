@@ -637,6 +637,11 @@ function AppContent() {
       case 'editor.toggleMode':
         window.__quipuToggleEditorMode?.();
         break;
+      case 'kernel.runAll':
+      case 'kernel.interrupt':
+      case 'kernel.restart':
+        window.dispatchEvent(new CustomEvent('quipu:kernel-command', { detail: action }));
+        break;
     }
   }, [editorInstance, activeFile, saveFile, activeTabId, closeTab, sidePanelRef, terminalPanelRef, handlePanelToggle, handleToggleSidebar, handleToggleTerminal, createTerminalTab, toggleTheme, handleSendToTerminal, handleSendToClaude]);
 

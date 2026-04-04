@@ -3,7 +3,9 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -18,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -1403,6 +1406,343 @@ func handleFileStat(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ============================================================================
+// Jupyter Server management
+// ============================================================================
+
+type jupyterState struct {
+	mu         sync.Mutex
+	status     string // "stopped" | "starting" | "running"
+	cmd        *exec.Cmd
+	port       int
+	token      string
+	runtimeDir string
+}
+
+var jupyter = &jupyterState{status: "stopped"}
+
+// jupyterBinary returns the platform-correct path to the jupyter executable.
+func jupyterBinary(venvPath string) string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(venvPath, "Scripts", "jupyter.exe")
+	}
+	return filepath.Join(venvPath, "bin", "jupyter")
+}
+
+func generateToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// parseJupyterPort scans a line of Jupyter output for a URL containing the port.
+// Jupyter always prints something like http://127.0.0.1:PORT when ready.
+func parseJupyterPort(line string) int {
+	for _, prefix := range []string{
+		"http://127.0.0.1:", "https://127.0.0.1:",
+		"http://localhost:", "https://localhost:",
+	} {
+		if idx := strings.Index(line, prefix); idx >= 0 {
+			rest := line[idx+len(prefix):]
+			end := 0
+			for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
+				end++
+			}
+			if end > 0 {
+				if p, err := strconv.Atoi(rest[:end]); err == nil && p > 0 {
+					return p
+				}
+			}
+		}
+	}
+	return 0
+}
+
+// POST /api/jupyter/validate — checks that the jupyter binary exists in venvPath
+func handleJupyterValidate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		VenvPath string `json:"venvPath"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.VenvPath == "" {
+		jsonError(w, "venvPath required", http.StatusBadRequest)
+		return
+	}
+	bin := jupyterBinary(req.VenvPath)
+	if _, err := os.Stat(bin); err != nil {
+		jsonResponse(w, map[string]interface{}{
+			"valid": false,
+			"error": fmt.Sprintf("jupyter not found at %s", bin),
+		})
+		return
+	}
+	jsonResponse(w, map[string]interface{}{"valid": true})
+}
+
+// POST /api/jupyter/start — launches jupyter server from the given venv
+func handleJupyterStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		VenvPath      string `json:"venvPath"`
+		WorkspaceRoot string `json:"workspaceRoot"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.VenvPath == "" {
+		jsonError(w, "venvPath required", http.StatusBadRequest)
+		return
+	}
+
+	jupyter.mu.Lock()
+	defer jupyter.mu.Unlock()
+
+	if jupyter.status == "running" {
+		jsonResponse(w, map[string]interface{}{"status": "running", "port": jupyter.port})
+		return
+	}
+	if jupyter.status == "starting" {
+		jsonResponse(w, map[string]interface{}{"status": "starting"})
+		return
+	}
+
+	bin := jupyterBinary(req.VenvPath)
+	if _, err := os.Stat(bin); err != nil {
+		jsonError(w, fmt.Sprintf("jupyter not found at %s", bin), http.StatusBadRequest)
+		return
+	}
+
+	token, err := generateToken()
+	if err != nil {
+		jsonError(w, "failed to generate token: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	runtimeDir, err := os.MkdirTemp("", "quipu-jupyter-*")
+	if err != nil {
+		jsonError(w, "failed to create runtime dir: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rootDir := req.WorkspaceRoot
+	if rootDir == "" {
+		rootDir, _ = os.UserHomeDir()
+	}
+
+	cmd := exec.Command(bin,
+		"server",
+		"--no-browser",
+		"--ip=127.0.0.1",
+		"--port=0", // let OS pick a free port
+		"--ServerApp.root_dir="+rootDir,
+		"--ServerApp.allow_remote_access=False",
+	)
+	cmd.Env = append(os.Environ(), "JUPYTER_TOKEN="+token)
+	setSysProcAttr(cmd) // platform-specific process group isolation
+
+	// Pipe stdout+stderr before Start so we can scan for the port URL.
+	stdout, _ := cmd.StdoutPipe()
+	stderr, _ := cmd.StderrPipe()
+
+	if err := cmd.Start(); err != nil {
+		os.RemoveAll(runtimeDir)
+		jsonError(w, "failed to start jupyter: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	jupyter.status = "starting"
+	jupyter.cmd = cmd
+	jupyter.token = token
+	jupyter.runtimeDir = runtimeDir
+
+	// Scan stdout+stderr for the port URL outside the lock.
+	portCh := make(chan int, 1)
+	scanPipe := func(r io.Reader) {
+		scanner := bufio.NewScanner(r)
+		for scanner.Scan() {
+			if p := parseJupyterPort(scanner.Text()); p > 0 {
+				select {
+				case portCh <- p:
+				default:
+				}
+			}
+		}
+	}
+	go scanPipe(stdout)
+	go scanPipe(stderr)
+
+	jupyter.mu.Unlock()
+	var port int
+	select {
+	case port = <-portCh:
+	case <-time.After(45 * time.Second):
+	}
+	jupyter.mu.Lock()
+
+	if port == 0 {
+		cmd.Process.Kill()
+		os.RemoveAll(runtimeDir)
+		jupyter.status = "stopped"
+		jupyter.cmd = nil
+		jsonError(w, "jupyter server did not print a URL within 45s", http.StatusInternalServerError)
+		return
+	}
+
+	jupyter.port = port
+	jupyter.status = "running"
+	log.Printf("Jupyter server started on port %d", port)
+	jsonResponse(w, map[string]interface{}{"status": "running", "port": port})
+}
+
+// DELETE /api/jupyter/stop — shuts down the jupyter server process
+func handleJupyterStop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	jupyter.mu.Lock()
+	defer jupyter.mu.Unlock()
+
+	if jupyter.status == "stopped" || jupyter.cmd == nil {
+		jsonResponse(w, map[string]interface{}{"status": "stopped"})
+		return
+	}
+
+	killJupyterProcess(jupyter.cmd)
+	os.RemoveAll(jupyter.runtimeDir)
+	jupyter.status = "stopped"
+	jupyter.cmd = nil
+	jupyter.port = 0
+	jupyter.token = ""
+	jupyter.runtimeDir = ""
+	log.Printf("Jupyter server stopped")
+	jsonResponse(w, map[string]interface{}{"status": "stopped"})
+}
+
+// handleJupyterRestProxy forwards /api/jupyter/* requests to the local Jupyter server.
+// Path mapping: /api/jupyter/{rest} → http://127.0.0.1:{port}/api/{rest}
+func handleJupyterRestProxy(w http.ResponseWriter, r *http.Request) {
+	jupyter.mu.Lock()
+	port := jupyter.port
+	token := jupyter.token
+	status := jupyter.status
+	jupyter.mu.Unlock()
+
+	if status != "running" {
+		jsonError(w, "jupyter server not running", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Strip /api/jupyter prefix
+	rest := strings.TrimPrefix(r.URL.Path, "/api/jupyter")
+	upstreamURL := fmt.Sprintf("http://127.0.0.1:%d/api%s", port, rest)
+	if r.URL.RawQuery != "" {
+		upstreamURL += "?" + r.URL.RawQuery
+	}
+
+	upstreamReq, err := http.NewRequestWithContext(r.Context(), r.Method, upstreamURL, r.Body)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	upstreamReq.Header.Set("Authorization", "token "+token)
+	if ct := r.Header.Get("Content-Type"); ct != "" {
+		upstreamReq.Header.Set("Content-Type", ct)
+	}
+
+	resp, err := http.DefaultClient.Do(upstreamReq)
+	if err != nil {
+		jsonError(w, "upstream error: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+}
+
+// GET /ws/jupyter/kernels/{id}/channels — bidirectional WebSocket proxy to Jupyter kernel
+func handleJupyterKernelWS(w http.ResponseWriter, r *http.Request) {
+	jupyter.mu.Lock()
+	port := jupyter.port
+	token := jupyter.token
+	status := jupyter.status
+	jupyter.mu.Unlock()
+
+	if status != "running" {
+		http.Error(w, "jupyter server not running", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Extract kernel ID from path: /ws/jupyter/kernels/{id}/channels
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/ws/jupyter/kernels/"), "/")
+	if len(parts) < 2 || parts[0] == "" {
+		http.Error(w, "kernel id required", http.StatusBadRequest)
+		return
+	}
+	kernelID := parts[0]
+
+	// Upgrade client connection
+	client, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("jupyter ws upgrade error: %v", err)
+		return
+	}
+	defer client.Close()
+
+	// Dial upstream Jupyter kernel WebSocket
+	upstreamURL := fmt.Sprintf("ws://127.0.0.1:%d/api/kernels/%s/channels?token=%s", port, kernelID, token)
+	upstreamHeader := http.Header{}
+	upstreamHeader.Set("Origin", fmt.Sprintf("http://127.0.0.1:%d", port))
+
+	dialer := websocket.DefaultDialer
+	upstream, _, err := dialer.Dial(upstreamURL, upstreamHeader)
+	if err != nil {
+		log.Printf("jupyter upstream dial error: %v", err)
+		client.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "kernel unavailable"))
+		return
+	}
+	defer upstream.Close()
+
+	// Copy frames bidirectionally
+	done := make(chan struct{}, 2)
+
+	go func() {
+		defer func() { done <- struct{}{} }()
+		for {
+			mt, msg, err := upstream.ReadMessage()
+			if err != nil {
+				return
+			}
+			if err := client.WriteMessage(mt, msg); err != nil {
+				return
+			}
+		}
+	}()
+
+	go func() {
+		defer func() { done <- struct{}{} }()
+		for {
+			mt, msg, err := client.ReadMessage()
+			if err != nil {
+				return
+			}
+			if err := upstream.WriteMessage(mt, msg); err != nil {
+				return
+			}
+		}
+	}()
+
+	<-done // one side closed — shut down both
+}
+
 func main() {
 	var addr = flag.String("addr", "localhost:4848", "http service address")
 	var workspace = flag.String("workspace", "", "workspace root directory (auto-detected from first /files request if not set)")
@@ -1468,6 +1808,16 @@ func main() {
 
 	// Terminal endpoint — corsMiddleware for preflight, upgrader for WS origin
 	http.HandleFunc("/term", corsMiddleware(handleTerminal))
+
+	// Jupyter server management + proxy endpoints
+	http.HandleFunc("/api/jupyter/validate", corsMiddleware(handleJupyterValidate))
+	http.HandleFunc("/api/jupyter/start", corsMiddleware(handleJupyterStart))
+	http.HandleFunc("/api/jupyter/stop", corsMiddleware(handleJupyterStop))
+	// REST proxy: /api/jupyter/{rest} → Jupyter server /api/{rest}
+	// Must come after the specific /validate, /start, /stop routes
+	http.HandleFunc("/api/jupyter/", corsMiddleware(handleJupyterRestProxy))
+	// WebSocket proxy: /ws/jupyter/kernels/{id}/channels
+	http.HandleFunc("/ws/jupyter/kernels/", corsMiddleware(handleJupyterKernelWS))
 
 	// Health check endpoint (used by thin Electron shell to wait for server readiness)
 	http.HandleFunc("/health", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {

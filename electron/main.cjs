@@ -108,6 +108,141 @@ const createWindow = () => {
     });
 };
 
+// ---------------------------------------------------------------------------
+// Jupyter kernel management — module-level state + IPC handlers
+// Registered at module load (before app.whenReady) so they're always present.
+// ---------------------------------------------------------------------------
+let _jupyterProc = null;
+let _jupyterPort = null;
+let _jupyterToken = null;
+let _jupyterStartPromise = null;
+
+function _jupyterBinary(venvPath) {
+    return process.platform === 'win32'
+        ? path.join(venvPath, 'Scripts', 'jupyter.exe')
+        : path.join(venvPath, 'bin', 'jupyter');
+}
+
+function _jupyterToken32() {
+    return crypto.randomBytes(32).toString('hex');
+}
+
+// Find a free port in the 8900-9900 range (avoids common dev ports like 3000/4848).
+function _findFreePort() {
+    const net = require('net');
+    const tryPort = (p) => new Promise((resolve) => {
+        const srv = net.createServer();
+        srv.listen(p, '127.0.0.1', () => srv.close(() => resolve(p)));
+        srv.on('error', () => resolve(null)); // port busy, signal caller to retry
+    });
+    const start = 8900 + Math.floor(Math.random() * 1000);
+    const attempt = async () => {
+        for (let i = 0; i < 100; i++) {
+            const p = ((start + i - 8900) % 1000) + 8900;
+            const ok = await tryPort(p);
+            if (ok) return ok;
+        }
+        throw new Error('no free port found in 8900-9900 range');
+    };
+    return attempt();
+}
+
+ipcMain.handle('jupyter-validate', async (event, venvPath) => {
+    const bin = _jupyterBinary(venvPath);
+    if (!fs.existsSync(bin)) {
+        return { valid: false, error: 'jupyter binary not found in venv' };
+    }
+    return new Promise((resolve) => {
+        execFile(bin, ['--version'], (err) => {
+            resolve(err ? { valid: false, error: err.message } : { valid: true });
+        });
+    });
+});
+
+ipcMain.handle('jupyter-start', async (event, venvPath, workspaceRoot) => {
+    if (_jupyterStartPromise) return _jupyterStartPromise;
+    if (_jupyterProc && _jupyterPort) return { status: 'running', port: _jupyterPort };
+
+    _jupyterStartPromise = (async () => {
+        // Reserve a free port, then hand it to jupyter explicitly.
+        // This avoids --port=0 compatibility issues and stdout-parsing races.
+        const port = await _findFreePort();
+        const bin = _jupyterBinary(venvPath);
+        const token = _jupyterToken32();
+        const env = { ...process.env, JUPYTER_TOKEN: token };
+
+        const proc = require('child_process').spawn(bin, [
+            'server', '--no-browser',
+            `--port=${port}`,
+            '--ip=127.0.0.1',
+            `--ServerApp.root_dir=${workspaceRoot}`,
+        ], { env, detached: false });
+
+        _jupyterProc = proc;
+        _jupyterToken = token;
+
+        // Poll GET /api until jupyter responds — no stdout parsing needed.
+        const ready = await new Promise((resolve, reject) => {
+            let done = false;
+            const finish = (fn) => { if (!done) { done = true; clearInterval(poll); clearTimeout(timer); fn(); } };
+
+            const poll = setInterval(async () => {
+                try {
+                    const r = await fetch(`http://127.0.0.1:${port}/api`, {
+                        headers: { Authorization: `token ${token}` },
+                        signal: AbortSignal.timeout(1000),
+                    });
+                    if (r.status < 500) finish(() => resolve(port));
+                } catch (_) { /* not ready yet */ }
+            }, 500);
+
+            const timer = setTimeout(
+                () => finish(() => reject(new Error('timed out waiting for jupyter server'))),
+                45000,
+            );
+
+            proc.on('close', (code) => {
+                _jupyterProc = null;
+                finish(() => reject(new Error(`jupyter server exited (code ${code})`)));
+            });
+        });
+
+        _jupyterPort = ready;
+        return { status: 'running', port: ready };
+    })().finally(() => { _jupyterStartPromise = null; });
+
+    return _jupyterStartPromise;
+});
+
+ipcMain.handle('jupyter-stop', async () => {
+    if (_jupyterProc) {
+        _jupyterProc.kill('SIGTERM');
+        _jupyterProc = null;
+        _jupyterPort = null;
+        _jupyterToken = null;
+    }
+    return { status: 'stopped' };
+});
+
+ipcMain.handle('jupyter-proxy-rest', async (event, method, apiPath, body) => {
+    if (!_jupyterPort) throw new Error('jupyter server is not running — start a kernel first');
+    const url = `http://127.0.0.1:${_jupyterPort}${apiPath}`;
+    const options = {
+        method,
+        headers: { 'Authorization': `token ${_jupyterToken}`, 'Content-Type': 'application/json' },
+    };
+    if (body != null) options.body = JSON.stringify(body);
+    const res = await fetch(url, options);
+    if (res.status === 204 || res.headers.get('content-length') === '0') return {};
+    const text = await res.text();
+    return text ? JSON.parse(text) : {};
+});
+
+ipcMain.handle('jupyter-get-channel-url', async (event, kernelId) => {
+    if (!_jupyterPort) throw new Error('jupyter server not running');
+    return `ws://127.0.0.1:${_jupyterPort}/api/kernels/${kernelId}/channels?token=${_jupyterToken}`;
+});
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 app.whenReady().then(() => {
