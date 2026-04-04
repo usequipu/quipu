@@ -2,8 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { IconContext } from '@phosphor-icons/react';
 import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
 import Editor from './components/Editor';
-import MediaViewer from './components/MediaViewer';
-import CodeViewer from './components/CodeViewer';
 import Terminal from './components/Terminal';
 import FileExplorer from './components/FileExplorer';
 import FolderPicker from './components/FolderPicker';
@@ -11,7 +9,6 @@ import TabBar from './components/TabBar';
 import ActivityBar from './components/ActivityBar';
 import SearchPanel from './components/SearchPanel';
 import SourceControlPanel from './components/SourceControlPanel';
-import DiffViewer from './components/DiffViewer';
 import QuickOpen from './components/QuickOpen';
 import TitleBar from './components/TitleBar';
 import ContextMenu from './components/ContextMenu';
@@ -20,11 +17,9 @@ import { WorkspaceProvider, useWorkspace } from './context/WorkspaceContext';
 import { ToastProvider, useToast } from './components/Toast';
 import frameService from './services/frameService.js';
 import claudeInstaller from './services/claudeInstaller';
-import { isCodeFile, isExcalidrawFile, isMermaidFile, isNotebookFile } from './utils/fileTypes';
-import ExcalidrawViewer from './components/ExcalidrawViewer';
-import MermaidViewer from './components/MermaidViewer';
-import PdfViewer from './components/PdfViewer';
-import NotebookViewer from './extensions/notebook/NotebookViewer';
+import DiffViewer from './extensions/diff-viewer/DiffViewer';
+import { resolveViewer } from './extensions/registry';
+import './extensions'; // register all viewer extensions
 
 function AppContent() {
   const [editorInstance, setEditorInstance] = useState(null);
@@ -68,11 +63,8 @@ function AppContent() {
     if (prevId && prevId !== activeTabId) {
       // Check if the NEW active tab will NOT use the Editor component
       const newTab = openTabs.find(t => t.id === activeTabId);
-      const isNewTabNonEditor = newTab && (
-        newTab.isPdf || newTab.isMedia || newTab.isNotebook ||
-        isExcalidrawFile(newTab.name) || isMermaidFile(newTab.name) ||
-        (isCodeFile(newTab.name) && !newTab.isQuipu)
-      );
+      const newActiveFile = newTab ? { path: newTab.path, name: newTab.name, content: newTab.content, isQuipu: newTab.isQuipu } : null;
+      const isNewTabNonEditor = newTab && resolveViewer(newTab, newActiveFile) !== null;
 
       // Only snapshot here if Editor is about to unmount (non-Editor tab)
       // For Editor-to-Editor switches, Editor.jsx handles the snapshot internally
@@ -249,7 +241,7 @@ function AppContent() {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
         if (activeFile) {
-          const isNonTipTap = isExcalidrawFile(activeFile.name) || isCodeFile(activeFile.name) || isMermaidFile(activeFile.name) || isNotebookFile(activeFile.name) || window.__quipuEditorRawMode;
+          const isNonTipTap = resolveViewer(activeTab, activeFile) !== null || window.__quipuEditorRawMode;
           saveFile(isNonTipTap ? null : editorInstance);
         }
       }
@@ -573,7 +565,7 @@ function AppContent() {
     switch (action) {
       case 'file.save':
         if (activeFile) {
-          const isNonTipTap = isExcalidrawFile(activeFile.name) || isCodeFile(activeFile.name) || isMermaidFile(activeFile.name) || isNotebookFile(activeFile.name) || window.__quipuEditorRawMode;
+          const isNonTipTap = resolveViewer(activeTab, activeFile) !== null || window.__quipuEditorRawMode;
           saveFile(isNonTipTap ? null : editorInstance);
         }
         break;
@@ -711,43 +703,32 @@ function AppContent() {
                     onClose={() => setActiveDiff(null)}
                   />
                 ) : activeFile ? (
-                  activeTab?.isPdf ? (
-                    <PdfViewer filePath={activeTab.path} fileName={activeTab.name} />
-                  ) : activeTab?.isMedia ? (
-                    <MediaViewer filePath={activeTab.path} fileName={activeTab.name} />
-                  ) : isExcalidrawFile(activeFile.name) ? (
-                    <ExcalidrawViewer
-                      content={activeFile.content}
-                      filePath={activeTab.path}
-                      onContentChange={handleContentChange}
-                    />
-                  ) : isMermaidFile(activeFile.name) ? (
-                    <MermaidViewer content={activeFile.content} fileName={activeFile.name} onContentChange={handleContentChange} />
-                  ) : isNotebookFile(activeFile.name) ? (
-                    <NotebookViewer filePath={activeTab.path} fileName={activeFile.name} content={activeFile.content} />
-                  ) : isCodeFile(activeFile.name) && !activeFile.isQuipu ? (
-                    <CodeViewer content={activeFile.content} fileName={activeFile.name} onContentChange={handleContentChange} />
-                  ) : (
-                    <Editor
-                      onEditorReady={handleEditorReady}
-                      onContentChange={handleContentChange}
-                      activeFile={activeFile}
-                      activeTabId={activeTabId}
-                      activeTab={activeTab}
-                      snapshotTab={snapshotTab}
-                      workspacePath={workspacePath}
-                      openFile={openFile}
-                      revealFolder={revealFolder}
-                      updateFrontmatter={updateFrontmatter}
-                      addFrontmatterProperty={addFrontmatterProperty}
-                      removeFrontmatterProperty={removeFrontmatterProperty}
-                      renameFrontmatterKey={renameFrontmatterKey}
-                      toggleFrontmatterCollapsed={toggleFrontmatterCollapsed}
-                      addFrontmatterTag={addFrontmatterTag}
-                      removeFrontmatterTag={removeFrontmatterTag}
-                      updateFrontmatterTag={updateFrontmatterTag}
-                    />
-                  )
+                  (() => {
+                    const Viewer = resolveViewer(activeTab, activeFile);
+                    return Viewer ? (
+                      <Viewer tab={activeTab} activeFile={activeFile} onContentChange={handleContentChange} isActive />
+                    ) : (
+                      <Editor
+                        onEditorReady={handleEditorReady}
+                        onContentChange={handleContentChange}
+                        activeFile={activeFile}
+                        activeTabId={activeTabId}
+                        activeTab={activeTab}
+                        snapshotTab={snapshotTab}
+                        workspacePath={workspacePath}
+                        openFile={openFile}
+                        revealFolder={revealFolder}
+                        updateFrontmatter={updateFrontmatter}
+                        addFrontmatterProperty={addFrontmatterProperty}
+                        removeFrontmatterProperty={removeFrontmatterProperty}
+                        renameFrontmatterKey={renameFrontmatterKey}
+                        toggleFrontmatterCollapsed={toggleFrontmatterCollapsed}
+                        addFrontmatterTag={addFrontmatterTag}
+                        removeFrontmatterTag={removeFrontmatterTag}
+                        updateFrontmatterTag={updateFrontmatterTag}
+                      />
+                    );
+                  })()
                 ) : (
                   <div className="flex flex-col items-center justify-center h-full w-full bg-bg-surface">
                     <div className="text-xl text-text-primary opacity-50 mb-2">Open a file to start editing</div>

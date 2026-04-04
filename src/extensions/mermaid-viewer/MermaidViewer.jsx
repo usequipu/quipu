@@ -10,7 +10,8 @@ mermaid.initialize({
 
 let renderCounter = 0;
 
-const MermaidViewer = ({ content, fileName, onContentChange }) => {
+const MermaidViewer = ({ activeFile, onContentChange }) => {
+  const { content, name: fileName } = activeFile;
   const [editableContent, setEditableContent] = useState(content || '');
   const [svgOutput, setSvgOutput] = useState('');
   const [error, setError] = useState(null);

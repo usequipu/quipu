@@ -32,7 +32,8 @@ const getMonacoLanguage = (fileName) => {
   return MONACO_LANG_MAP[lang] || 'plaintext';
 };
 
-const CodeViewer = ({ content, fileName, onContentChange }) => {
+const CodeViewer = ({ activeFile, onContentChange }) => {
+  const { content, name: fileName } = activeFile;
   const monacoLanguage = getMonacoLanguage(fileName);
   const [fontSize, setFontSize] = useState(() => {
     const saved = localStorage.getItem('quipu-code-font-size');

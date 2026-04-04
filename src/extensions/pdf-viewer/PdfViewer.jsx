@@ -23,9 +23,9 @@ const TYPE_COLORS = {
   question: "bg-warning/20 text-warning",
   instruction: "bg-success/20 text-success",
 };
-import fs from "../services/fileSystem";
-import frameService from "../services/frameService";
-import { useWorkspace } from "../context/WorkspaceContext";
+import fs from "../../services/fileSystem";
+import frameService from "../../services/frameService";
+import { useWorkspace } from "../../context/WorkspaceContext";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
@@ -47,7 +47,8 @@ const pdfOptions = {
   standardFontDataUrl: `https://unpkg.com/pdfjs-dist@${pdfjs.version}/standard_fonts/`,
 };
 
-const PdfViewer = ({ filePath }) => {
+const PdfViewer = ({ tab }) => {
+  const filePath = tab.path;
   const { workspacePath } = useWorkspace();
   const [numPages, setNumPages] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -518,7 +519,7 @@ const PdfViewer = ({ filePath }) => {
             if (ann) {
               ann.type = newType;
               frame.updatedAt = new Date().toISOString();
-              const fs = (await import("../services/fileSystem")).default;
+              const fs = (await import("../../services/fileSystem")).default;
               const relativePath = filePath.startsWith(workspacePath + "/")
                 ? filePath.substring(workspacePath.length + 1)
                 : filePath;

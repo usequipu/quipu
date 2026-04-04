@@ -4,6 +4,12 @@ import { render } from '@testing-library/react';
 // so ExcalidrawViewer.jsx will import our lightweight mock instead of the real package
 import ExcalidrawViewer from './ExcalidrawViewer.jsx';
 
+const makeProps = (content, filePath, onContentChange) => ({
+  tab: { path: filePath, name: filePath.split('/').pop() },
+  activeFile: { content, name: filePath.split('/').pop(), path: filePath, isQuipu: false },
+  onContentChange,
+});
+
 describe('ExcalidrawViewer', () => {
   beforeEach(() => {
     window.__excalidrawProps = null;
@@ -11,14 +17,14 @@ describe('ExcalidrawViewer', () => {
 
   it('renders Excalidraw component', () => {
     const { getByTestId } = render(
-      <ExcalidrawViewer content='{"elements":[],"appState":{}}' filePath="/test.excalidraw" />
+      <ExcalidrawViewer {...makeProps('{"elements":[],"appState":{}}', '/test.excalidraw')} />
     );
     expect(getByTestId('excalidraw-mock')).toBeInTheDocument();
   });
 
   it('uses dark theme', () => {
     render(
-      <ExcalidrawViewer content='{"elements":[],"appState":{}}' filePath="/test2.excalidraw" />
+      <ExcalidrawViewer {...makeProps('{"elements":[],"appState":{}}', '/test2.excalidraw')} />
     );
     expect(window.__excalidrawProps.theme).toBe('dark');
   });
@@ -31,7 +37,7 @@ describe('ExcalidrawViewer', () => {
     });
 
     render(
-      <ExcalidrawViewer content={content} filePath="/test3.excalidraw" />
+      <ExcalidrawViewer {...makeProps(content, '/test3.excalidraw')} />
     );
 
     const { initialData } = window.__excalidrawProps;
@@ -42,7 +48,7 @@ describe('ExcalidrawViewer', () => {
 
   it('handles invalid JSON gracefully', () => {
     render(
-      <ExcalidrawViewer content="not valid json" filePath="/test4.excalidraw" />
+      <ExcalidrawViewer {...makeProps('not valid json', '/test4.excalidraw')} />
     );
 
     const { initialData } = window.__excalidrawProps;
@@ -51,7 +57,7 @@ describe('ExcalidrawViewer', () => {
 
   it('disables saveAsImage and export in UIOptions', () => {
     render(
-      <ExcalidrawViewer content='{"elements":[]}' filePath="/test5.excalidraw" />
+      <ExcalidrawViewer {...makeProps('{"elements":[]}', '/test5.excalidraw')} />
     );
 
     const { UIOptions } = window.__excalidrawProps;
@@ -63,11 +69,7 @@ describe('ExcalidrawViewer', () => {
     const onContentChange = vi.fn();
 
     render(
-      <ExcalidrawViewer
-        content='{"elements":[],"appState":{}}'
-        filePath="/test6.excalidraw"
-        onContentChange={onContentChange}
-      />
+      <ExcalidrawViewer {...makeProps('{"elements":[],"appState":{}}', '/test6.excalidraw', onContentChange)} />
     );
 
     const { onChange } = window.__excalidrawProps;

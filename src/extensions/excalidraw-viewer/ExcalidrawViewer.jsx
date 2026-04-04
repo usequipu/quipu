@@ -2,7 +2,9 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { Excalidraw, serializeAsJSON } from '@excalidraw/excalidraw';
 import '@excalidraw/excalidraw/index.css';
 
-const ExcalidrawViewer = ({ content, filePath, onContentChange }) => {
+const ExcalidrawViewer = ({ tab, activeFile, onContentChange }) => {
+  const { content } = activeFile;
+  const filePath = tab.path;
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const initialDataRef = useRef(null);
   const ignoreChangesRef = useRef(true);
