@@ -115,7 +115,10 @@ function KernelStatusDot({ status }) {
 // ---------------------------------------------------------------------------
 // NotebookViewer
 // ---------------------------------------------------------------------------
-const NotebookViewer = ({ filePath, fileName, content }) => {
+const NotebookViewer = ({ tab, activeFile }) => {
+  const filePath = tab.path;
+  const fileName = activeFile.name;
+  const content = activeFile.content;
   const { showToast } = useToast();
 
   // --- notebook parse ---

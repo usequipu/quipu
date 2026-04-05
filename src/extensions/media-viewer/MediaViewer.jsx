@@ -1,10 +1,10 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
-import fs from '../services/fileSystem';
+import fs from '../../services/fileSystem';
 
-const MediaViewer = ({ filePath, fileName }) => {
-  const url = useMemo(() => fs.getFileUrl(filePath), [filePath]);
-  const isImage = /\.(jpe?g|png|gif|svg|webp|bmp|ico)$/i.test(fileName);
-  const isVideo = /\.(mp4|webm|ogg|mov)$/i.test(fileName);
+const MediaViewer = ({ tab }) => {
+  const url = useMemo(() => fs.getFileUrl(tab.path), [tab.path]);
+  const isImage = /\.(jpe?g|png|gif|svg|webp|bmp|ico)$/i.test(tab.name);
+  const isVideo = /\.(mp4|webm|ogg|mov)$/i.test(tab.name);
   const [zoom, setZoom] = useState(100);
   const containerRef = useRef(null);
 
@@ -31,7 +31,7 @@ const MediaViewer = ({ filePath, fileName }) => {
       {isImage && (
         <img
           src={url}
-          alt={fileName}
+          alt={tab.name}
           className="object-contain rounded shadow-md"
           style={{
             transform: `scale(${zoom / 100})`,
