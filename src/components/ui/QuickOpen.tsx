@@ -1,9 +1,10 @@
-import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { Command } from 'cmdk';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import searchService from '../../services/searchService';
 import { commands } from '../../data/commands';
-import type { Command } from '../../data/commands';
+import type { Command as CommandType } from '../../data/commands';
 
 interface FileEntry {
   name: string;
@@ -22,9 +23,6 @@ export default function QuickOpen({ isOpen, onClose, onAction, initialValue = ''
   const [query, setQuery] = useState<string>('');
   const [allFiles, setAllFiles] = useState<FileEntry[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [selectedIndex, setSelectedIndex] = useState<number>(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
 
   const isCommandMode = query.trimStart().startsWith('>');
 
@@ -32,11 +30,10 @@ export default function QuickOpen({ isOpen, onClose, onAction, initialValue = ''
   useEffect(() => {
     if (isOpen) {
       setQuery(initialValue);
-      setSelectedIndex(0);
     }
   }, [isOpen, initialValue]);
 
-  // Fetch file list when modal opens (only needed for file mode)
+  // Fetch file list when modal opens
   useEffect(() => {
     if (!isOpen || !workspacePath) return;
 
@@ -60,19 +57,7 @@ export default function QuickOpen({ isOpen, onClose, onAction, initialValue = ''
     return () => { cancelled = true; };
   }, [isOpen, workspacePath]);
 
-  // Focus input when modal opens
-  useEffect(() => {
-    if (isOpen && inputRef.current) {
-      const timer = setTimeout(() => {
-        if (inputRef.current) {
-          inputRef.current.focus();
-        }
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [isOpen]);
-
-  // Filter files by query (file mode)
+  // Filtered files for file mode (cmdk handles filtering for commands via its built-in filter)
   const filteredFiles = useMemo((): FileEntry[] => {
     if (isCommandMode) return [];
     if (!query.trim()) return allFiles.slice(0, 100);
@@ -82,33 +67,16 @@ export default function QuickOpen({ isOpen, onClose, onAction, initialValue = ''
       .slice(0, 100);
   }, [allFiles, query, isCommandMode]);
 
-  // Filter commands (command mode)
-  const filteredCommands = useMemo((): Command[] => {
+  // Filtered commands for command mode
+  const filteredCommands = useMemo((): CommandType[] => {
     if (!isCommandMode) return [];
     const commandQuery = query.trimStart().slice(1).trim().toLowerCase();
     if (!commandQuery) return commands;
-    return commands.filter((c: Command) =>
+    return commands.filter((c: CommandType) =>
       c.label.toLowerCase().includes(commandQuery) ||
       c.category.toLowerCase().includes(commandQuery)
     );
   }, [query, isCommandMode]);
-
-  const activeList: (FileEntry | Command)[] = isCommandMode ? filteredCommands : filteredFiles;
-
-  // Reset selection when filtered list changes
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [activeList.length, query]);
-
-  // Scroll selected item into view
-  useEffect(() => {
-    if (listRef.current) {
-      const selectedEl = listRef.current.children[selectedIndex] as HTMLElement | undefined;
-      if (selectedEl) {
-        selectedEl.scrollIntoView({ block: 'nearest' });
-      }
-    }
-  }, [selectedIndex]);
 
   const handleOpen = useCallback((file: FileEntry) => {
     if (!workspacePath) return;
@@ -117,53 +85,16 @@ export default function QuickOpen({ isOpen, onClose, onAction, initialValue = ''
     onClose();
   }, [workspacePath, openFile, onClose]);
 
-  const handleCommandSelect = useCallback((command: Command) => {
+  const handleCommandSelect = useCallback((command: CommandType) => {
     onClose();
     if (onAction) {
       onAction(command.action);
     }
   }, [onClose, onAction]);
 
-  const handleQueryChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setQuery(e.target.value);
-  }, []);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.preventDefault();
-      onClose();
-      return;
-    }
-
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSelectedIndex((prev: number) => Math.min(prev + 1, activeList.length - 1));
-      return;
-    }
-
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedIndex((prev: number) => Math.max(prev - 1, 0));
-      return;
-    }
-
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (isCommandMode) {
-        if (filteredCommands[selectedIndex]) {
-          handleCommandSelect(filteredCommands[selectedIndex]);
-        }
-      } else {
-        if (filteredFiles[selectedIndex]) {
-          handleOpen(filteredFiles[selectedIndex]);
-        }
-      }
-      return;
-    }
-  }, [onClose, activeList, selectedIndex, isCommandMode, filteredCommands, filteredFiles, handleOpen, handleCommandSelect]);
-
-  const handleBackdropClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) {
       onClose();
     }
   }, [onClose]);
@@ -173,46 +104,48 @@ export default function QuickOpen({ isOpen, onClose, onAction, initialValue = ''
   return (
     <div
       className="fixed inset-0 bg-black/35 z-[1000] flex justify-center pt-[15vh]"
-      onClick={handleBackdropClick}
+      onClick={(e: React.MouseEvent<HTMLDivElement>) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
-      <div className="w-[500px] max-w-[90vw] max-h-[400px] bg-bg-elevated rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden self-start">
-        <input
-          ref={inputRef}
-          type="text"
+      <Command
+        className="w-[500px] max-w-[90vw] max-h-[400px] bg-bg-elevated rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden self-start"
+        shouldFilter={false}
+        onKeyDown={handleKeyDown}
+        label={isCommandMode ? "Command palette" : "Quick open"}
+      >
+        <Command.Input
           className="w-full border-none outline-none py-3 px-4 text-[15px] font-sans text-text-primary bg-bg-elevated border-b border-border shrink-0 placeholder:text-text-tertiary"
           placeholder={isCommandMode ? "Type a command..." : "Type a file name to open..."}
           value={query}
-          onChange={handleQueryChange}
-          onKeyDown={handleKeyDown}
-          spellCheck={false}
+          onValueChange={setQuery}
+          autoFocus
         />
-        <div className="flex-1 overflow-y-auto max-h-[340px]" ref={listRef}>
+        <Command.List className="flex-1 overflow-y-auto max-h-[340px]">
           {/* File mode */}
           {!isCommandMode && (
             <>
               {isLoading && (
-                <div className="p-4 text-center text-[13px] text-text-primary opacity-50 italic">Loading files...</div>
+                <Command.Loading className="p-4 text-center text-[13px] text-text-primary opacity-50 italic">
+                  Loading files...
+                </Command.Loading>
               )}
-              {!isLoading && filteredFiles.length === 0 && query.trim() && (
-                <div className="p-4 text-center text-[13px] text-text-primary opacity-50 italic">No matching files</div>
-              )}
-              {!isLoading && filteredFiles.length === 0 && !query.trim() && allFiles.length === 0 && (
-                <div className="p-4 text-center text-[13px] text-text-primary opacity-50 italic">No files in workspace</div>
-              )}
-              {!isLoading && filteredFiles.map((file: FileEntry, idx: number) => (
-                <div
+              <Command.Empty className="p-4 text-center text-[13px] text-text-primary opacity-50 italic">
+                {query.trim() ? 'No matching files' : 'No files in workspace'}
+              </Command.Empty>
+              {!isLoading && filteredFiles.map((file: FileEntry) => (
+                <Command.Item
                   key={file.path}
+                  value={file.path}
+                  onSelect={() => handleOpen(file)}
                   className={cn(
                     "flex items-center py-1.5 px-4 cursor-pointer gap-2.5",
-                    "hover:bg-bg-overlay",
-                    idx === selectedIndex && "bg-bg-overlay",
+                    "hover:bg-bg-overlay data-[selected=true]:bg-bg-overlay",
                   )}
-                  onClick={() => handleOpen(file)}
-                  onMouseEnter={() => setSelectedIndex(idx)}
                 >
                   <span className="text-sm font-medium text-text-primary shrink-0">{file.name}</span>
                   <span className="text-xs text-text-tertiary overflow-hidden text-ellipsis whitespace-nowrap min-w-0 font-mono">{file.path}</span>
-                </div>
+                </Command.Item>
               ))}
             </>
           )}
@@ -220,19 +153,18 @@ export default function QuickOpen({ isOpen, onClose, onAction, initialValue = ''
           {/* Command mode */}
           {isCommandMode && (
             <>
-              {filteredCommands.length === 0 && (
-                <div className="p-4 text-center text-[13px] text-text-primary opacity-50 italic">No matching commands</div>
-              )}
-              {filteredCommands.map((cmd: Command, idx: number) => (
-                <div
+              <Command.Empty className="p-4 text-center text-[13px] text-text-primary opacity-50 italic">
+                No matching commands
+              </Command.Empty>
+              {filteredCommands.map((cmd: CommandType) => (
+                <Command.Item
                   key={cmd.action}
+                  value={cmd.action}
+                  onSelect={() => handleCommandSelect(cmd)}
                   className={cn(
                     "flex items-center justify-between py-1.5 px-4 cursor-pointer",
-                    "hover:bg-bg-overlay",
-                    idx === selectedIndex && "bg-bg-overlay",
+                    "hover:bg-bg-overlay data-[selected=true]:bg-bg-overlay",
                   )}
-                  onClick={() => handleCommandSelect(cmd)}
-                  onMouseEnter={() => setSelectedIndex(idx)}
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="text-[11px] text-text-tertiary shrink-0">{cmd.category}</span>
@@ -241,12 +173,12 @@ export default function QuickOpen({ isOpen, onClose, onAction, initialValue = ''
                   {cmd.shortcut && (
                     <span className="text-[11px] text-text-tertiary ml-4 shrink-0">{cmd.shortcut}</span>
                   )}
-                </div>
+                </Command.Item>
               ))}
             </>
           )}
-        </div>
-      </div>
+        </Command.List>
+      </Command>
     </div>
   );
 }
