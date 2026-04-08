@@ -12,6 +12,7 @@ import excalidrawViewer from './excalidraw-viewer';
 import mermaidViewer from './mermaid-viewer';
 import notebookViewer from './notebook';
 import codeViewer from './code-viewer';
+import databaseViewer from './database-viewer';
 
-const viewers: ExtensionDescriptor[] = [pdfViewer, mediaViewer, excalidrawViewer, mermaidViewer, notebookViewer, codeViewer];
+const viewers: ExtensionDescriptor[] = [pdfViewer, mediaViewer, excalidrawViewer, mermaidViewer, notebookViewer, databaseViewer, codeViewer];
 viewers.forEach(registerExtension);

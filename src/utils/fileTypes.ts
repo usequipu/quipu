@@ -58,6 +58,10 @@ export function isNotebookFile(fileName: string): boolean {
   return getFileExtension(fileName) === '.ipynb';
 }
 
+export function isQuipuDbFile(fileName: string): boolean {
+  return fileName.endsWith('.quipudb.jsonl');
+}
+
 export interface ViewerTab {
   name: string;
   isDiff?: boolean;
