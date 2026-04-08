@@ -17,7 +17,7 @@ interface ContextMenuPosition {
   y: number;
 }
 
-type CreatingType = 'file' | 'folder' | null;
+type CreatingType = 'file' | 'folder' | 'database' | null;
 
 interface FileIconComponentProps {
   name: string;
@@ -175,9 +175,29 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
     }
   }, [entry, isExpanded, toggleFolder, closeContextMenu]);
 
+  const handleNewDatabase = useCallback(() => {
+    closeContextMenu();
+    if (entry.isDirectory) {
+      if (!isExpanded) toggleFolder(entry.path);
+      setIsCreating('database');
+      setCreateValue('untitled.quipudb.jsonl');
+    }
+  }, [entry, isExpanded, toggleFolder, closeContextMenu]);
+
   const handleCreateSubmit = useCallback(async () => {
     if (createValue) {
-      if (isCreating === 'file') {
+      if (isCreating === 'database') {
+        // Create file with initial database schema
+        await createNewFile(entry.path, createValue);
+        const filePath = entry.path + '/' + createValue;
+        // Write initial database content
+        const { createEmptyDatabase } = await import('../../extensions/database-viewer/utils/jsonl');
+        const name = createValue.replace('.quipudb.jsonl', '') || 'Untitled Database';
+        const initialContent = createEmptyDatabase(name.charAt(0).toUpperCase() + name.slice(1));
+        const fs = (await import('../../services/fileSystem')).default;
+        await fs.writeFile(filePath, initialContent);
+        openFile(filePath, createValue);
+      } else if (isCreating === 'file') {
         await createNewFile(entry.path, createValue);
       } else {
         await createNewFolder(entry.path, createValue);
@@ -185,7 +205,7 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
     }
     setIsCreating(null);
     setCreateValue('');
-  }, [createValue, isCreating, entry.path, createNewFile, createNewFolder]);
+  }, [createValue, isCreating, entry.path, createNewFile, createNewFolder, openFile]);
 
   // Build context menu items for this entry
   const contextMenuItems = useCallback(() => {
@@ -217,6 +237,10 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
         label: 'New Folder',
         onClick: handleNewFolder,
       });
+      items.push({
+        label: 'New Database',
+        onClick: handleNewDatabase,
+      });
       items.push({ separator: true });
     }
 
@@ -231,7 +255,7 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
     });
 
     return items;
-  }, [entry, handleNewFile, handleNewFolder, handleRenameStart, handleDelete]);
+  }, [entry, handleNewFile, handleNewFolder, handleNewDatabase, handleRenameStart, handleDelete]);
 
   // --- Drag and drop ---
   const handleDragStart = useCallback((e: React.DragEvent) => {
@@ -360,6 +384,7 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
 
 export default function FileExplorer() {
   const { workspacePath, fileTree, openFolder, refreshDirectory, renameEntry, createNewFile, createNewFolder } = useFileSystem();
+  const { openFile } = useTab();
   const [isRootDragOver, setIsRootDragOver] = useState<boolean>(false);
   const [rootContextMenu, setRootContextMenu] = useState<ContextMenuPosition | null>(null);
   const [isRootCreating, setIsRootCreating] = useState<CreatingType>(null);
@@ -406,9 +431,24 @@ export default function FileExplorer() {
     setIsRootCreating('folder');
   }, []);
 
+  const handleRootNewDatabase = useCallback(() => {
+    setRootContextMenu(null);
+    setIsRootCreating('database');
+    setRootCreateValue('untitled.quipudb.jsonl');
+  }, []);
+
   const handleRootCreateSubmit = useCallback(async () => {
     if (rootCreateValue && workspacePath) {
-      if (isRootCreating === 'file') {
+      if (isRootCreating === 'database') {
+        await createNewFile(workspacePath, rootCreateValue);
+        const filePath = workspacePath + '/' + rootCreateValue;
+        const { createEmptyDatabase } = await import('../../extensions/database-viewer/utils/jsonl');
+        const name = rootCreateValue.replace('.quipudb.jsonl', '') || 'Untitled Database';
+        const initialContent = createEmptyDatabase(name.charAt(0).toUpperCase() + name.slice(1));
+        const fs = (await import('../../services/fileSystem')).default;
+        await fs.writeFile(filePath, initialContent);
+        openFile(filePath, rootCreateValue);
+      } else if (isRootCreating === 'file') {
         await createNewFile(workspacePath, rootCreateValue);
       } else {
         await createNewFolder(workspacePath, rootCreateValue);
@@ -416,7 +456,7 @@ export default function FileExplorer() {
     }
     setIsRootCreating(null);
     setRootCreateValue('');
-  }, [rootCreateValue, isRootCreating, workspacePath, createNewFile, createNewFolder]);
+  }, [rootCreateValue, isRootCreating, workspacePath, createNewFile, createNewFolder, openFile]);
 
   const handleRootDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -513,6 +553,7 @@ export default function FileExplorer() {
                 items={[
                   { label: 'New File', onClick: handleRootNewFile },
                   { label: 'New Folder', onClick: handleRootNewFolder },
+                  { label: 'New Database', onClick: handleRootNewDatabase },
                 ]}
                 position={{ x: rootContextMenu.x, y: rootContextMenu.y }}
                 onClose={() => setRootContextMenu(null)}

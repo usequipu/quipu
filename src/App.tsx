@@ -5,7 +5,7 @@ import type { Editor } from '@tiptap/react';
 import Editor_ from './components/editor/Editor';
 import Terminal from './components/ui/Terminal';
 import FileExplorer from './components/ui/FileExplorer';
-import FolderPicker from './components/ui/FolderPicker';
+import { Dialog } from 'radix-ui';
 import TabBar from './components/ui/TabBar';
 import ActivityBar from './components/ui/ActivityBar';
 import SearchPanel from './components/ui/SearchPanel';
@@ -20,6 +20,7 @@ import { useTab } from './context/TabContext';
 import { useTerminal } from './context/TerminalContext';
 import { ToastProvider, useToast } from './components/ui/Toast';
 import frameService from './services/frameService';
+import fs from './services/fileSystem';
 import claudeInstaller from './services/claudeInstaller';
 import DiffViewer from './extensions/diff-viewer/DiffViewer';
 import { resolveViewer, getExtensionForTab, getCommandsForTab } from './extensions/registry';
@@ -72,6 +73,14 @@ function AppContent() {
   const [activePanel, setActivePanel] = useState<PanelId | null>('explorer');
   const [isQuickOpenVisible, setIsQuickOpenVisible] = useState<boolean>(false);
   const [quickOpenInitialValue, setQuickOpenInitialValue] = useState<string>('');
+  // Input dialog state (replaces window.prompt which doesn't work in Electron)
+  const [inputDialog, setInputDialog] = useState<{
+    title: string;
+    placeholder: string;
+    defaultValue: string;
+    onSubmit: (value: string) => void;
+  } | null>(null);
+  const [inputDialogValue, setInputDialogValue] = useState('');
   const [activeDiff, setActiveDiff] = useState<ActiveDiff | null>(null);
 
   // Derive isClaudeRunning from the active terminal tab
@@ -660,6 +669,92 @@ function AppContent() {
     }
   }, [editorInstance, editorRawMode, activeFile, activeTab, saveFile, activeTabId, closeTab, sidePanelRef, terminalPanelRef, handlePanelToggle, handleToggleSidebar, handleToggleTerminal, createTerminalTab, toggleTheme, handleSendToTerminal, handleSendToClaude]);
 
+  // Handle database pick/create events from slash commands and context menus
+  useEffect(() => {
+    const handlePickDatabase = async (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const callback = detail?.callback as ((path: string) => void) | undefined;
+      if (!callback) return;
+
+      try {
+        const filePath = await fs.openFileDialog({
+          filters: [{ name: 'Quipu Database', extensions: ['quipudb.jsonl'] }],
+        });
+
+        if (filePath) {
+          const relativePath = workspacePath && filePath.startsWith(workspacePath)
+            ? filePath.slice(workspacePath.length + 1)
+            : filePath;
+          callback(relativePath);
+        }
+      } catch {
+        // File dialog not available (browser mode or Electron handler not registered)
+        // Fall back to asking for a path
+        setInputDialogValue('');
+        setInputDialog({
+          title: 'Link Database',
+          placeholder: 'Path to .quipudb.jsonl file',
+          defaultValue: '',
+          onSubmit: (path: string) => {
+            if (path.trim()) callback(path.trim());
+          },
+        });
+      }
+    };
+
+    const handleCreateDatabase = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const callback = detail?.callback as ((path: string) => void) | undefined;
+      if (!callback || !activeFile || !workspacePath) return;
+
+      const currentDir = activeFile.path.substring(0, activeFile.path.lastIndexOf('/'));
+
+      setInputDialogValue('untitled');
+      setInputDialog({
+        title: 'Create Database',
+        placeholder: 'Database name',
+        defaultValue: 'untitled',
+        onSubmit: async (name: string) => {
+          if (!name.trim()) return;
+          const fileName = `${name.trim()}.quipudb.jsonl`;
+          const filePath = `${currentDir}/${fileName}`;
+
+          try {
+            const { createEmptyDatabase } = await import('./extensions/database-viewer/utils/jsonl');
+            const initialContent = createEmptyDatabase(name.charAt(0).toUpperCase() + name.slice(1));
+            await fs.createFile(filePath);
+            await fs.writeFile(filePath, initialContent);
+
+            const relativePath = filePath.startsWith(workspacePath!)
+              ? filePath.slice(workspacePath!.length + 1)
+              : filePath;
+            callback(relativePath);
+          } catch (err) {
+            showToast('Failed to create database: ' + (err as Error).message, 'error');
+          }
+        },
+      });
+    };
+
+    const handleOpenEmbeddedDatabase = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const src = detail?.src as string;
+      if (!src || !workspacePath) return;
+      const fullPath = src.startsWith('/') ? src : `${workspacePath}/${src}`;
+      const fileName = src.split('/').pop() || src;
+      openFile(fullPath, fileName);
+    };
+
+    window.addEventListener('quipu:pick-database', handlePickDatabase);
+    window.addEventListener('quipu:create-database', handleCreateDatabase);
+    window.addEventListener('quipu:open-embedded-database', handleOpenEmbeddedDatabase);
+    return () => {
+      window.removeEventListener('quipu:pick-database', handlePickDatabase);
+      window.removeEventListener('quipu:create-database', handleCreateDatabase);
+      window.removeEventListener('quipu:open-embedded-database', handleOpenEmbeddedDatabase);
+    };
+  }, [workspacePath, activeFile, openFile]);
+
   // Build title
   let title = 'Quipu';
   if (activeFile) {
@@ -667,7 +762,7 @@ function AppContent() {
   }
 
   return (
-    <div className="flex flex-col h-screen w-screen">
+    <div className="flex flex-col h-screen w-screen" data-workspace-path={workspacePath ?? ''}>
       {contextMenu && (
         <ContextMenu
           items={contextMenu.items}
@@ -676,7 +771,55 @@ function AppContent() {
         />
       )}
       {showFolderPicker && (
-        <FolderPicker onSelect={selectFolder} onCancel={cancelFolderPicker} />
+        <Dialog.Root open onOpenChange={(open) => { if (!open) cancelFolderPicker(); }}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 bg-black/35 z-[9998]" />
+            <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-bg-elevated border border-border rounded-lg shadow-lg p-5 w-[400px] z-[9999]">
+              <Dialog.Title className="text-sm font-medium text-text-primary mb-3">Open Folder</Dialog.Title>
+              <form onSubmit={(e) => { e.preventDefault(); const input = (e.target as HTMLFormElement).elements.namedItem('path') as HTMLInputElement; if (input.value.trim()) selectFolder(input.value.trim()); }}>
+                <input
+                  name="path"
+                  autoFocus
+                  placeholder="Enter folder path..."
+                  className="w-full px-3 py-2 text-sm bg-bg-surface border border-border rounded-md text-text-primary outline-none focus:border-accent mb-3"
+                />
+                <div className="flex justify-end gap-2">
+                  <button type="button" onClick={cancelFolderPicker} className="px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary">Cancel</button>
+                  <button type="submit" className="px-3 py-1.5 text-sm bg-accent text-white rounded-md hover:bg-accent-hover">Open</button>
+                </div>
+              </form>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
+      )}
+
+      {/* Input dialog (replaces window.prompt) */}
+      {inputDialog && (
+        <Dialog.Root open onOpenChange={(open) => { if (!open) setInputDialog(null); }}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 bg-black/35 z-[9998]" />
+            <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-bg-elevated border border-border rounded-lg shadow-lg p-5 w-[380px] z-[9999]">
+              <Dialog.Title className="text-sm font-medium text-text-primary mb-3">{inputDialog.title}</Dialog.Title>
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                inputDialog.onSubmit(inputDialogValue);
+                setInputDialog(null);
+              }}>
+                <input
+                  autoFocus
+                  value={inputDialogValue}
+                  onChange={(e) => setInputDialogValue(e.target.value)}
+                  placeholder={inputDialog.placeholder}
+                  className="w-full px-3 py-2 text-sm bg-bg-surface border border-border rounded-md text-text-primary outline-none focus:border-accent mb-3"
+                />
+                <div className="flex justify-end gap-2">
+                  <button type="button" onClick={() => setInputDialog(null)} className="px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary">Cancel</button>
+                  <button type="submit" className="px-3 py-1.5 text-sm bg-accent text-white rounded-md hover:bg-accent-hover">OK</button>
+                </div>
+              </form>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
       )}
       <QuickOpen
         isOpen={isQuickOpenVisible}

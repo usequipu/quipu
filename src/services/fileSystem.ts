@@ -9,6 +9,7 @@ function isElectron(): boolean {
 
 export interface FileSystemService {
   openFolderDialog: () => Promise<string | null>;
+  openFileDialog: (options?: { filters?: Array<{ name: string; extensions: string[] }> }) => Promise<string | null>;
   getHomeDir: () => Promise<string>;
   readDirectory: (dirPath: string) => Promise<DirectoryEntry[]>;
   readFile: (filePath: string) => Promise<string>;
@@ -41,9 +42,12 @@ async function getHomeDir(): Promise<string> {
 // Electron implementations
 const electronFS: FileSystemService = {
   openFolderDialog: async () => {
-    // Try native dialog; if it returns null (failed or cancelled), let caller handle fallback
     const result = await window.electronAPI!.openFolderDialog();
-    return result; // null means cancelled or failed
+    return result;
+  },
+  openFileDialog: async (options) => {
+    const result = await window.electronAPI!.openFileDialog(options);
+    return result;
   },
   getHomeDir,
   readDirectory: (dirPath: string) => window.electronAPI!.readDirectory(dirPath),
@@ -66,6 +70,10 @@ const electronFS: FileSystemService = {
 const browserFS: FileSystemService = {
   openFolderDialog: async () => {
     // Return null to trigger in-app folder picker
+    return null;
+  },
+  openFileDialog: async () => {
+    // Browser mode: no native file dialog, return null
     return null;
   },
   getHomeDir,

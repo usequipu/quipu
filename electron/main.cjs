@@ -275,6 +275,22 @@ app.whenReady().then(() => {
         return null;
     });
 
+    ipcMain.handle('open-file-dialog', async (event, options) => {
+        try {
+            const filters = options?.filters || [];
+            const result = await dialog.showOpenDialog(mainWindow, {
+                properties: ['openFile'],
+                filters,
+            });
+            if (!result.canceled && result.filePaths.length > 0) {
+                return result.filePaths[0];
+            }
+            return null;
+        } catch (e) {
+            return null;
+        }
+    });
+
     ipcMain.handle('storage-get', (event, key) => {
         const store = readStorage();
         return store[key] ?? null;
