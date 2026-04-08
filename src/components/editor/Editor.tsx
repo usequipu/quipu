@@ -305,9 +305,26 @@ const Editor: React.FC<EditorProps> = ({
         return () => el.removeEventListener('wheel', handler);
     }, [handleZoomIn, handleZoomOut]);
 
-    // Detect if comments track has enough space (816px doc + 300px comments + 64px margins)
+    // Re-extract comment positions on zoom change (both editor and browser zoom)
+    useEffect(() => {
+        if (!editor || editor.isDestroyed) return;
+        const timer = setTimeout(() => extractComments(editor), 50);
+        return () => clearTimeout(timer);
+    }, [zoomLevel]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        if (!editor || editor.isDestroyed) return;
+        // Browser zoom (Ctrl+/Ctrl-) fires 'resize' on window
+        const handleResize = () => {
+            setTimeout(() => {
+                if (!editor.isDestroyed) extractComments(editor);
+            }, 100);
+        };
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
+
     // Detect if floating comments have space, accounting for zoom
-    // Document is 816px * zoom, comments need ~300px, plus ~80px margins
     useEffect(() => {
         const el = editorScrollRef.current;
         if (!el) return;
@@ -1418,6 +1435,7 @@ const Editor: React.FC<EditorProps> = ({
                 ref={editorScrollRef}
                 className={cn(
                     "flex-1 flex justify-center items-start overflow-y-auto relative bg-page-bg",
+                    !commentsOverflow && comments.length > 0 && "pr-[140px]",
                     "pt-0 pb-12 px-16",
                     "max-[1400px]:justify-start max-[1400px]:pl-12",
                     "max-[1200px]:overflow-x-auto max-[1200px]:px-8 max-[1200px]:pb-8",
