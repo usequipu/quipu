@@ -7,6 +7,7 @@
     "name": "barelias",
     "email": "iagoelifa@gmail.com"
   },
+  "homepage": "https://quipu.cc",
   "license": "MIT WITH Commons-Clause",
   "type": "module",
   "main": "electron/main.cjs",
@@ -160,6 +161,25 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["arm64"]
+        }
+      ],
+      "category": "public.app-category.developer-tools"
+    },
+    "dmg": {
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
     },
     "linux": {
       "target": [
