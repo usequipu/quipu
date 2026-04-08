@@ -305,17 +305,21 @@ const Editor: React.FC<EditorProps> = ({
     }, [handleZoomIn, handleZoomOut]);
 
     // Detect if comments track has enough space (816px doc + 300px comments + 64px margins)
+    // Detect if floating comments have space, accounting for zoom
+    // Document is 816px * zoom, comments need ~300px, plus ~80px margins
     useEffect(() => {
         const el = editorScrollRef.current;
         if (!el) return;
-        const observer = new ResizeObserver((entries) => {
-            for (const entry of entries) {
-                setCommentsOverflow(entry.contentRect.width < 1180);
-            }
-        });
+        const check = () => {
+            const scaledDocWidth = 816 * (zoomLevel / 100);
+            const needed = scaledDocWidth + 300 + 80;
+            setCommentsOverflow(el.clientWidth < needed);
+        };
+        check();
+        const observer = new ResizeObserver(check);
         observer.observe(el);
         return () => observer.disconnect();
-    }, []);
+    }, [zoomLevel]);
 
     // Table context menu state
     const [tableContextMenu, setTableContextMenu] = useState<TableContextMenuPosition | null>(null);
@@ -1359,6 +1363,8 @@ const Editor: React.FC<EditorProps> = ({
                 />
             )}
 
+            {/* Flex row: editor scroll area + optional comment panel */}
+            <div className="flex flex-1 overflow-hidden">
             <div
                 ref={editorScrollRef}
                 className={cn(
@@ -1439,16 +1445,6 @@ const Editor: React.FC<EditorProps> = ({
                         )}
                     </div>
                 </div>
-
-                {/* Comment Panel (collapsed mode when viewport is narrow) */}
-                {commentsOverflow && comments.length > 0 && (
-                    <CommentPanel
-                        comments={comments}
-                        onResolve={resolveComment}
-                        onChangeType={handleCommentTypeChange}
-                        onScrollTo={scrollToComment}
-                    />
-                )}
 
                 {/* Floating Comments Track (wide viewport only) */}
                 {!commentsOverflow && <div className={cn(
@@ -1654,6 +1650,52 @@ const Editor: React.FC<EditorProps> = ({
                     </div>
                 )}
             </div>
+
+            {/* Comment Panel — outside the scroll container so it stays fixed */}
+            {commentsOverflow && comments.length > 0 && (
+                <div className="shrink-0 w-[320px] border-l border-border/30 bg-bg-surface overflow-y-auto">
+                    <div className="px-4 py-3 border-b border-border/30 sticky top-0 bg-bg-surface z-10">
+                        <span className="text-sm font-medium text-text-primary">
+                            Comments ({comments.length})
+                        </span>
+                    </div>
+                    {comments.map((c) => (
+                        <div
+                            key={c.id}
+                            className="px-4 py-3 border-b border-border/20 hover:bg-bg-elevated/50 cursor-pointer transition-colors"
+                            onClick={() => scrollToComment(c.id)}
+                        >
+                            <div className="flex items-center justify-between mb-1.5">
+                                <select
+                                    value={c.type || 'comment'}
+                                    onChange={(e) => {
+                                        e.stopPropagation();
+                                        handleCommentTypeChange(c.id, e.target.value);
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-medium border-none outline-none cursor-pointer ${TYPE_COLORS[(c.type ?? 'comment') as AnnotationTypeLabel] || TYPE_COLORS.comment}`}
+                                >
+                                    {ANNOTATION_TYPES.map(t => (
+                                        <option key={t} value={t}>{t}</option>
+                                    ))}
+                                </select>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); resolveComment(c.id); }}
+                                    className="text-text-tertiary hover:text-text-secondary p-0.5 rounded hover:bg-bg-elevated"
+                                    title="Resolve"
+                                >
+                                    <XIcon size={12} />
+                                </button>
+                            </div>
+                            <div className="text-sm text-page-text mb-1.5 whitespace-pre-wrap">{c.comment}</div>
+                            <div className="text-xs text-text-tertiary border-l-2 border-warning/50 pl-2 italic truncate">
+                                &ldquo;{c.text}&rdquo;
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+            </div>{/* end flex row */}
         </div>
     );
 };
