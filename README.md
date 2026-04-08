@@ -2,6 +2,8 @@
 
 A knowledge manager and markdown editor with WYSIWYG editing, inline comments, and an integrated terminal. Like Obsidian meets VS Code — organize your notes, docs, and knowledge base in local markdown files, with the power of a real editor and terminal at your fingertips.
 
+![Quipu Screenshot](image.png)
+
 ## Features
 
 - **WYSIWYG Markdown Editing** — Rich text editing powered by TipTap. Write in a visual editor, get clean markdown output.
