@@ -1013,18 +1013,23 @@ const Editor: React.FC<EditorProps> = ({
     };
 
     const handleCommentClick = (): void => {
-        // Save current selection before showing input (clicking textarea will deselect)
         const { from, to } = editor.state.selection;
         savedSelectionRef.current = { from, to };
 
-        // Calculate position for input box
+        // Position relative to scroll container
         const coords = editor.view.coordsAtPos(from);
-        const pageRect = pageRef.current?.getBoundingClientRect();
-        const relativeTop = coords.top - (pageRect ? pageRect.top : 0);
+        const scrollEl = editorScrollRef.current;
+        const scrollRect = scrollEl?.getBoundingClientRect();
+        const relativeTop = coords.top - (scrollRect ? scrollRect.top : 0) + (scrollEl?.scrollTop ?? 0);
 
         setCommentInputTop(relativeTop);
         setShowCommentInput(true);
-        setShowMenu(false); // Hide bubble menu
+        setShowMenu(false);
+
+        // If in overflow mode, auto-open the panel
+        if (commentsOverflow) {
+            setCommentPanelOpen(true);
+        }
     };
 
     const generatePrompt = (editorInstance: TiptapEditor): string => {
@@ -1471,12 +1476,12 @@ const Editor: React.FC<EditorProps> = ({
                     "absolute top-0 w-[280px] bottom-0 pointer-events-none",
                 )}
                 style={{
-                    left: `calc(50% + ${(816 * zoomLevel / 100) / 2 + 16}px)`,
+                    left: `calc(50% + ${(816 * zoomLevel / 100) / 2 + 4}px)`,
                 }}
                 >
-                    {showCommentInput && (
+                    {showCommentInput && !commentsOverflow && (
                         <div
-                            className="absolute w-[280px] bg-bg-surface rounded-lg shadow-lg p-3 pointer-events-auto border border-accent z-[100]"
+                            className="absolute w-[240px] bg-bg-surface rounded-lg shadow-lg p-2.5 pointer-events-auto border border-accent z-[100]"
                             style={{ top: commentInputTop }}
                         >
                             <textarea
@@ -1487,37 +1492,26 @@ const Editor: React.FC<EditorProps> = ({
                                         e.preventDefault();
                                         addComment();
                                     }
-                                    if (e.key === 'Escape') {
-                                        cancelComment();
-                                    }
+                                    if (e.key === 'Escape') cancelComment();
                                 }}
-                                placeholder="Type your comment..."
+                                placeholder="Comment..."
                                 autoFocus
-                                className="w-full border border-border-focus rounded py-2 px-2 font-[inherit] text-sm resize-y min-h-[60px] outline-none mb-2 text-page-text focus:border-accent focus:shadow-[0_0_0_2px_rgba(196,131,90,0.3)]"
+                                rows={2}
+                                className="w-full border border-border rounded py-1.5 px-2 text-[13px] resize-none outline-none mb-1.5 text-page-text focus:border-accent"
                             />
-                            <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center justify-between gap-1">
                                 <select
                                     value={commentType}
                                     onChange={(e) => setCommentType(e.target.value as AnnotationTypeLabel)}
-                                    className="text-[11px] bg-bg-elevated border border-border rounded px-1.5 py-1 text-text-secondary outline-none cursor-pointer"
+                                    className="text-[10px] bg-bg-elevated border border-border rounded px-1 py-0.5 text-text-secondary outline-none cursor-pointer"
                                 >
                                     {ANNOTATION_TYPES.map(t => (
                                         <option key={t} value={t}>{t}</option>
                                     ))}
                                 </select>
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={cancelComment}
-                                        className="py-1.5 px-3 rounded text-[13px] font-medium cursor-pointer border-none bg-transparent text-text-tertiary hover:bg-bg-elevated"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={addComment}
-                                        className="py-1.5 px-3 rounded text-[13px] font-medium cursor-pointer border-none bg-accent text-white hover:bg-accent-hover"
-                                    >
-                                        Comment
-                                    </button>
+                                <div className="flex gap-1">
+                                    <button onClick={cancelComment} className="py-1 px-2 rounded text-[11px] cursor-pointer border-none bg-transparent text-text-tertiary hover:bg-bg-elevated">Cancel</button>
+                                    <button onClick={addComment} className="py-1 px-2 rounded text-[11px] cursor-pointer border-none bg-accent text-white hover:bg-accent-hover">Add</button>
                                 </div>
                             </div>
                         </div>
@@ -1566,15 +1560,13 @@ const Editor: React.FC<EditorProps> = ({
                                         <option key={t} value={t}>{t}</option>
                                     ))}
                                 </select>
-                                <div className="flex gap-2 items-center">
-                                    <button
-                                        className="border-none bg-transparent text-text-secondary cursor-pointer py-0.5 px-1.5 rounded flex items-center justify-center transition-colors hover:bg-bg-elevated hover:text-page-text"
-                                        onClick={() => resolveComment(c.id)}
-                                        title="Resolve comment"
-                                    >
-                                        <XIcon size={14} />
-                                    </button>
-                                </div>
+                                <button
+                                    className="border-none bg-transparent text-text-tertiary cursor-pointer p-0.5 rounded flex items-center justify-center transition-colors hover:bg-bg-elevated hover:text-page-text"
+                                    onClick={() => resolveComment(c.id)}
+                                    title="Resolve comment"
+                                >
+                                    <XIcon size={12} />
+                                </button>
                             </div>
                             <div className="text-[13px] text-page-text mb-1.5 whitespace-pre-wrap leading-relaxed">{c.comment}</div>
                             <div className="text-[11px] text-text-secondary/60 border-l-2 border-warning/40 pl-2 italic line-clamp-2">"{c.text}"</div>
@@ -1685,6 +1677,42 @@ const Editor: React.FC<EditorProps> = ({
                             <XIcon size={14} />
                         </button>
                     </div>
+                    {/* New comment input — shows at top of panel */}
+                    {showCommentInput && (
+                        <div className="px-4 py-3 border-b border-accent/30 bg-accent/[0.03]">
+                            <textarea
+                                value={commentText}
+                                onChange={(e) => setCommentText(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (((e.ctrlKey || e.metaKey) || e.shiftKey) && e.key === 'Enter') {
+                                        e.preventDefault();
+                                        addComment();
+                                    }
+                                    if (e.key === 'Escape') cancelComment();
+                                }}
+                                placeholder="Comment..."
+                                autoFocus
+                                rows={2}
+                                className="w-full border border-border rounded py-1.5 px-2 text-[13px] resize-none outline-none mb-1.5 text-page-text bg-bg-surface focus:border-accent"
+                            />
+                            <div className="flex items-center justify-between gap-1">
+                                <select
+                                    value={commentType}
+                                    onChange={(e) => setCommentType(e.target.value as AnnotationTypeLabel)}
+                                    className="text-[10px] bg-bg-elevated border border-border rounded px-1 py-0.5 text-text-secondary outline-none cursor-pointer"
+                                >
+                                    {ANNOTATION_TYPES.map(t => (
+                                        <option key={t} value={t}>{t}</option>
+                                    ))}
+                                </select>
+                                <div className="flex gap-1">
+                                    <button onClick={cancelComment} className="py-1 px-2 rounded text-[11px] cursor-pointer border-none bg-transparent text-text-tertiary hover:bg-bg-elevated">Cancel</button>
+                                    <button onClick={addComment} className="py-1 px-2 rounded text-[11px] cursor-pointer border-none bg-accent text-white hover:bg-accent-hover">Add</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {comments.map((c) => (
                         <div
                             key={c.id}
