@@ -28,7 +28,7 @@ export default function ActivityBar({ activePanel, onPanelToggle }: ActivityBarP
 
     return (
         <div
-            className="flex flex-col items-center w-12 shrink-0 pt-1 bg-bg-surface"
+            className="flex flex-col items-center w-12 shrink-0 pt-1 bg-activity-bar"
             role="toolbar"
             aria-label="Activity Bar"
         >
@@ -40,9 +40,9 @@ export default function ActivityBar({ activePanel, onPanelToggle }: ActivityBarP
                         className={cn(
                             "w-12 h-12 flex items-center justify-center",
                             "border-l-3 border-transparent bg-transparent",
-                            "cursor-pointer text-text-primary opacity-60",
-                            "hover:opacity-100 transition-opacity",
-                            isActive && "opacity-100 border-l-accent",
+                            "cursor-pointer text-activity-bar-text",
+                            "hover:text-activity-bar-active transition-colors",
+                            isActive && "text-activity-bar-active border-l-activity-bar-active",
                         )}
                         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                         onClick={() => onPanelToggle(panel.id)}
@@ -52,7 +52,7 @@ export default function ActivityBar({ activePanel, onPanelToggle }: ActivityBarP
                         <div className="relative">
                             <panel.Icon weight={isActive ? 'regular' : 'light'} size={24} />
                             {panel.id === 'git' && gitChangeCount > 0 && (
-                                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 rounded-full bg-accent text-white text-[10px] font-medium flex items-center justify-center px-1">
+                                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 rounded-full bg-white/90 text-activity-bar text-[10px] font-bold flex items-center justify-center px-1">
                                     {gitChangeCount > 99 ? '99+' : gitChangeCount}
                                 </span>
                             )}

@@ -174,6 +174,7 @@ const Editor: React.FC<EditorProps> = ({
     const [showFindBar, setShowFindBar] = useState<boolean>(false);
     const [commentsOverflow, setCommentsOverflow] = useState<boolean>(false);
     const [commentPanelOpen, setCommentPanelOpen] = useState<boolean>(false);
+    const [commentsVisible, setCommentsVisible] = useState<boolean>(true); // float mode visibility
 
     // Editor mode: 'richtext' (default) or 'obsidian'
     const [editorMode, setEditorMode] = useState<EditorMode>(() => {
@@ -1369,17 +1370,16 @@ const Editor: React.FC<EditorProps> = ({
                                 if (commentsOverflow) {
                                     setCommentPanelOpen(prev => !prev);
                                 } else {
-                                    // In float mode, toggle to panel mode temporarily
-                                    setCommentPanelOpen(prev => !prev);
+                                    setCommentsVisible(prev => !prev);
                                 }
                             }}
                             className={cn(
                                 "flex items-center gap-1 text-[11px] px-2 py-1 rounded transition-colors",
-                                commentPanelOpen
+                                (commentsOverflow ? commentPanelOpen : commentsVisible)
                                     ? "text-accent bg-accent/10"
                                     : "text-text-tertiary hover:text-text-secondary hover:bg-bg-elevated",
                             )}
-                            title={commentPanelOpen ? "Hide comments" : `${comments.length} comment${comments.length !== 1 ? 's' : ''}`}
+                            title={(commentsOverflow ? commentPanelOpen : commentsVisible) ? "Hide comments" : "Show comments"}
                         >
                             <ChatCircleDotsIcon size={14} />
                             <span>{comments.length}</span>
@@ -1452,7 +1452,7 @@ const Editor: React.FC<EditorProps> = ({
                 ref={editorScrollRef}
                 className={cn(
                     "flex-1 flex justify-center items-start overflow-y-auto relative bg-page-bg",
-                    !commentsOverflow && comments.length > 0 && "pr-[120px]",
+                    !commentsOverflow && commentsVisible && comments.length > 0 && "pr-[120px]",
                     "pt-0 pb-12 px-16",
                     "max-[1400px]:justify-start max-[1400px]:pl-12",
                     "max-[1200px]:overflow-x-auto max-[1200px]:px-8 max-[1200px]:pb-8",
@@ -1462,7 +1462,7 @@ const Editor: React.FC<EditorProps> = ({
                 <div
                     className={cn(
                         "w-[816px] bg-page-bg",
-                        "pt-6 pb-16 px-16 relative shrink-0 transition-[width,transform] duration-300",
+                        "pt-6 pb-16 px-10 relative shrink-0 transition-[width,transform] duration-300",
                         "max-[1150px]:w-full max-[1150px]:max-w-[816px]",
                     )}
                     style={zoomLevel !== 100 ? {
@@ -1473,7 +1473,7 @@ const Editor: React.FC<EditorProps> = ({
                     onContextMenu={handleEditorContextMenu}
                 >
                     {activeTab && (activeTab.frontmatter || activeTab.frontmatterRaw) && (
-                        <div className="-mx-16 -mt-6 mb-6 border-b border-border/30">
+                        <div className="-mx-10 -mt-6 mb-6 border-b border-border/30">
                             <FrontmatterProperties
                                 frontmatter={activeTab.frontmatter}
                                 frontmatterRaw={activeTab.frontmatterRaw}
@@ -1507,7 +1507,7 @@ const Editor: React.FC<EditorProps> = ({
                 </div>
 
                 {/* Floating Comments Track (wide viewport only) */}
-                {!commentsOverflow && <div className={cn(
+                {!commentsOverflow && commentsVisible && <div className={cn(
                     "absolute top-0 w-[280px] bottom-0 pointer-events-none",
                 )}
                 style={{
@@ -1699,7 +1699,7 @@ const Editor: React.FC<EditorProps> = ({
             </div>
 
             {/* Comment Panel — collapsible side panel */}
-            {comments.length > 0 && commentPanelOpen && (
+            {commentsOverflow && comments.length > 0 && commentPanelOpen && (
                 <div className="shrink-0 w-[320px] border-l border-border/30 bg-bg-surface overflow-y-auto">
                     <div className="px-4 py-3 border-b border-border/30 sticky top-0 bg-bg-surface z-10 flex items-center justify-between">
                         <span className="text-sm font-medium text-text-primary">

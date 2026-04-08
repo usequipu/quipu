@@ -55,6 +55,11 @@
   --animate-toast-out: toast-slide-out 0.2s ease-in forwards;
   --animate-menu-fade-in: menu-fade-in 0.1s ease;
   --animate-search-highlight: search-highlight-fade 2s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
+
+  /* Activity bar */
+  --color-activity-bar: #2b4c7e;
+  --color-activity-bar-text: #d0ddef;
+  --color-activity-bar-active: #ffffff;
 }
 
 /* Dark theme overrides (Claude.ai-inspired) */
@@ -92,6 +97,10 @@
 
   --color-comment-bg: #b19963;
   --color-comment-bg-hover: #bcb08d;
+
+  --color-activity-bar: #1a2f4a;
+  --color-activity-bar-text: #7a9ec7;
+  --color-activity-bar-active: #d0ddef;
 }
 
 /* Tinted theme overrides (Tasokare warm cream) */
@@ -129,6 +138,10 @@
   --color-git-deleted: #d71617;
   --color-git-renamed: #6899d9;
   --color-git-untracked: #c4b3a3;
+
+  --color-activity-bar: #3b5e8a;
+  --color-activity-bar-text: #c8d8e8;
+  --color-activity-bar-active: #ffffff;
 }
 
 @keyframes toast-slide-in {
