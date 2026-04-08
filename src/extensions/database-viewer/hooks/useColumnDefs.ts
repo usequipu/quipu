@@ -1,44 +1,70 @@
-import { useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { createColumnHelper } from '@tanstack/react-table';
-import type { ColumnDef as TanstackColumnDef } from '@tanstack/react-table';
-import type { DatabaseRow, DatabaseSchema, ColumnDef } from '../types';
+import type { ColumnDef as TanstackColumnDef, CellContext } from '@tanstack/react-table';
+import type { DatabaseRow, DatabaseSchema, ColumnDef, SelectColumnDef, MultiSelectColumnDef } from '../types';
+import TextCell from '../components/cells/TextCell';
+import NumberCell from '../components/cells/NumberCell';
+import SelectCell from '../components/cells/SelectCell';
+import MultiSelectCell from '../components/cells/MultiSelectCell';
+import DateCell from '../components/cells/DateCell';
+import CheckboxCell from '../components/cells/CheckboxCell';
 
 const columnHelper = createColumnHelper<DatabaseRow>();
 
-/**
- * Format a cell value for display based on column type.
- */
-function formatCellValue(value: unknown, colDef: ColumnDef): string {
-  if (value == null) return '';
+interface TableMeta {
+  updateCell: (rowId: string, columnId: string, value: unknown) => void;
+}
 
-  switch (colDef.type) {
+/**
+ * Render an editable cell based on the column type.
+ */
+function renderCell(info: CellContext<DatabaseRow, unknown>, col: ColumnDef): React.ReactNode {
+  const value = info.getValue();
+  const rowId = info.row.original._id;
+  const meta = info.table.options.meta as TableMeta | undefined;
+  const update = (v: unknown) => meta?.updateCell(rowId, col.id, v);
+
+  switch (col.type) {
     case 'text':
-      return String(value);
+      return React.createElement(TextCell, {
+        value: (value as string | null) ?? null,
+        onUpdate: (v: string) => update(v),
+      });
     case 'number':
-      return typeof value === 'number' ? value.toLocaleString() : String(value);
+      return React.createElement(NumberCell, {
+        value: (value as number | null) ?? null,
+        onUpdate: (v: number | null) => update(v),
+      });
     case 'select':
-      return String(value);
+      return React.createElement(SelectCell, {
+        value: (value as string | null) ?? null,
+        options: (col as SelectColumnDef).options,
+        onUpdate: (v: string | null) => update(v),
+      });
     case 'multi-select':
-      return Array.isArray(value) ? value.join(', ') : String(value);
+      return React.createElement(MultiSelectCell, {
+        value: (value as string[] | null) ?? null,
+        options: (col as MultiSelectColumnDef).options,
+        onUpdate: (v: string[]) => update(v),
+      });
     case 'date':
-      if (typeof value === 'string') {
-        try {
-          return new Date(value).toLocaleDateString();
-        } catch {
-          return value;
-        }
-      }
-      return String(value);
+      return React.createElement(DateCell, {
+        value: (value as string | null) ?? null,
+        onUpdate: (v: string | null) => update(v),
+      });
     case 'checkbox':
-      return value ? '✓' : '';
+      return React.createElement(CheckboxCell, {
+        value: Boolean(value),
+        onUpdate: (v: boolean) => update(v),
+      });
     default:
-      return String(value);
+      return String(value ?? '');
   }
 }
 
 /**
  * Generate TanStack Table column definitions from the database schema.
- * Returns column defs with type-appropriate sorting and display.
+ * Returns column defs with type-appropriate cell editors and sorting.
  */
 export function useColumnDefs(schema: DatabaseSchema): TanstackColumnDef<DatabaseRow, unknown>[] {
   return useMemo(() => {
@@ -46,7 +72,7 @@ export function useColumnDefs(schema: DatabaseSchema): TanstackColumnDef<Databas
       return columnHelper.accessor(col.id, {
         id: col.id,
         header: col.name,
-        cell: (info) => formatCellValue(info.getValue(), col),
+        cell: (info) => renderCell(info, col),
         sortingFn: col.type === 'number' ? 'basic' : 'alphanumeric',
         size: 180,
         minSize: 80,
