@@ -28,7 +28,7 @@ export default function ActivityBar({ activePanel, onPanelToggle }: ActivityBarP
 
     return (
         <div
-            className="flex flex-col items-center w-12 shrink-0 pt-1 bg-activity-bar"
+            className="flex flex-col items-center w-12 shrink-0 pt-1 bg-activity-bar rounded-r-2xl"
             role="toolbar"
             aria-label="Activity Bar"
         >
