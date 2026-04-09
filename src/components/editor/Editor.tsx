@@ -1221,7 +1221,11 @@ const Editor: React.FC<EditorProps> = ({
                     onMouseDown={(e) => e.preventDefault()}
                 >
                     <button
-                        onClick={handleCommentClick}
+                        onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleCommentClick();
+                        }}
                         className={cn(
                             "border-none bg-transparent text-text-primary text-sm font-medium py-1.5 px-3 cursor-pointer rounded-md",
                             "hover:bg-accent/20",
