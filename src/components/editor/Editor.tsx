@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import type { ChangeEvent } from 'react';
 import {
     XIcon, TextBIcon, TextItalicIcon, TextStrikethroughIcon,
@@ -652,8 +653,13 @@ const Editor: React.FC<EditorProps> = ({
             const start = editor.view.coordsAtPos(fromPos);
             const end = editor.view.coordsAtPos(toPos);
 
-            const left = (start.left + end.left) / 2;
-            const top = start.top - 40;
+            const rawLeft = (start.left + end.left) / 2;
+            const rawTop = start.top - 40;
+
+            // Clamp within viewport so popup stays visible in narrow windows
+            const popupWidth = 120;
+            const left = Math.min(Math.max(rawLeft, popupWidth / 2 + 8), window.innerWidth - popupWidth / 2 - 8);
+            const top = Math.max(rawTop, 48); // keep below toolbar (~48px)
 
             setMenuPosition({ top, left });
             setShowMenu(true);
@@ -1109,32 +1115,35 @@ const Editor: React.FC<EditorProps> = ({
     };
 
     // Re-extract comment positions on zoom, resize, scroll, and layout changes
-    const refreshCommentPositions = useCallback(() => {
-        if (!editor || editor.isDestroyed) return;
-        requestAnimationFrame(() => {
-            if (!editor.isDestroyed) extractComments(editor);
-        });
-    }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
-
+    // Recalculate comment positions on zoom, resize, scroll, frontmatter toggle
     useEffect(() => {
-        refreshCommentPositions();
-    }, [zoomLevel, refreshCommentPositions]);
+        if (!editor || editor.isDestroyed) return;
+        const timer = setTimeout(() => {
+            if (!editor.isDestroyed) extractComments(editor);
+        }, 100);
+        return () => clearTimeout(timer);
+    }, [zoomLevel, activeTab?.frontmatterCollapsed]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         const el = editorScrollRef.current;
-        if (!el) return;
-        // Recalc on scroll and resize
-        el.addEventListener('scroll', refreshCommentPositions, { passive: true });
-        window.addEventListener('resize', refreshCommentPositions);
-        // MutationObserver catches frontmatter expand/collapse and other DOM changes
-        const observer = new MutationObserver(refreshCommentPositions);
-        observer.observe(el, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
-        return () => {
-            el.removeEventListener('scroll', refreshCommentPositions);
-            window.removeEventListener('resize', refreshCommentPositions);
-            observer.disconnect();
+        if (!el || !editor || editor.isDestroyed) return;
+
+        let rafId: number | null = null;
+        const debouncedRefresh = () => {
+            if (rafId) cancelAnimationFrame(rafId);
+            rafId = requestAnimationFrame(() => {
+                if (!editor.isDestroyed) extractComments(editor);
+            });
         };
-    }, [refreshCommentPositions]);
+
+        el.addEventListener('scroll', debouncedRefresh, { passive: true });
+        window.addEventListener('resize', debouncedRefresh);
+        return () => {
+            el.removeEventListener('scroll', debouncedRefresh);
+            window.removeEventListener('resize', debouncedRefresh);
+            if (rafId) cancelAnimationFrame(rafId);
+        };
+    }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const resolveComment = (commentId: string): void => {
         if (!editor || !commentId) return;
@@ -1207,15 +1216,16 @@ const Editor: React.FC<EditorProps> = ({
 
     return (
         <div className="flex flex-col h-full w-full bg-bg-surface overflow-hidden relative">
-            {/* Selection popup — rendered at root level to avoid transform/overflow issues */}
-            {showMenu && editor && (
+            {/* Selection popup — rendered via portal to escape any parent stacking context */}
+            {showMenu && editor && createPortal(
                 <div
-                    className="flex bg-bg-overlay p-0.5 rounded-lg shadow-lg border border-border z-[100]"
+                    className="flex bg-bg-overlay p-0.5 rounded-lg shadow-lg border border-border"
                     style={{
                         position: 'fixed',
                         top: menuPosition.top,
                         left: menuPosition.left,
                         transform: 'translateX(-50%)',
+                        zIndex: 9999,
                     }}
                     ref={menuRef}
                     onMouseDown={(e) => e.preventDefault()}
@@ -1234,7 +1244,8 @@ const Editor: React.FC<EditorProps> = ({
                     >
                         Comment
                     </button>
-                </div>
+                </div>,
+                document.body
             )}
             {editorMode === 'richtext' && editor && (
                 <div className="shrink-0 flex items-center gap-1 px-4 py-2 border-b border-border bg-bg-surface">

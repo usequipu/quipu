@@ -9,7 +9,7 @@ echo "Building Go server for all platforms..."
 # Clean previous builds
 rm -rf "$OUT_DIR"
 
-# Build from within the server directory (where go.mod lives)
+# Build from within the server dirforectory (where go.mod lives)
 cd "$SERVER_DIR"
 
 # Windows x64
