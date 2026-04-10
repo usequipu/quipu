@@ -341,6 +341,8 @@ const Editor: React.FC<EditorProps> = ({
 
     // Ref keeps handleImageUpload fresh inside the static editorProps closure
     const handleImageUploadRef = useRef<((file: File, view: EditorView, insertPos?: number) => Promise<void>) | null>(null);
+    // Ref keeps the TipTap editor accessible inside the static editorProps closure
+    const tiptapEditorRef = useRef<TiptapEditor | null>(null);
 
     // Handle image upload from clipboard paste or file drop
     const handleImageUpload = useCallback(async (file: File, view: EditorView, insertPos?: number) => {
@@ -595,6 +597,32 @@ const Editor: React.FC<EditorProps> = ({
                         return true;
                     }
                 }
+
+                // Always route text through the markdown parser so that special
+                // characters (*  _  [  ]  `  ~  #  -)  are never backslash-escaped
+                // in the serialized output. This fixes two bypass paths:
+                //   1. Ctrl+Shift+V: tiptap-markdown skips clipboardTextParser when
+                //      plainText=true, inserting raw text nodes that get escaped.
+                //   2. Ctrl+V with HTML clipboard: ProseMirror prefers text/html over
+                //      text/plain, so clipboardTextParser is never called.
+                const text = event.clipboardData?.getData('text/plain');
+                const currentEditor = tiptapEditorRef.current;
+                if (text && currentEditor) {
+                    const parser = (currentEditor.storage as Record<string, any>).markdown?.parser;
+                    if (parser) {
+                        try {
+                            const html = parser.parse(text) as string;
+                            currentEditor.commands.insertContent(html, {
+                                parseOptions: { preserveWhitespace: true },
+                            });
+                            return true;
+                        } catch {
+                            // If parsing or insertion fails, fall through to default paste
+                            return false;
+                        }
+                    }
+                }
+
                 return false;
             },
             handleDrop: (view: EditorView, event: DragEvent) => {
@@ -665,6 +693,7 @@ const Editor: React.FC<EditorProps> = ({
             setShowMenu(true);
         },
     });
+    tiptapEditorRef.current = editor;
 
     const handleEditorContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         if (!editor) return;
