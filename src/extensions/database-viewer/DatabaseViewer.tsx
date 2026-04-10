@@ -12,14 +12,16 @@ import type { Tab as TabType, ActiveFile } from '@/types/tab';
 import type { ColumnDef, FilterDef, SortDef, ViewConfig } from './types';
 
 export interface DatabaseViewerProps {
-  tab: TabType;
-  activeFile: ActiveFile;
+  tab?: TabType;
+  activeFile?: ActiveFile;
+  content?: string | null;
   onContentChange?: (content: string) => void;
   isActive?: boolean;
+  mode?: 'standalone' | 'inline';
 }
 
-const DatabaseViewer: React.FC<DatabaseViewerProps> = ({ activeFile, onContentChange }) => {
-  const content = typeof activeFile.content === 'string' ? activeFile.content : null;
+const DatabaseViewer: React.FC<DatabaseViewerProps> = ({ activeFile, onContentChange, content: directContent, mode = 'standalone' }) => {
+  const content = directContent !== undefined ? directContent : (typeof activeFile?.content === 'string' ? activeFile.content : null);
   const [isAddColumnOpen, setIsAddColumnOpen] = useState(false);
 
   const {
@@ -81,10 +83,13 @@ const DatabaseViewer: React.FC<DatabaseViewerProps> = ({ activeFile, onContentCh
   }, [addColumn]);
 
   return (
-    <div className="flex-1 flex flex-col bg-page-bg overflow-hidden">
-      <div className="flex-1 flex flex-col w-full max-w-[960px] mx-auto px-16 max-[1200px]:px-8 max-[1150px]:px-4">
-        {/* Header */}
-        <div className="shrink-0 pt-10 pb-2">
+    <div className={cn(
+      'flex flex-col bg-page-bg overflow-hidden',
+      mode === 'standalone' ? 'flex-1' : 'max-h-[400px]',
+    )}>
+      {/* Header — standalone only */}
+      {mode === 'standalone' && (
+        <div className="shrink-0 pt-10 pb-2 px-10">
           <h1 className="text-2xl font-bold text-page-text mb-1">{schema.name}</h1>
           <div className="flex items-center gap-3 text-xs text-page-text/50">
             <span>
@@ -94,11 +99,10 @@ const DatabaseViewer: React.FC<DatabaseViewerProps> = ({ activeFile, onContentCh
             </span>
           </div>
         </div>
+      )}
 
-        {/* Toolbar */}
-        <div className="shrink-0 flex items-center gap-2 py-1.5 border-b border-border/30">
-
-        {/* Filter and sort controls */}
+      {/* Toolbar */}
+      <div className="shrink-0 flex items-center gap-2 py-1.5 border-b border-border/30 px-10">
         <FilterBar
           columns={schema.columns}
           filters={activeView?.filters ?? []}
@@ -107,7 +111,6 @@ const DatabaseViewer: React.FC<DatabaseViewerProps> = ({ activeFile, onContentCh
           onSortsChange={handleSortsChange}
         />
 
-        {/* View switcher */}
         <div className="ml-auto">
           <Tabs.Root value={activeViewId} onValueChange={handleViewChange}>
             <Tabs.List className="flex items-center gap-0.5 bg-bg-surface rounded-md p-0.5 border border-border/50">
@@ -134,34 +137,33 @@ const DatabaseViewer: React.FC<DatabaseViewerProps> = ({ activeFile, onContentCh
         </div>
       </div>
 
-      {/* View content */}
-      {activeView?.type === 'board' ? (
-        <BoardView
-          schema={schema}
-          rows={filteredRows}
-          viewConfig={activeView}
-          updateCell={updateCell}
-          addRow={addRow}
-          reorderRows={reorderRows}
-          updateViewConfig={updateViewConfig}
-        />
-      ) : (
-        <TableView
-          schema={schema}
-          rows={filteredRows}
-          updateCell={updateCell}
-          addRow={addRow}
-          deleteRow={deleteRow}
-          renameColumn={renameColumn}
-          removeColumn={removeColumn}
-          changeColumnType={changeColumnType}
-          onAddColumn={() => setIsAddColumnOpen(true)}
-        />
-      )}
-
+      {/* View content — full width */}
+      <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+        {activeView?.type === 'board' ? (
+          <BoardView
+            schema={schema}
+            rows={filteredRows}
+            viewConfig={activeView}
+            updateCell={updateCell}
+            addRow={addRow}
+            reorderRows={reorderRows}
+            updateViewConfig={updateViewConfig}
+          />
+        ) : (
+          <TableView
+            schema={schema}
+            rows={filteredRows}
+            updateCell={updateCell}
+            addRow={addRow}
+            deleteRow={deleteRow}
+            renameColumn={renameColumn}
+            removeColumn={removeColumn}
+            changeColumnType={changeColumnType}
+            onAddColumn={() => setIsAddColumnOpen(true)}
+          />
+        )}
       </div>
 
-      {/* Add column dialog */}
       <AddColumnDialog
         isOpen={isAddColumnOpen}
         onClose={() => setIsAddColumnOpen(false)}

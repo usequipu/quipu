@@ -348,3 +348,12 @@ mark.comment:hover {
   border-radius: 2px;
   outline: 1px solid rgba(255, 152, 0, 0.9);
 }
+
+/* --- Embedded Database --- */
+
+/* CSS baseline: escape the TipTap page's horizontal padding (px-10 = 40px each side).
+   The JS in EmbeddedDatabase.ts then extends this to the full editor panel width. */
+.embedded-database-wrapper {
+  margin-left: -40px;
+  width: calc(100% + 80px);
+}
