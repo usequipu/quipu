@@ -44,22 +44,32 @@
   --color-git-untracked: #9e9e9e;
 
   /* Fonts */
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica,
-    Arial, sans-serif;
-  --font-editor: "Geist", "Inter", -apple-system, BlinkMacSystemFont,
-    "Segoe UI", sans-serif;
+  --font-sans:
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
+    sans-serif;
+  --font-editor:
+    "Geist", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", "Fira Code", monospace;
 
   /* Animations */
   --animate-toast-in: toast-slide-in 0.3s ease-out;
   --animate-toast-out: toast-slide-out 0.2s ease-in forwards;
   --animate-menu-fade-in: menu-fade-in 0.1s ease;
-  --animate-search-highlight: search-highlight-fade 2s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
+  --animate-search-highlight: search-highlight-fade 2s
+    cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
 
   /* Activity bar */
   --color-activity-bar: #2b4c7e;
   --color-activity-bar-text: #d0ddef;
   --color-activity-bar-active: #ffffff;
+}
+
+/* Grain defaults (light theme) — multiply works on white backgrounds */
+:root {
+  --grain-blend: multiply;
+  --grain-opacity: 0;
+  --grain-sidebar-opacity: 0.05;
+  --sidebar-shadow: 4px 0 16px rgba(0, 0, 0, 1);
 }
 
 /* Dark theme overrides (Claude.ai-inspired) */
@@ -101,6 +111,12 @@
   --color-activity-bar: #1a2f4a;
   --color-activity-bar-text: #7a9ec7;
   --color-activity-bar-active: #d0ddef;
+
+  /* Grain — soft-light for dark backgrounds */
+  --grain-blend: soft-light;
+  --grain-opacity: 0.55;
+  --grain-sidebar-opacity: 0.85;
+  --sidebar-shadow: 4px 0 16px rgba(0, 0, 0, 0.35);
 }
 
 /* Tinted theme overrides (Tasokare warm cream) */
@@ -142,6 +158,11 @@
   --color-activity-bar: #3b5e8a;
   --color-activity-bar-text: #c8d8e8;
   --color-activity-bar-active: #ffffff;
+
+  /* Grain — multiply works on warm cream too, slightly lighter touch */
+  --grain-blend: multiply;
+  --grain-opacity: 0.28;
+  --grain-sidebar-opacity: 0.15;
 }
 
 @keyframes toast-slide-in {

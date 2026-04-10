@@ -812,9 +812,10 @@ function AppContent() {
         onAction={handleMenuAction}
         initialValue={quickOpenInitialValue}
       />
-      <TitleBar title={title} onAction={handleMenuAction} />
       <div className="flex flex-row flex-1 overflow-hidden">
         <ActivityBar activePanel={activePanel} onPanelToggle={handlePanelToggle} />
+        <div className="flex flex-col flex-1 overflow-hidden">
+        <TitleBar title={title} onAction={handleMenuAction} />
         <Group orientation="horizontal" style={{ flex: 1, overflow: 'hidden' }}>
         <Panel
           panelRef={sidePanelRef}
@@ -824,13 +825,13 @@ function AppContent() {
           maxSize={400}
           defaultSize={250}
         >
-          <div className="h-full overflow-hidden flex flex-col bg-bg-surface" data-context="explorer">
+          <div className="h-full overflow-hidden flex flex-col bg-bg-surface relative z-10" data-context="explorer">
             {activePanel === 'explorer' && <FileExplorer />}
             {activePanel === 'search' && <SearchPanel activePanel={activePanel} />}
             {activePanel === 'git' && <SourceControlPanel onOpenDiff={handleOpenDiff} />}
           </div>
         </Panel>
-        <Separator className="shrink-0 w-0 cursor-col-resize bg-transparent" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} />
+        <Separator className="shrink-0 w-px cursor-col-resize bg-border" style={{ WebkitAppRegion: 'no-drag', boxShadow: 'var(--sidebar-shadow)' } as React.CSSProperties} />
         <Panel>
           <Group orientation="vertical" style={{ height: '100%' }}>
             <Panel minSize={100}>
@@ -906,6 +907,7 @@ function AppContent() {
           </Group>
         </Panel>
       </Group>
+        </div>
       </div>
     </div>
   );
