@@ -310,12 +310,12 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={cn(
-          "flex items-center h-[22px] cursor-pointer gap-1 whitespace-nowrap overflow-hidden",
-          "hover:bg-white/[0.06]",
-          isActive && "bg-white/10",
+          "flex items-center h-[26px] mx-1 rounded-md cursor-pointer gap-1 whitespace-nowrap overflow-hidden",
+          "hover:bg-bg-elevated",
+          isActive && "bg-bg-overlay",
           isDragOver && "bg-accent/20 outline outline-1 outline-accent/50",
         )}
-        style={{ paddingLeft: `${12 + depth * 16}px` }}
+        style={{ paddingLeft: `${8 + depth * 16}px` }}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
       >
@@ -330,7 +330,7 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
         {isRenaming ? (
           <input
             ref={renameRef}
-            className="bg-bg-elevated border border-accent text-text-primary text-[13px] font-[inherit] px-1 h-[18px] flex-1 outline-none rounded-none"
+            className="bg-bg-elevated border border-accent text-text-primary text-[13px] font-[inherit] px-1 h-[20px] flex-1 outline-none rounded-sm"
             value={renameValue}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRenameValue(e.target.value)}
             onBlur={handleRenameSubmit}
@@ -341,7 +341,7 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
           />
         ) : (
-          <span className="overflow-hidden text-ellipsis flex-1 leading-[22px]">{entry.name}</span>
+          <span className="overflow-hidden text-ellipsis flex-1 leading-[26px]">{entry.name}</span>
         )}
       </div>
 
@@ -356,12 +356,12 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
       {entry.isDirectory && isExpanded && (
         <div>
           {isCreating && (
-            <div className="flex items-center h-[22px] cursor-pointer gap-1 whitespace-nowrap overflow-hidden" style={{ paddingLeft: `${12 + (depth + 1) * 16}px` }}>
+            <div className="flex items-center h-[26px] mx-1 rounded-md cursor-pointer gap-1 whitespace-nowrap overflow-hidden" style={{ paddingLeft: `${8 + (depth + 1) * 16}px` }}>
               <span className="shrink-0 w-[14px]" />
               {isCreating === 'folder' ? <FolderIcon size={16} className="shrink-0" /> : <PhFileIcon size={16} className="shrink-0" />}
               <input
                 ref={createRef}
-                className="bg-bg-elevated border border-accent text-text-primary text-[13px] font-[inherit] px-1 h-[18px] flex-1 outline-none rounded-none"
+                className="bg-bg-elevated border border-accent text-text-primary text-[13px] font-[inherit] px-1 h-[20px] flex-1 outline-none rounded-sm"
                 value={createValue}
                 placeholder={isCreating === 'file' ? 'filename' : 'folder name'}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCreateValue(e.target.value)}
@@ -485,11 +485,20 @@ export default function FileExplorer() {
 
   return (
     <div className="bg-bg-surface text-text-primary flex flex-col select-none text-[13px] font-sans flex-1 overflow-hidden">
-      <div className="h-[35px] flex items-center px-5 text-[11px] font-semibold tracking-wider text-text-tertiary uppercase border-b border-border shrink-0">
-        <span className="flex-1">EXPLORER</span>
+      <div className="h-[35px] flex items-center gap-2 px-4 border-b border-border shrink-0">
+        <div
+          className="w-5 h-5 rounded bg-accent/15 flex items-center justify-center shrink-0 cursor-pointer"
+          onClick={openFolder}
+          title="Change workspace folder"
+        >
+          <FolderIcon size={12} className="text-accent" />
+        </div>
+        <span className="flex-1 text-[13px] font-medium text-text-primary truncate">
+          {workspacePath?.split('/').pop() ?? 'Files'}
+        </span>
         {workspacePath && (
           <button
-            className="bg-transparent border-none text-text-tertiary cursor-pointer p-0.5 rounded-sm opacity-60 hover:opacity-100 hover:bg-white/[0.08] transition-opacity"
+            className="bg-transparent border-none text-text-tertiary cursor-pointer p-1 rounded-md hover:bg-bg-elevated hover:text-text-secondary transition-colors"
             onClick={handleRefresh}
             aria-label="Refresh file explorer"
             title="Refresh"
@@ -512,14 +521,9 @@ export default function FileExplorer() {
       ) : (
         <div className="flex flex-col flex-1 overflow-hidden">
           <div
-            className="h-[22px] flex items-center px-3 text-[11px] font-bold tracking-wide text-text-tertiary uppercase cursor-pointer shrink-0 hover:bg-white/[0.06]"
-            onClick={openFolder}
-          >
-            <span className="overflow-hidden text-ellipsis whitespace-nowrap">{workspacePath.split('/').pop()}</span>
-          </div>
-          <div
             className={cn(
-              "flex-1 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:w-2.5 [&::-webkit-scrollbar-thumb]:bg-white/15 [&::-webkit-scrollbar-thumb:hover]:bg-white/25",
+              "flex-1 overflow-y-auto overflow-x-hidden py-1",
+              "[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb:hover]:bg-text-tertiary [&::-webkit-scrollbar-thumb]:rounded-full",
               isRootDragOver && "bg-accent/10",
             )}
             onDragOver={handleRootDragOver}
@@ -528,11 +532,11 @@ export default function FileExplorer() {
             onContextMenu={handleRootContextMenu}
           >
             {isRootCreating && (
-              <div className="flex items-center h-[22px] cursor-pointer gap-1 whitespace-nowrap overflow-hidden" style={{ paddingLeft: '12px' }}>
+              <div className="flex items-center h-[26px] mx-1 rounded-md gap-1 whitespace-nowrap overflow-hidden" style={{ paddingLeft: '8px' }}>
                 {isRootCreating === 'folder' ? <FolderIcon size={16} className="shrink-0" /> : <PhFileIcon size={16} className="shrink-0" />}
                 <input
                   ref={rootCreateRef}
-                  className="bg-bg-elevated border border-accent text-text-primary text-[13px] font-[inherit] px-1 h-[18px] flex-1 outline-none rounded-none"
+                  className="bg-bg-elevated border border-accent text-text-primary text-[13px] font-[inherit] px-1 h-[20px] flex-1 outline-none rounded-sm"
                   value={rootCreateValue}
                   placeholder={isRootCreating === 'file' ? 'filename' : 'folder name'}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRootCreateValue(e.target.value)}
