@@ -2,7 +2,9 @@
 
 A knowledge manager and markdown editor with WYSIWYG editing, inline comments, and an integrated terminal. Like Obsidian meets VS Code — organize your notes, docs, and knowledge base in local markdown files, with the power of a real editor and terminal at your fingertips.
 
-![Quipu Screenshot](image.png)
+<p align="center">
+  <img src="screenshot.png" alt="Quipu Screenshot" style="border-radius:12px;box-shadow:0 0 0 1px rgba(0,0,0,0.12),0 12px 40px rgba(0,0,0,0.2),0 40px 80px rgba(0,0,0,0.12);" width="100%" />
+</p>
 
 ## Features
 

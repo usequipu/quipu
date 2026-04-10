@@ -93,6 +93,29 @@ body {
   overflow-x: hidden;
 }
 
+/* Grain overlay */
+:root {
+  --grain-blend: multiply;
+  --grain-opacity: 0.35;
+}
+
+:root.dark {
+  --grain-blend: soft-light;
+  --grain-opacity: 0.55;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 99999;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  mix-blend-mode: var(--grain-blend);
+  opacity: var(--grain-opacity);
+}
+
 img, svg {
   display: block;
 }
@@ -336,6 +359,70 @@ a {
   max-width: 960px;
   margin: 64px auto 0;
   padding: 0 24px;
+}
+
+/* ========================================================================
+   macOS Window Frame (real screenshot)
+   ======================================================================== */
+.window-frame {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.12),
+    0 2px 4px rgba(0, 0, 0, 0.08),
+    0 12px 40px rgba(0, 0, 0, 0.18),
+    0 40px 100px rgba(0, 0, 0, 0.14);
+  background: #1e1e1e;
+}
+
+.window-frame-titlebar {
+  height: 38px;
+  background: #2a2a2a;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  position: relative;
+}
+
+.window-frame-dots {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.window-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: block;
+}
+
+.window-dot-close    { background: #ff5f57; }
+.window-dot-minimize { background: #febc2e; }
+.window-dot-maximize { background: #28c840; }
+
+.window-frame-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.45);
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.window-frame-body {
+  line-height: 0;
+}
+
+.window-frame-screenshot {
+  width: 100%;
+  height: auto;
+  display: block;
 }
 
 /* ========================================================================

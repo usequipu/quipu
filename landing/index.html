@@ -80,110 +80,17 @@
 
     <!-- Editor mockup -->
     <div class="hero-mockup anim-fade-up" style="--delay: 0.4s">
-      <div class="mockup" id="editor-mockup">
-        <div class="mockup-titlebar">
-          <div class="mockup-dots">
-            <span class="dot dot-close"></span>
-            <span class="dot dot-minimize"></span>
-            <span class="dot dot-maximize"></span>
+      <div class="window-frame">
+        <div class="window-frame-titlebar">
+          <div class="window-frame-dots">
+            <span class="window-dot window-dot-close"></span>
+            <span class="window-dot window-dot-minimize"></span>
+            <span class="window-dot window-dot-maximize"></span>
           </div>
-          <div class="mockup-title">project-proposal.md &mdash; Quipu</div>
-          <div class="mockup-dots" style="visibility: hidden">
-            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-          </div>
+          <span class="window-frame-title">Quipu</span>
         </div>
-        <div class="mockup-body">
-          <div class="mockup-activity-bar">
-            <div class="ab-icon ab-icon-active">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
-            </div>
-            <div class="ab-icon">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            </div>
-            <div class="ab-icon">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><path d="M11 18H8a2 2 0 01-2-2V9"/></svg>
-            </div>
-          </div>
-          <div class="mockup-sidebar">
-            <div class="sidebar-header">EXPLORER</div>
-            <div class="sidebar-item sidebar-folder">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2h-8l-2-2z"/></svg>
-              docs
-            </div>
-            <div class="sidebar-item sidebar-nested sidebar-active">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
-              project-proposal.md
-            </div>
-            <div class="sidebar-item sidebar-nested">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
-              meeting-notes.md
-            </div>
-            <div class="sidebar-item sidebar-nested">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
-              reference-paper.pdf
-            </div>
-            <div class="sidebar-item sidebar-folder">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2h-8l-2-2z"/></svg>
-              research
-            </div>
-            <div class="sidebar-item sidebar-nested">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
-              literature-review.md
-            </div>
-            <div class="sidebar-item sidebar-file">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
-              Home.md
-            </div>
-          </div>
-          <div class="mockup-main">
-            <div class="mockup-tabs">
-              <div class="tab tab-active">project-proposal.md</div>
-              <div class="tab">reference-paper.pdf</div>
-            </div>
-            <div class="mockup-editor mockup-editor-with-comment">
-              <div class="mockup-editor-content">
-                <div class="editor-line">
-                  <span class="ed-h1-rendered">Project Proposal</span>
-                </div>
-                <div class="editor-line">&nbsp;</div>
-                <div class="editor-line">
-                  <span class="ed-text">The migration should replace the existing REST endpoints with a GraphQL layer, reducing round-trips and giving clients control over response shape.</span>
-                </div>
-                <div class="editor-line">&nbsp;</div>
-                <div class="editor-line">
-                  <span class="ed-text">We estimate </span><span class="ed-comment-highlight">3 sprints for the full migration, including backward-compatible shims</span><span class="ed-text"> for legacy consumers.</span>
-                </div>
-                <div class="editor-line">&nbsp;</div>
-                <div class="editor-line">
-                  <span class="ed-h2-rendered">Dual routing: development vs production</span>
-                </div>
-                <div class="editor-line">&nbsp;</div>
-                <div class="editor-line">
-                  <span class="ed-text">Phase 1 will run parallel stacks &mdash; both REST and GraphQL serving production traffic simultaneously.</span>
-                </div>
-                <div class="editor-line editor-cursor">&nbsp;</div>
-              </div>
-              <div class="mockup-comment-sidebar">
-                <div class="mockup-comment-card">
-                  <div class="mockup-comment-meta">You &middot; Just now</div>
-                  <div class="mockup-comment-body">This estimate feels optimistic. Check with backend team on auth token migration complexity.</div>
-                  <div class="mockup-comment-quote">&ldquo;3 sprints for the full migration...&rdquo;</div>
-                </div>
-              </div>
-            </div>
-            <div class="mockup-terminal">
-              <div class="terminal-header">
-                <span class="terminal-label">TERMINAL</span>
-              </div>
-              <div class="terminal-body">
-                <div class="term-line"><span class="term-prompt">~/project $</span> claude "<span class="term-frame">/frame</span> fix the comments on <span class="term-file">@docs/project-proposal.md</span>"</div>
-                <div class="term-line">&nbsp;</div>
-                <div class="term-line"><span class="term-dim">Reading FRAME for project-proposal.md...</span></div>
-                <div class="term-line"><span class="term-dim">Found 1 annotation. Updating document.</span></div>
-                <div class="term-line"><span class="term-cmd" id="typed-cmd"></span><span class="term-cursor" id="term-cursor">|</span></div>
-              </div>
-            </div>
-          </div>
+        <div class="window-frame-body">
+          <img src="screenshot.png" alt="Quipu editor screenshot" class="window-frame-screenshot" />
         </div>
       </div>
     </div>
