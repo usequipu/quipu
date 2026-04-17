@@ -7,7 +7,6 @@ import Terminal from './components/ui/Terminal';
 import { Dialog } from 'radix-ui';
 import TabBar from './components/ui/TabBar';
 import ActivityBar from './components/ui/ActivityBar';
-import { getRegisteredPanels } from './extensions/panelRegistry';
 import QuickOpen from './components/ui/QuickOpen';
 import TitleBar from './components/ui/TitleBar';
 import ContextMenu from './components/ui/ContextMenu';
@@ -20,9 +19,17 @@ import { useTerminal } from './context/TerminalContext';
 import { ToastProvider, useToast } from './components/ui/Toast';
 import frameService from './services/frameService';
 import fs from './services/fileSystem';
+import gitServiceInstance from './services/gitService';
+import kernelServiceInstance from './services/kernelService';
+import terminalServiceInstance from './services/terminalService';
 import claudeInstaller from './services/claudeInstaller';
 import DiffViewer from './extensions/diff-viewer/DiffViewer';
-import { resolveViewer, getExtensionForTab, getCommandsForTab } from './extensions/registry';
+import { resolveViewer, registerExtension, getExtensionForTab, getCommandsForTab } from './extensions/registry';
+import { getRegisteredPanels, registerPanel } from './extensions/panelRegistry';
+import { registerCommand, executeCommand } from './extensions/commandRegistry';
+import { registerKeybinding, resolveKeybinding } from './extensions/keybindingRegistry';
+import pluginLoader, { createPluginApi } from './services/pluginLoader';
+import type { PluginApi } from './types/plugin-types';
 import './extensions'; // register all viewer extensions
 
 interface ContextMenuItem {
@@ -112,13 +119,42 @@ function AppContent() {
     setActiveDiff(null);
   }, [activeTabId]);
 
-  const handleOpenDiff = useCallback((filePath: string | null, diffText?: string, isStaged?: boolean) => {
-    if (filePath === null) {
+  // Plugin loader startup — runs once after mount.
+  // Registers built-in commands that require App-level state, then loads installed plugins.
+  useEffect(() => {
+    // diff.open: SourceControlPanel calls this instead of the old onOpenDiff prop.
+    registerCommand('diff.open', (...args: unknown[]) => {
+      const payload = args[0] as { filePath: string; diffText: string; isStaged: boolean };
+      setActiveDiff({
+        filePath: payload.filePath,
+        diffText: payload.diffText ?? '',
+        isStaged: payload.isStaged ?? false,
+      });
+    }, { label: 'Open Diff View', category: 'View' });
+
+    registerCommand('diff.close', () => {
       setActiveDiff(null);
-      return;
-    }
-    setActiveDiff({ filePath, diffText: diffText ?? '', isStaged: isStaged ?? false });
-  }, []);
+    }, { label: 'Close Diff View', category: 'View' });
+
+    const api = createPluginApi({
+      register: registerExtension,
+      registerPanel,
+      registerCommand,
+      executeCommand,
+      services: {
+        fileSystem: fs,
+        gitService: gitServiceInstance,
+        kernelService: kernelServiceInstance,
+        terminalService: terminalServiceInstance,
+      } as unknown as PluginApi['services'],
+    });
+
+    pluginLoader.loadAll(api, { registerKeybinding }).then((result) => {
+      result.errors.forEach((err) => {
+        showToast(`Plugin "${err.id}" failed to load: ${err.reason}`, 'warning');
+      });
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sidePanelRef = usePanelRef();
   const terminalPanelRef = usePanelRef();
@@ -342,6 +378,11 @@ function AppContent() {
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'f') {
         e.preventDefault();
         toggleFindRef.current?.();
+        return;
+      }
+      // Plugin keybindings — checked last so built-ins always take precedence.
+      if (resolveKeybinding(e)) {
+        e.preventDefault();
       }
     };
     document.addEventListener('keydown', handler);
@@ -830,7 +871,6 @@ function AppContent() {
               // Extra props for built-in panels that require them; plugin panels receive nothing.
               const panelPropsMap: Record<string, Record<string, unknown>> = {
                 search: { activePanel },
-                git: { onOpenDiff: handleOpenDiff },
               };
               const PanelComp = panel.component as React.ComponentType<Record<string, unknown>>;
               return <PanelComp {...(panelPropsMap[activePanel] ?? {})} />;
@@ -864,7 +904,7 @@ function AppContent() {
                   (() => {
                     const Viewer = resolveViewer(activeTab, activeFile);
                     return Viewer ? (
-                      <Viewer tab={activeTab} activeFile={activeFile} onContentChange={handleContentChange} isActive />
+                      <Viewer tab={activeTab} activeFile={activeFile} onContentChange={handleContentChange} isActive workspacePath={workspacePath ?? ''} showToast={showToast} />
                     ) : (
                       <Editor_
                         onEditorReady={handleEditorReady}

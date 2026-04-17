@@ -9,14 +9,14 @@ const _commands: PluginCommand[] = [];
 export function registerCommand(
   id: string,
   handler: PluginCommandHandler,
-  options: PluginCommandOptions,
+  options?: PluginCommandOptions,
 ): void {
   const cmd: PluginCommand = {
     id,
     handler,
-    label: options.label,
-    category: options.category,
-    shortcut: options.shortcut,
+    label: options?.label ?? id,
+    category: options?.category ?? 'Plugin',
+    shortcut: options?.shortcut,
   };
   const existing = _commands.findIndex((c) => c.id === id);
   if (existing !== -1) {

@@ -6,6 +6,8 @@ export interface Frontmatter {
 
 export interface Tab {
   id: string;
+  /** Virtual tab type — 'diff' for diff overlay tabs; undefined for file tabs */
+  type?: string;
   path: string;
   name: string;
   content: string | JSONContent | null;

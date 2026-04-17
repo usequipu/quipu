@@ -8,6 +8,7 @@ import type {
   PluginCommandOptions,
 } from '../types/plugin-types';
 import type { ExtensionDescriptor } from '../types/extensions';
+import type { KeybindingEntry } from '../extensions/keybindingRegistry';
 
 // ---------------------------------------------------------------------------
 // App version (set by vite.config.ts in U7; falls back to '0.0.0' until then)
@@ -51,11 +52,7 @@ export interface PluginLoadResult {
   errors: { id: string; reason: string }[];
 }
 
-export interface KeybindingEntry {
-  key: string;
-  mac?: string;
-  commandId: string;
-}
+export type { KeybindingEntry } from '../extensions/keybindingRegistry';
 
 export interface PluginLoaderOptions {
   /**
