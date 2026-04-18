@@ -72,15 +72,36 @@ Viewer extensions in `src/extensions/` register with the registry and replace th
 
 ```
 src/extensions/
-  registry.ts        # registerExtension(), resolveViewer(), getExtensionForTab(), getCommandsForTab()
-  index.ts           # Side-effect import registering all viewers
-  types.ts           # ExtensionDescriptor interface
-  pdf-viewer/, code-viewer/, notebook/, mermaid-viewer/, media-viewer/, excalidraw-viewer/, diff-viewer/
+  registry.ts          # registerExtension(), resolveViewer(), getExtensionForTab(), getCommandsForTab()
+  index.ts             # Side-effect import — only diff-viewer and database-viewer remain in core
+  panelRegistry.ts     # registerPanel(), getRegisteredPanels() — drives ActivityBar
+  commandRegistry.ts   # registerCommand(), getRegisteredCommands() — drives QuickOpen
+  keybindingRegistry.ts # registerKeybinding(), resolveKeybinding()
+  diff-viewer/         # stays in core (tab.type === 'diff')
+  database-viewer/     # stays in core permanently
+  pdf-viewer/, code-viewer/, notebook/, mermaid-viewer/, media-viewer/, excalidraw-viewer/
+                       # source kept for reference; distributed as plugins (see below)
 ```
 
 Extension descriptors support: `{ id, canHandle, priority, component, commands?, onSave?, onSnapshot? }`
 
 **TipTap plugins** live in `src/components/editor/extensions/` (separate from viewer extensions).
+
+### Plugin System
+
+Heavy viewers are distributed as independently installed plugins from `https://github.com/usequipu/`:
+
+| Plugin repo | File types |
+|---|---|
+| `pdf-plugin` | `.pdf` |
+| `code-plugin` | `.js`, `.ts`, `.py`, `.go`, `.rs`, + 15 more |
+| `mermaid-plugin` | `.mmd`, `.mermaid` |
+| `excalidraw-plugin` | `.excalidraw` |
+| `media-plugin` | images + video |
+| `notebook-plugin` | `.ipynb` |
+| `diff-plugin` | git diff tabs |
+
+Plugins are loaded at startup from `~/.quipu/plugins/` via `src/services/pluginLoader.ts`. Each plugin exports `init(api: PluginApi)` and bundles its own dependencies. The first-run wizard (`FirstRunWizard.tsx`) and plugin manager panel (`PluginManager.tsx`) handle install/uninstall/update.
 
 ### Editor
 
@@ -155,6 +176,14 @@ Remaining CSS files (not in Tailwind):
 - CORS restricted to localhost origins
 - Git/search commands use `exec.Command` with argument arrays (never string concatenation)
 - Validate all user-supplied paths before passing to shell commands
+
+## Versioning
+
+**Always bump `version` in `package.json` before committing.** Use semver:
+- `0.x.0` — new features or significant changes
+- `0.x.y` — bug fixes and minor patches
+
+Every commit that ships code must have a corresponding version bump. The git tag must match the version in `package.json`.
 
 ## Development
 
