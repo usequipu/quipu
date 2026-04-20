@@ -1,18 +1,16 @@
 /**
- * Extension loader — imports all built-in viewer extensions and registers them.
- * This is the ONLY file that imports from individual extension folders.
- * Import this module once at app startup (side-effect import).
+ * Extension loader — registers built-in viewer extensions that remain in core.
+ * Heavy viewers (pdf, code, mermaid, excalidraw, media, notebook) are now
+ * distributed as separate plugins via the plugin system.
  */
 import { registerExtension } from './registry';
 import type { ExtensionDescriptor } from '@/types/extensions';
 
-import pdfViewer from './pdf-viewer';
-import mediaViewer from './media-viewer';
-import excalidrawViewer from './excalidraw-viewer';
-import mermaidViewer from './mermaid-viewer';
-import notebookViewer from './notebook';
-import codeViewer from './code-viewer';
+// diff-viewer stays in core (registered as side-effect for tab.type === 'diff').
+import './diff-viewer/index';
+
+// database-viewer stays in core permanently (see plugin architecture plan §Key Decisions).
 import databaseViewer from './database-viewer';
 
-const viewers: ExtensionDescriptor[] = [pdfViewer, mediaViewer, excalidrawViewer, mermaidViewer, notebookViewer, databaseViewer, codeViewer];
+const viewers: ExtensionDescriptor[] = [databaseViewer];
 viewers.forEach(registerExtension);

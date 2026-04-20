@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/png" href="icon.png">
+  <title>Quipu Extensions — Plugin Author Guide</title>
+  <meta name="description" content="Build viewer extensions, sidebar panels, commands, and keybindings for Quipu with the plugin API.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://api.fontshare.com/v2/css?f[]=clash-grotesk@400,500,600,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* --------------------------------------------------------
+       Extensions page — page-specific styles
+       -------------------------------------------------------- */
+
+    /* Hero (smaller than homepage hero) */
+    .ext-hero {
+      padding-top: calc(var(--nav-height) + 72px);
+      padding-bottom: 64px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .ext-hero-content {
+      max-width: 680px;
+    }
+
+    .ext-hero-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 20px;
+    }
+
+    .ext-hero-eyebrow a {
+      color: var(--text-tertiary);
+      transition: color 0.2s;
+    }
+
+    .ext-hero-eyebrow a:hover { color: var(--text-primary); }
+
+    .ext-hero-eyebrow .sep { color: var(--text-tertiary); margin: 0 4px; }
+
+    .ext-hero-title {
+      font-family: 'Clash Grotesk', 'Inter', sans-serif;
+      font-size: clamp(32px, 5vw, 52px);
+      font-weight: 600;
+      line-height: 1.08;
+      letter-spacing: -0.025em;
+      margin-bottom: 20px;
+    }
+
+    .ext-hero-subtitle {
+      font-size: 17px;
+      line-height: 1.7;
+      color: var(--text-secondary);
+      max-width: 520px;
+    }
+
+    /* Docs layout: sticky left TOC + scrollable content */
+    .docs-layout {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 64px 24px 100px;
+      display: grid;
+      grid-template-columns: 210px 1fr;
+      gap: 72px;
+      align-items: start;
+    }
+
+    .docs-toc {
+      position: sticky;
+      top: calc(var(--nav-height) + 24px);
+    }
+
+    .toc-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-tertiary);
+      margin-bottom: 12px;
+    }
+
+    .toc-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .toc-list a {
+      display: block;
+      font-size: 13.5px;
+      color: var(--text-secondary);
+      padding: 5px 8px;
+      border-radius: 6px;
+      transition: background 0.15s, color 0.15s;
+      line-height: 1.4;
+    }
+
+    .toc-list a:hover {
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+    }
+
+    .toc-list a.active {
+      background: var(--accent-muted);
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    /* Sections */
+    .docs-section {
+      margin-bottom: 72px;
+      scroll-margin-top: calc(var(--nav-height) + 32px);
+    }
+
+    .docs-section:last-child {
+      margin-bottom: 0;
+    }
+
+    .docs-section-title {
+      font-family: 'Clash Grotesk', 'Inter', sans-serif;
+      font-size: 26px;
+      font-weight: 600;
+      letter-spacing: -0.015em;
+      margin-bottom: 16px;
+      color: var(--text-primary);
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .docs-section-intro {
+      font-size: 15.5px;
+      line-height: 1.75;
+      color: var(--text-secondary);
+      margin-bottom: 28px;
+      max-width: 660px;
+    }
+
+    /* Sub-sections */
+    .docs-sub {
+      margin-bottom: 36px;
+    }
+
+    .docs-sub-title {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 10px;
+    }
+
+    .docs-sub-desc {
+      font-size: 14.5px;
+      line-height: 1.7;
+      color: var(--text-secondary);
+      margin-bottom: 14px;
+      max-width: 620px;
+    }
+
+    /* Code blocks */
+    .code-block {
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      margin-bottom: 20px;
+    }
+
+    .code-block-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 16px;
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .code-block-filename {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: var(--text-tertiary);
+      font-weight: 500;
+    }
+
+    .code-block-lang {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-tertiary);
+    }
+
+    .code-block pre {
+      margin: 0;
+      padding: 20px;
+      background: #0f1520;
+      overflow-x: auto;
+    }
+
+    .code-block code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      line-height: 1.75;
+      color: #c9d1d9;
+      display: block;
+      white-space: pre;
+    }
+
+    /* Inline code */
+    p code, li code, td code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12.5px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: var(--accent-muted);
+      color: var(--accent);
+    }
+
+    /* Syntax highlight tokens */
+    .tok-comment  { color: #6a737d; font-style: italic; }
+    .tok-keyword  { color: #569cd6; }
+    .tok-string   { color: #98c379; }
+    .tok-name     { color: #4ec9b0; }
+    .tok-fn       { color: #dcdcaa; }
+    .tok-prop     { color: #9cdcfe; }
+    .tok-number   { color: #b5cea8; }
+    .tok-type     { color: #4ec9b0; }
+    .tok-op       { color: #c9d1d9; }
+
+    /* Field table */
+    .field-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      margin-bottom: 20px;
+    }
+
+    .field-table th {
+      text-align: left;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-tertiary);
+      padding: 8px 12px;
+      border-bottom: 2px solid var(--border);
+    }
+
+    .field-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      line-height: 1.55;
+    }
+
+    .field-table td:first-child {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12.5px;
+      color: var(--accent);
+      white-space: nowrap;
+      width: 160px;
+    }
+
+    .field-table td:nth-child(2) {
+      color: var(--text-tertiary);
+      width: 100px;
+    }
+
+    .field-table td:last-child {
+      color: var(--text-secondary);
+    }
+
+    .field-required {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: color-mix(in srgb, var(--accent) 10%, transparent);
+      color: var(--accent);
+    }
+
+    .field-optional {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: var(--bg-elevated);
+      color: var(--text-tertiary);
+    }
+
+    /* Callout */
+    .callout {
+      padding: 16px 20px;
+      border-radius: 8px;
+      border-left: 3px solid var(--accent);
+      background: var(--accent-muted);
+      font-size: 14px;
+      line-height: 1.65;
+      color: var(--text-secondary);
+      margin-bottom: 24px;
+    }
+
+    .callout strong {
+      color: var(--text-primary);
+    }
+
+    .callout-warn {
+      border-left-color: var(--accent-secondary);
+      background: var(--accent-secondary-muted);
+    }
+
+    /* Step list */
+    .step-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+
+    .step-list li {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+      font-size: 14.5px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+    }
+
+    .step-num {
+      min-width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    /* Service cards */
+    .service-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .service-card {
+      padding: 20px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--bg-surface);
+    }
+
+    .service-card-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 6px;
+    }
+
+    .service-card-desc {
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .docs-layout {
+        grid-template-columns: 1fr;
+        gap: 0;
+        padding-top: 40px;
+      }
+
+      .docs-toc {
+        display: none;
+      }
+
+      .service-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo">
+        <img class="logo-mark" src="icon.png" alt="Quipu">
+        <span class="logo-text">Quipu</span>
+      </a>
+      <div class="nav-links" id="nav-links">
+        <a href="index.html#features">Features</a>
+        <a href="index.html#editor">Editor</a>
+        <a href="index.html#frame">FRAME</a>
+        <a href="extensions.html" style="color: var(--accent);">Extensions</a>
+        <a href="https://github.com/barelias/quipu" target="_blank" rel="noopener">GitHub</a>
+      </div>
+      <div class="nav-actions">
+        <button class="btn btn-ghost" id="theme-toggle" aria-label="Toggle theme">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"/>
+            <line x1="12" y1="1" x2="12" y2="3"/>
+            <line x1="12" y1="21" x2="12" y2="23"/>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+            <line x1="1" y1="12" x2="3" y2="12"/>
+            <line x1="21" y1="12" x2="23" y2="12"/>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+          </svg>
+        </button>
+        <a href="index.html#download" class="btn btn-primary">Download</a>
+        <button class="nav-mobile-toggle" id="mobile-toggle" aria-label="Toggle menu">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="ext-hero">
+    <div class="container">
+      <div class="ext-hero-content">
+        <div class="ext-hero-eyebrow">
+          <a href="index.html">Quipu</a>
+          <span class="sep">/</span>
+          Extensions
+        </div>
+        <h1 class="ext-hero-title">Build extensions<br>for Quipu</h1>
+        <p class="ext-hero-subtitle">
+          A plugin is a directory with a <code>manifest.json</code> and an <code>index.js</code>.
+          Plugins can add custom file viewers, sidebar panels, commands, and keyboard
+          shortcuts — all exposed through a single typed API.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Docs body -->
+  <div class="docs-layout container">
+
+    <!-- TOC sidebar -->
+    <nav class="docs-toc" aria-label="Page contents">
+      <p class="toc-title">On this page</p>
+      <ul class="toc-list" id="toc">
+        <li><a href="#quickstart">Quick start</a></li>
+        <li><a href="#manifest">Manifest</a></li>
+        <li><a href="#init">Plugin API (<code>init</code>)</a></li>
+        <li><a href="#viewers">Viewer extensions</a></li>
+        <li><a href="#panels">Sidebar panels</a></li>
+        <li><a href="#commands">Commands</a></li>
+        <li><a href="#keybindings">Keybindings</a></li>
+        <li><a href="#services">Services</a></li>
+        <li><a href="#build">Building</a></li>
+        <li><a href="#install">Installing</a></li>
+      </ul>
+    </nav>
+
+    <!-- Main content -->
+    <main class="docs-content">
+
+      <!-- ─── Quick start ─── -->
+      <section class="docs-section" id="quickstart">
+        <h2 class="docs-section-title">Quick start</h2>
+        <p class="docs-section-intro">
+          A minimal plugin has three files. This example adds a viewer that renders
+          <code>.csv</code> files as a simple HTML table.
+        </p>
+
+        <div class="code-block">
+          <div class="code-block-header">
+            <span class="code-block-filename">my-csv-viewer/manifest.json</span>
+            <span class="code-block-lang">json</span>
+          </div>
+          <pre><code>{
+  <span class="tok-prop">"id"</span>: <span class="tok-string">"my-csv-viewer"</span>,
+  <span class="tok-prop">"name"</span>: <span class="tok-string">"CSV Viewer"</span>,
+  <span class="tok-prop">"version"</span>: <span class="tok-string">"1.0.0"</span>,
+  <span class="tok-prop">"main"</span>: <span class="tok-string">"index.js"</span>
+}</code></pre>
+        </div>
+
+        <div class="code-block">
+          <div class="code-block-header">
+            <span class="code-block-filename">my-csv-viewer/index.js</span>
+            <span class="code-block-lang">javascript</span>
+          </div>
+          <pre><code><span class="tok-comment">// React is provided by Quipu — do not bundle it.</span>
+<span class="tok-keyword">const</span> { <span class="tok-name">createElement</span>: h, <span class="tok-name">useState</span> } = <span class="tok-name">React</span>;
+
+<span class="tok-keyword">function</span> <span class="tok-fn">CsvViewer</span>({ <span class="tok-prop">activeFile</span> }) {
+  <span class="tok-keyword">const</span> [<span class="tok-name">rows</span>, <span class="tok-fn">setRows</span>] = <span class="tok-fn">useState</span>([]);
+
+  <span class="tok-name">React</span>.<span class="tok-fn">useEffect</span>(() => {
+    <span class="tok-keyword">if</span> (!<span class="tok-name">activeFile</span>) <span class="tok-keyword">return</span>;
+    <span class="tok-fn">fetch</span>(<span class="tok-string">`/api/file?path=</span><span class="tok-op">${</span><span class="tok-name">activeFile</span>.<span class="tok-prop">path</span><span class="tok-op">}</span><span class="tok-string">`</span>)
+      .<span class="tok-fn">then</span>(<span class="tok-name">r</span> => <span class="tok-name">r</span>.<span class="tok-fn">text</span>())
+      .<span class="tok-fn">then</span>(<span class="tok-name">text</span> => <span class="tok-fn">setRows</span>(<span class="tok-name">text</span>.<span class="tok-fn">trim</span>().<span class="tok-fn">split</span>(<span class="tok-string">'\n'</span>).<span class="tok-fn">map</span>(<span class="tok-name">r</span> => <span class="tok-name">r</span>.<span class="tok-fn">split</span>(<span class="tok-string">','</span>))));
+  }, [<span class="tok-name">activeFile</span>]);
+
+  <span class="tok-keyword">return</span> <span class="tok-fn">h</span>(<span class="tok-string">'table'</span>, { <span class="tok-prop">style</span>: { <span class="tok-prop">padding</span>: <span class="tok-string">'16px'</span> } },
+    <span class="tok-name">rows</span>.<span class="tok-fn">map</span>((<span class="tok-name">cols</span>, <span class="tok-name">i</span>) => <span class="tok-fn">h</span>(<span class="tok-string">'tr'</span>, { <span class="tok-prop">key</span>: <span class="tok-name">i</span> },
+      <span class="tok-name">cols</span>.<span class="tok-fn">map</span>((<span class="tok-name">c</span>, <span class="tok-name">j</span>) => <span class="tok-fn">h</span>(<span class="tok-string">'td'</span>, { <span class="tok-prop">key</span>: <span class="tok-name">j</span> }, <span class="tok-name">c</span>))
+    ))
+  );
+}
+
+<span class="tok-comment">// Every plugin must export an `init` function.</span>
+<span class="tok-keyword">export function</span> <span class="tok-fn">init</span>(<span class="tok-name">api</span>) {
+  <span class="tok-name">api</span>.<span class="tok-fn">register</span>({
+    <span class="tok-prop">id</span>: <span class="tok-string">'csv-viewer'</span>,
+    <span class="tok-prop">canHandle</span>: (<span class="tok-name">tab</span>) => <span class="tok-name">tab</span>.<span class="tok-prop">name</span>?.<span class="tok-fn">endsWith</span>(<span class="tok-string">'.csv'</span>),
+    <span class="tok-prop">priority</span>: <span class="tok-number">50</span>,
+    <span class="tok-prop">component</span>: <span class="tok-name">CsvViewer</span>,
+  });
+}</code></pre>
+        </div>
+
+        <p class="docs-sub-desc">
+          Drop the directory into <code>~/.quipu/plugins/</code> and relaunch Quipu.
+          Quipu loads every plugin at startup and calls <code>init(api)</code> with the full plugin API.
+        </p>
+      </section>
+
+      <!-- ─── Manifest ─── -->
+      <section class="docs-section" id="manifest">
+        <h2 class="docs-section-title">Manifest</h2>
+        <p class="docs-section-intro">
+          Every plugin directory must contain a <code>manifest.json</code> at its root.
+          Quipu reads this file before loading the plugin to validate structure and resolve the entry point.
+        </p>
+
+        <div class="code-block">
+          <div class="code-block-header">
+            <span class="code-block-filename">manifest.json</span>
+            <span class="code-block-lang">json</span>
+          </div>
+          <pre><code>{
+  <span class="tok-prop">"id"</span>:          <span class="tok-string">"my-plugin"</span>,         <span class="tok-comment">// unique, kebab-case</span>
+  <span class="tok-prop">"name"</span>:        <span class="tok-string">"My Plugin"</span>,         <span class="tok-comment">// display name</span>
+  <span class="tok-prop">"version"</span>:     <span class="tok-string">"1.0.0"</span>,             <span class="tok-comment">// semver</span>
+  <span class="tok-prop">"main"</span>:        <span class="tok-string">"index.js"</span>,          <span class="tok-comment">// entry point (relative to plugin dir)</span>
+  <span class="tok-prop">"description"</span>: <span class="tok-string">"Optional blurb"</span>,    <span class="tok-comment">// shown in UI (future)</span>
+  <span class="tok-prop">"author"</span>:      <span class="tok-string">"you"</span>               <span class="tok-comment">// optional</span>
+}</code></pre>
+        </div>
+
+        <table class="field-table">
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>Required</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>id</td>
+              <td><span class="field-required">required</span></td>
+              <td>Globally unique plugin identifier. Use kebab-case. Quipu uses this as the namespace for all registrations from this plugin.</td>
+            </tr>
+            <tr>
+              <td>name</td>
+              <td><span class="field-required">required</span></td>
+              <td>Human-readable display name shown in error messages and (future) plugin manager UI.</td>
+            </tr>
+            <tr>
+              <td>version</td>
+              <td><span class="field-required">required</span></td>
+              <td>Semver version string. Used for display and conflict reporting.</td>
+            </tr>
+            <tr>
+              <td>main</td>
+              <td><span class="field-required">required</span></td>
+              <td>Path to the plugin's JS entry point, relative to the plugin directory. Must be an ES module or IIFE that exports an <code>init</code> function.</td>
+            </tr>
+            <tr>
+              <td>description</td>
+              <td><span class="field-optional">optional</span></td>
+              <td>Short description of what the plugin does.</td>
+            </tr>
+            <tr>
+              <td>author</td>
+              <td><span class="field-optional">optional</span></td>
+              <td>Author name or email.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <strong>Validation:</strong> Quipu rejects plugins with missing <code>id</code>, <code>name</code>, <code>version</code>, or
+          <code>main</code> fields. Failed plugins show a warning toast at startup and are skipped.
+        </div>
+      </section>
+
+      <!-- ─── Plugin API ─── -->
+      <section class="docs-section" id="init">
+        <h2 class="docs-section-title">Plugin API (<code>init</code>)</h2>
+        <p class="docs-section-intro">
+          Every plugin must export a named function <code>init(api)</code>.
+          Quipu calls it once at startup, passing a scoped <code>PluginApi</code> object
+          that exposes all registration methods and services.
+        </p>
+
+        <div class="code-block">
+          <div class="code-block-header">
+            <span class="code-block-filename">index.js</span>
+            <span class="code-block-lang">javascript</span>
+          </div>
+          <pre><code><span class="tok-comment">/**
+ * @param {import('quipu').PluginApi} api
+ */</span>
+<span class="tok-keyword">export function</span> <span class="tok-fn">init</span>(<span class="tok-name">api</span>) {
+  <span class="tok-comment">// api.register(descriptor)        — register a file viewer</span>
+  <span class="tok-comment">// api.registerPanel(descriptor)   — add a sidebar panel</span>
+  <span class="tok-comment">// api.registerCommand(id, fn, opts)— add a command palette entry</span>
+  <span class="tok-comment">// api.executeCommand(id, ...args)  — trigger any registered command</span>
+  <span class="tok-comment">// api.registerKeybinding(entry)    — bind a key combo to a command</span>
+  <span class="tok-comment">// api.services.*                   — file system, git, terminal, kernel</span>
+  <span class="tok-comment">// api.version                      — current Quipu version string</span>
+}</code></pre>
+        </div>
+
+        <div class="callout">
+          <strong>TypeScript:</strong> If you build with TypeScript, install the
+          <code>quipu</code> package (coming soon) for full <code>PluginApi</code> typings.
+          Until then, use JSDoc <code>@param {import('quipu').PluginApi} api</code> or
+          copy the interface from <code>src/types/plugin-types.ts</code> in the Quipu repo.
+        </div>
+      </section>
+
+      <!-- ─── Viewer extensions ─── -->
+      <section class="docs-section" id="viewers">
+        <h2 class="docs-section-title">Viewer extensions</h2>
+        <p class="docs-section-intro">
+          A viewer replaces the default TipTap editor for specific file types.
+          Register one with <code>api.register(descriptor)</code>. Quipu picks the
+          viewer with the highest <code>priority</code> that returns true from
+          <code>canHandle(tab)</code>.
+        </p>
+
+        <div class="docs-sub">
+          <h3 class="docs-sub-title">ExtensionDescriptor</h3>
+          <table class="field-table">
+            <thead>
+              <tr><th>Field</th><th>Required</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>id</td>
+                <td><span class="field-required">required</span></td>
+                <td>Unique viewer ID. Collisions are logged and the later registration wins.</td>
+              </tr>
+              <tr>
+                <td>canHandle</td>
+                <td><span class="field-required">required</span></td>
+                <td><code>(tab: Tab) =&gt; boolean</code>. Return <code>true</code> to claim the tab. Test <code>tab.name</code>, <code>tab.path</code>, or <code>tab.type</code>.</td>
+              </tr>
+              <tr>
+                <td>priority</td>
+                <td><span class="field-required">required</span></td>
+                <td>Higher numbers win. Built-in viewers use <code>10</code>–<code>90</code>. Use <code>50</code> as a safe default for plugins.</td>
+              </tr>
+              <tr>
+                <td>component</td>
+                <td><span class="field-required">required</span></td>
+                <td>React component that receives <code>{ tab, activeFile, onContentChange, isActive, workspacePath, showToast }</code> as props.</td>
+              </tr>
+              <tr>
+                <td>commands</td>
+                <td><span class="field-optional">optional</span></td>
+                <td>Array of commands shown in the menu bar when this viewer is active. Each entry: <code>{ id, label, handler }</code>.</td>
+              </tr>
+              <tr>
+                <td>onSave</td>
+                <td><span class="field-optional">optional</span></td>
+                <td><code>(tab) =&gt; void</code> — called when the user triggers save (<code>Ctrl/Cmd+S</code>) while this viewer is active.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="code-block">
+          <div class="code-block-header">
+            <span class="code-block-filename">index.js — register a viewer</span>
+            <span class="code-block-lang">javascript</span>
+          </div>
+          <pre><code><span class="tok-keyword">export function</span> <span class="tok-fn">init</span>(<span class="tok-name">api</span>) {
+  <span class="tok-name">api</span>.<span class="tok-fn">register</span>({
+    <span class="tok-prop">id</span>: <span class="tok-string">'my-csv-viewer'</span>,
+
+    <span class="tok-comment">// Claim any .csv file</span>
+    <span class="tok-prop">canHandle</span>: (<span class="tok-name">tab</span>) => <span class="tok-name">tab</span>.<span class="tok-prop">name</span>?.<span class="tok-fn">endsWith</span>(<span class="tok-string">'.csv'</span>) ?? <span class="tok-keyword">false</span>,
+
+    <span class="tok-prop">priority</span>: <span class="tok-number">50</span>,
+
+    <span class="tok-prop">component</span>: <span class="tok-name">CsvViewer</span>, <span class="tok-comment">// your React component</span>
+
+    <span class="tok-comment">// Optional: toolbar commands shown when this viewer is active</span>
+    <span class="tok-prop">commands</span>: [
+      {
+        <span class="tok-prop">id</span>: <span class="tok-string">'csv.export'</span>,
+        <span class="tok-prop">label</span>: <span class="tok-string">'Export as JSON'</span>,
+        <span class="tok-prop">handler</span>: () => { <span class="tok-comment">/* ... */</span> },
+      },
+    ],
+  });
+}</code></pre>
+        </div>
+
+        <div class="callout">
+          <strong>React is provided by Quipu.</strong> Do not bundle React in your plugin.
+          Use <code>React</code>, <code>ReactDOM</code>, and <code>ReactDOMClient</code>
+          as globals — they are already on <code>window</code> when your plugin loads.
+          See the <a href="#build">Building</a> section for the Vite config that externalizes them correctly.
+        </div>
+      </section>
+
+      <!-- ─── Sidebar panels ─── -->
+      <section class="docs-section" id="panels">
+        <h2 class="docs-section-title">Sidebar panels</h2>
+        <p class="docs-section-intro">
+          Panels appear in the activity bar on the left. Register one with
+          <code>api.registerPanel(descriptor)</code> and it will appear alongside
+          the built-in Explorer, Search, and Source Control panels.
+        </p>
+
+        <div class="docs-sub">
+          <h3 class="docs-sub-title">PanelDescriptor</h3>
+          <table class="field-table">
+            <thead>
+              <tr><th>Field</th><th>Required</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>id</td>
+                <td><span class="field-required">required</span></td>
+                <td>Unique panel ID used to toggle visibility.</td>
+              </tr>
+              <tr>
+                <td>label</td>
+                <td><span class="field-required">required</span></td>
+                <td>Tooltip shown on hover in the activity bar.</td>
+              </tr>
+              <tr>
+                <td>icon</td>
+                <td><span class="field-required">required</span></td>
+                <td>Phosphor icon name with <code>Icon</code> suffix, e.g. <code>"BracketsCurlyIcon"</code>. Falls back to a circle if not found.</td>
+              </tr>
+              <tr>
+                <td>component</td>
+                <td><span class="field-required">required</span></td>
+                <td>React component rendered in the sidebar when this panel is active. Receives no props by default.</td>
+              </tr>
+              <tr>
+                <td>order</td>
+                <td><span class="field-optional">optional</span></td>
+                <td>Sort order in the activity bar. Built-ins use <code>0</code>, <code>1</code>, <code>2</code>. Use <code>10</code>+ for plugins.</td>
+              </tr>
+              <tr>
+                <td>badge</td>
+                <td><span class="field-optional">optional</span></td>
+                <td><code>() =&gt; number | null</code>. Called on each render. Return a positive integer to show a badge, or <code>null</code> to hide it.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="code-block">
+          <div class="code-block-header">
+            <span class="code-block-filename">index.js — register a panel</span>
+            <span class="code-block-lang">javascript</span>
+          </div>
+          <pre><code><span class="tok-keyword">export function</span> <span class="tok-fn">init</span>(<span class="tok-name">api</span>) {
+  <span class="tok-name">api</span>.<span class="tok-fn">registerPanel</span>({
+    <span class="tok-prop">id</span>:        <span class="tok-string">'my-panel'</span>,
+    <span class="tok-prop">label</span>:     <span class="tok-string">'My Panel'</span>,
+    <span class="tok-prop">icon</span>:      <span class="tok-string">'BracketsCurlyIcon'</span>,
+    <span class="tok-prop">component</span>: <span class="tok-name">MyPanelComponent</span>,
+    <span class="tok-prop">order</span>:     <span class="tok-number">10</span>,
+  });
+}</code></pre>
+        </div>
+
+        <p class="docs-sub-desc">
+          Quipu renders your component inside the sidebar container when the user clicks
+          your icon in the activity bar. The component is mounted/unmounted as the panel
+          is toggled; use <code>useEffect</code> to fetch data on mount.
+        </p>
+      </section>
+
+      <!-- ─── Commands ─── -->
+      <section class="docs-section" id="commands">
+        <h2 class="docs-section-title">Commands</h2>
+        <p class="docs-section-intro">
+          Commands are named actions that appear in the command palette
+          (<code>Ctrl/Cmd+Shift+P</code>). Register one with
+          <code>api.registerCommand(id, handler, options)</code>. Call any registered
+          command programmatically with <code>api.executeCommand(id, ...args)</code>.
+        </p>
+
+        <div class="code-block">
+          <div class="code-block-header">
+            <span class="code-block-filename">index.js — register &amp; execute commands</span>
+            <span class="code-block-lang">javascript</span>
+          </div>
+          <pre><code><span class="tok-keyword">export function</span> <span class="tok-fn">init</span>(<span class="tok-name">api</span>) {
+  <span class="tok-comment">// Register a command that appears in the command palette</span>
+  <span class="tok-name">api</span>.<span class="tok-fn">registerCommand</span>(
+    <span class="tok-string">'my-plugin.sayHello'</span>,           <span class="tok-comment">// command ID (namespaced by convention)</span>
+    (<span class="tok-name">name</span> = <span class="tok-string">'world'</span>) => {
+      <span class="tok-fn">alert</span>(<span class="tok-string">`Hello, </span><span class="tok-op">${</span><span class="tok-name">name</span><span class="tok-op">}</span><span class="tok-string">!`</span>);
+    },
+    {
+      <span class="tok-prop">label</span>:    <span class="tok-string">'Say Hello'</span>,              <span class="tok-comment">// shown in command palette</span>
+      <span class="tok-prop">category</span>: <span class="tok-string">'My Plugin'</span>,            <span class="tok-comment">// group label</span>
+      <span class="tok-prop">shortcut</span>: <span class="tok-string">'Ctrl+Shift+H'</span>,          <span class="tok-comment">// display-only hint (wire up separately)</span>
+    }
+  );
+
+  <span class="tok-comment">// Call another command (built-in or plugin)</span>
+  <span class="tok-name">api</span>.<span class="tok-fn">registerCommand</span>(<span class="tok-string">'my-plugin.openSearch'</span>, () => {
+    <span class="tok-name">api</span>.<span class="tok-fn">executeCommand</span>(<span class="tok-string">'view.search'</span>);
+  }, { <span class="tok-prop">label</span>: <span class="tok-string">'Open Search'</span>, <span class="tok-prop">category</span>: <span class="tok-string">'My Plugin'</span> });
+}</code></pre>
+        </div>
+
+        <div class="docs-sub">
+          <h3 class="docs-sub-title">Built-in command IDs</h3>
+          <p class="docs-sub-desc">Use these with <code>api.executeCommand(id)</code> to trigger core app actions:</p>
+          <table class="field-table">
+            <thead><tr><th>Command ID</th><th></th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td>file.save</td><td></td><td>Save the active tab.</td></tr>
+              <tr><td>file.closeTab</td><td></td><td>Close the active tab.</td></tr>
+              <tr><td>file.reloadFromDisk</td><td></td><td>Reload the active tab from disk.</td></tr>
+              <tr><td>view.toggleSidebar</td><td></td><td>Show / hide the sidebar.</td></tr>
+              <tr><td>view.search</td><td></td><td>Open the Search panel.</td></tr>
+              <tr><td>view.quickOpen</td><td></td><td>Open Quick Open (<code>Ctrl+P</code>).</td></tr>
+              <tr><td>view.commandPalette</td><td></td><td>Open the command palette.</td></tr>
+              <tr><td>terminal.toggle</td><td></td><td>Show / hide the terminal.</td></tr>
+              <tr><td>terminal.new</td><td></td><td>Open a new terminal tab.</td></tr>
+              <tr><td>terminal.send</td><td></td><td>Send the active file to the FRAME skill.</td></tr>
+              <tr><td>terminal.claude</td><td></td><td>Send the active file to Claude in the terminal.</td></tr>
+              <tr><td>diff.open</td><td></td><td>Open the diff overlay. Pass <code>{ filePath, diffText, isStaged }</code> as the first argument.</td></tr>
+              <tr><td>diff.close</td><td></td><td>Close the diff overlay.</td></tr>
+              <tr><td>editor.find</td><td></td><td>Toggle the in-editor find bar.</td></tr>
+              <tr><td>tab.next</td><td></td><td>Switch to the next tab.</td></tr>
+              <tr><td>tab.prev</td><td></td><td>Switch to the previous tab.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ─── Keybindings ─── -->
+      <section class="docs-section" id="keybindings">
+        <h2 class="docs-section-title">Keybindings</h2>
+        <p class="docs-section-intro">
+          Bind a keyboard shortcut to any registered command using
+          <code>api.registerKeybinding(entry)</code>. Built-in shortcuts are always
+          registered first and take precedence over plugin shortcuts on conflict.
+        </p>
+
+        <div class="code-block">
+          <div class="code-block-header">
+            <span class="code-block-filename">index.js — register a keybinding</span>
+            <span class="code-block-lang">javascript</span>
+          </div>
+          <pre><code><span class="tok-keyword">export function</span> <span class="tok-fn">init</span>(<span class="tok-name">api</span>) {
+  <span class="tok-name">api</span>.<span class="tok-fn">registerCommand</span>(<span class="tok-string">'my-plugin.sayHello'</span>, () => <span class="tok-fn">alert</span>(<span class="tok-string">'Hello!'</span>), {
+    <span class="tok-prop">label</span>:    <span class="tok-string">'Say Hello'</span>,
+    <span class="tok-prop">category</span>: <span class="tok-string">'My Plugin'</span>,
+  });
+
+  <span class="tok-name">api</span>.<span class="tok-fn">registerKeybinding</span>({
+    <span class="tok-prop">key</span>:       <span class="tok-string">'ctrl+shift+h'</span>,       <span class="tok-comment">// Windows / Linux</span>
+    <span class="tok-prop">mac</span>:       <span class="tok-string">'cmd+shift+h'</span>,        <span class="tok-comment">// macOS (optional — falls back to key)</span>
+    <span class="tok-prop">commandId</span>: <span class="tok-string">'my-plugin.sayHello'</span>,
+  });
+}</code></pre>
+        </div>
+
+        <div class="docs-sub">
+          <h3 class="docs-sub-title">Key string format</h3>
+          <p class="docs-sub-desc">
+            Key strings are lowercase modifier(s) joined by <code>+</code>, followed by the
+            lowercased <code>KeyboardEvent.key</code> value. Modifiers must appear in this
+            order: <code>ctrl</code>, <code>cmd</code>, <code>shift</code>, <code>alt</code>.
+          </p>
+          <table class="field-table">
+            <thead><tr><th>Example</th><th></th><th>Matches</th></tr></thead>
+            <tbody>
+              <tr><td>ctrl+s</td><td></td><td>Ctrl+S on Windows/Linux</td></tr>
+              <tr><td>cmd+s</td><td></td><td>Cmd+S on macOS</td></tr>
+              <tr><td>ctrl+shift+k</td><td></td><td>Ctrl+Shift+K</td></tr>
+              <tr><td>ctrl+`</td><td></td><td>Ctrl+Backtick</td></tr>
+              <tr><td>ctrl+tab</td><td></td><td>Ctrl+Tab</td></tr>
+              <tr><td>ctrl+shift+enter</td><td></td><td>Ctrl+Shift+Enter</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout callout-warn">
+          <strong>Conflicts:</strong> If your keybinding matches a built-in, the built-in always wins.
+          Quipu registers built-in shortcuts before plugins load. Choose a unique combo to avoid silent conflicts.
+        </div>
+      </section>
+
+      <!-- ─── Services ─── -->
+      <section class="docs-section" id="services">
+        <h2 class="docs-section-title">Services</h2>
+        <p class="docs-section-intro">
+          <code>api.services</code> exposes the same dual-runtime services the app uses internally.
+          Each service works in both Electron and browser mode without any changes to your plugin code.
+        </p>
+
+        <div class="service-grid">
+          <div class="service-card">
+            <div class="service-card-name">api.services.fileSystem</div>
+            <div class="service-card-desc">Read, write, create, and delete files. Also provides <code>openFileDialog()</code> for native file pickers in Electron.</div>
+          </div>
+          <div class="service-card">
+            <div class="service-card-name">api.services.gitService</div>
+            <div class="service-card-desc">Stage, unstage, commit, fetch, and read git status for the current workspace. Returns structured diff and status objects.</div>
+          </div>
+          <div class="service-card">
+            <div class="service-card-name">api.services.terminalService</div>
+            <div class="service-card-desc">Send text to the active terminal, create new terminal tabs, and check if a Claude session is running.</div>
+          </div>
+          <div class="service-card">
+            <div class="service-card-name">api.services.kernelService</div>
+            <div class="service-card-desc">Start, interrupt, and communicate with Jupyter kernels for notebook execution.</div>
+          </div>
+        </div>
+
+        <div class="code-block">
+          <div class="code-block-header">
+            <span class="code-block-filename">index.js — using the file system service</span>
+            <span class="code-block-lang">javascript</span>
+          </div>
+          <pre><code><span class="tok-keyword">export function</span> <span class="tok-fn">init</span>(<span class="tok-name">api</span>) {
+  <span class="tok-keyword">const</span> { <span class="tok-name">fileSystem</span> } = <span class="tok-name">api</span>.<span class="tok-prop">services</span>;
+
+  <span class="tok-name">api</span>.<span class="tok-fn">registerCommand</span>(<span class="tok-string">'my-plugin.showFileSize'</span>, <span class="tok-keyword">async</span> () => {
+    <span class="tok-keyword">const</span> <span class="tok-name">content</span> = <span class="tok-keyword">await</span> <span class="tok-name">fileSystem</span>.<span class="tok-fn">readFile</span>(<span class="tok-string">'/path/to/file.txt'</span>);
+    <span class="tok-fn">alert</span>(<span class="tok-string">`File is </span><span class="tok-op">${</span><span class="tok-name">content</span>.<span class="tok-prop">length</span><span class="tok-op">}</span><span class="tok-string"> bytes`</span>);
+  }, { <span class="tok-prop">label</span>: <span class="tok-string">'Show File Size'</span>, <span class="tok-prop">category</span>: <span class="tok-string">'My Plugin'</span> });
+}</code></pre>
+        </div>
+
+        <div class="callout">
+          <strong>Tip:</strong> The active file path is available as <code>activeFile.path</code>
+          inside viewer components. Pass it to service calls to operate on whatever the user currently has open.
+        </div>
+      </section>
+
+      <!-- ─── Building ─── -->
+      <section class="docs-section" id="build">
+        <h2 class="docs-section-title">Building</h2>
+        <p class="docs-section-intro">
+          For plugins larger than a single file, use Vite (or any bundler) to compile
+          your source into a single <code>index.js</code>. The critical requirement is
+          that React and ReactDOM are <strong>externalized</strong> — Quipu provides them
+          at runtime as globals.
+        </p>
+
+        <div class="code-block">
+          <div class="code-block-header">
+            <span class="code-block-filename">vite.config.js</span>
+            <span class="code-block-lang">javascript</span>
+          </div>
+          <pre><code><span class="tok-keyword">import</span> { <span class="tok-name">defineConfig</span> } <span class="tok-keyword">from</span> <span class="tok-string">'vite'</span>;
+<span class="tok-keyword">import</span> <span class="tok-name">react</span> <span class="tok-keyword">from</span> <span class="tok-string">'@vitejs/plugin-react'</span>;
+
+<span class="tok-keyword">export default</span> <span class="tok-fn">defineConfig</span>({
+  <span class="tok-prop">plugins</span>: [<span class="tok-fn">react</span>()],
+  <span class="tok-prop">build</span>: {
+    <span class="tok-prop">lib</span>: {
+      <span class="tok-prop">entry</span>:   <span class="tok-string">'src/index.tsx'</span>,
+      <span class="tok-prop">formats</span>: [<span class="tok-string">'es'</span>],          <span class="tok-comment">// ES module output</span>
+      <span class="tok-prop">fileName</span>: () => <span class="tok-string">'index.js'</span>,
+    },
+    <span class="tok-prop">rollupOptions</span>: {
+      <span class="tok-comment">// Externalize React — Quipu provides these as window globals</span>
+      <span class="tok-prop">external</span>: [<span class="tok-string">'react'</span>, <span class="tok-string">'react-dom'</span>, <span class="tok-string">'react-dom/client'</span>],
+      <span class="tok-prop">output</span>: {
+        <span class="tok-prop">globals</span>: {
+          <span class="tok-string">'react'</span>:            <span class="tok-string">'React'</span>,
+          <span class="tok-string">'react-dom'</span>:        <span class="tok-string">'ReactDOM'</span>,
+          <span class="tok-string">'react-dom/client'</span>: <span class="tok-string">'ReactDOMClient'</span>,
+        },
+      },
+    },
+  },
+});</code></pre>
+        </div>
+
+        <div class="code-block">
+          <div class="code-block-header">
+            <span class="code-block-filename">package.json</span>
+            <span class="code-block-lang">json</span>
+          </div>
+          <pre><code>{
+  <span class="tok-prop">"scripts"</span>: {
+    <span class="tok-prop">"build"</span>: <span class="tok-string">"vite build"</span>,
+    <span class="tok-prop">"dev"</span>:   <span class="tok-string">"vite build --watch"</span>
+  },
+  <span class="tok-prop">"devDependencies"</span>: {
+    <span class="tok-prop">"vite"</span>:                <span class="tok-string">"^6.0.0"</span>,
+    <span class="tok-prop">"@vitejs/plugin-react"</span>: <span class="tok-string">"^4.0.0"</span>,
+    <span class="tok-prop">"react"</span>:               <span class="tok-string">"^19.0.0"</span>,
+    <span class="tok-prop">"@types/react"</span>:        <span class="tok-string">"^19.0.0"</span>
+  }
+}</code></pre>
+        </div>
+
+        <p class="docs-sub-desc">
+          Run <code>npm run build</code> — the compiled <code>index.js</code> goes to
+          <code>dist/</code>. Copy <code>dist/index.js</code> and <code>manifest.json</code>
+          into your plugin directory.
+        </p>
+
+        <div class="callout">
+          <strong>JSX without a build step:</strong> For simple plugins, skip the bundler entirely.
+          Use <code>React.createElement</code> directly (or the <code>h</code> alias shown in the
+          quick-start example) and write plain <code>.js</code>. Quipu loads any ES module.
+        </div>
+      </section>
+
+      <!-- ─── Installing ─── -->
+      <section class="docs-section" id="install">
+        <h2 class="docs-section-title">Installing</h2>
+        <p class="docs-section-intro">
+          Quipu looks for plugins in a fixed directory at startup. Drop your plugin folder
+          there and relaunch — no package manager or registry required.
+        </p>
+
+        <ul class="step-list">
+          <li>
+            <span class="step-num">1</span>
+            <div>Create the plugins directory if it does not exist:
+              <br><br>
+              <div class="code-block" style="margin-bottom:0">
+                <pre style="border-radius:8px"><code>mkdir -p ~/.quipu/plugins</code></pre>
+              </div>
+            </div>
+          </li>
+          <li>
+            <span class="step-num">2</span>
+            <div>Copy your plugin directory into it:
+              <br><br>
+              <div class="code-block" style="margin-bottom:0">
+                <pre style="border-radius:8px"><code>cp -r my-csv-viewer ~/.quipu/plugins/</code></pre>
+              </div>
+            </div>
+          </li>
+          <li>
+            <span class="step-num">3</span>
+            <div>Confirm the layout:
+              <br><br>
+              <div class="code-block" style="margin-bottom:0">
+                <pre style="border-radius:8px"><code>~/.quipu/plugins/
+└── my-csv-viewer/
+    ├── manifest.json
+    └── index.js</code></pre>
+              </div>
+            </div>
+          </li>
+          <li>
+            <span class="step-num">4</span>
+            <div>Relaunch Quipu. Plugins are loaded once at startup.
+              If a plugin fails validation or throws in <code>init()</code>, Quipu shows
+              a warning toast and continues loading other plugins.
+            </div>
+          </li>
+        </ul>
+
+        <div class="callout callout-warn">
+          <strong>Development workflow:</strong> Use <code>npm run dev</code> (Vite watch mode) in
+          your plugin directory, then restart Quipu to pick up changes. A hot-reload
+          mechanism is planned for a future release.
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <img class="logo-mark" src="icon.png" alt="Quipu">
+          <span class="logo-text">Quipu</span>
+        </div>
+        <div class="footer-links">
+          <a href="index.html">Home</a>
+          <a href="extensions.html">Extensions</a>
+          <a href="https://github.com/barelias/quipu" target="_blank" rel="noopener">GitHub</a>
+        </div>
+        <p class="footer-copy">
+          &copy; 2026 Quipu. Open source under <a href="https://github.com/barelias/quipu/blob/main/LICENSE" target="_blank" rel="noopener">MIT</a>.
+        </p>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Theme toggle
+    const root = document.documentElement;
+    const saved = localStorage.getItem('quipu-theme') || 'light';
+    if (saved !== 'light') root.classList.add(saved);
+
+    document.getElementById('theme-toggle')?.addEventListener('click', () => {
+      const current = localStorage.getItem('quipu-theme') || 'light';
+      const cycle = { light: 'tinted', tinted: 'dark', dark: 'light' };
+      const next = cycle[current] || 'light';
+      root.classList.remove('dark', 'tinted');
+      if (next !== 'light') root.classList.add(next);
+      localStorage.setItem('quipu-theme', next);
+    });
+
+    // Mobile nav toggle
+    const mobileToggle = document.getElementById('mobile-toggle');
+    const navLinks = document.getElementById('nav-links');
+    mobileToggle?.addEventListener('click', () => {
+      mobileToggle.classList.toggle('open');
+      navLinks?.classList.toggle('open');
+    });
+
+    // TOC active section highlight
+    const sections = document.querySelectorAll('.docs-section');
+    const tocLinks = document.querySelectorAll('.toc-list a');
+    const navHeight = 64;
+
+    function updateActive() {
+      let current = '';
+      sections.forEach(s => {
+        const top = s.getBoundingClientRect().top;
+        if (top <= navHeight + 48) current = s.id;
+      });
+      tocLinks.forEach(link => {
+        link.classList.toggle('active', link.getAttribute('href') === '#' + current);
+      });
+    }
+
+    window.addEventListener('scroll', updateActive, { passive: true });
+    updateActive();
+  </script>
+
+</body>
+</html>

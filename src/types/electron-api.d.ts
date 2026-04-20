@@ -78,6 +78,14 @@ export interface ElectronAPI {
   kernelValidate: (venvPath: string) => Promise<KernelValidateResult>;
   kernelProxyRest: (method: string, path: string, body: unknown) => Promise<unknown>;
   kernelGetChannelUrl: (kernelId: string) => Promise<string>;
+
+  // Plugin management
+  getQuipuDir: () => Promise<string>;
+  readPluginsConfig: () => Promise<string | null>;
+  writePluginsConfig: (content: string) => Promise<{ success: boolean }>;
+  listPluginDirs: () => Promise<string[]>;
+  removePluginDir: (id: string) => Promise<{ success: boolean }>;
+  downloadAndExtractPlugin: (params: { id: string; downloadUrl: string }) => Promise<{ success: true } | { error: string }>;
 }
 
 export interface SearchOptions {

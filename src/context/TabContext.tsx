@@ -57,6 +57,7 @@ export interface TabContextValue {
   closeTab: (tabId: string) => void;
   switchTab: (tabId: string) => void;
   closeOtherTabs: (tabId: string) => void;
+  reorderTabs: (activeId: string, overId: string) => void;
   setTabDirty: (tabId: string, dirty: boolean) => void;
   snapshotTab: (tabId: string, tiptapJSON: JSONContent | null, scrollPosition: number) => void;
   reloadTabFromDisk: (tabId: string) => Promise<void>;
@@ -487,6 +488,18 @@ export function TabProvider({ children }: TabProviderProps) {
     setActiveTabId(tabId);
   }, []);
 
+  const reorderTabs = useCallback((activeId: string, overId: string) => {
+    setOpenTabs(prev => {
+      const oldIndex = prev.findIndex(t => t.id === activeId);
+      const newIndex = prev.findIndex(t => t.id === overId);
+      if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(oldIndex, 1);
+      next.splice(newIndex, 0, moved);
+      return next;
+    });
+  }, []);
+
   const setIsDirty = useCallback((dirty: boolean) => {
     if (activeTabId) {
       setTabDirty(activeTabId, dirty);
@@ -771,6 +784,7 @@ export function TabProvider({ children }: TabProviderProps) {
     closeTab,
     switchTab,
     closeOtherTabs,
+    reorderTabs,
     setTabDirty,
     snapshotTab,
     reloadTabFromDisk,

@@ -1,11 +1,10 @@
-import type { ExtensionDescriptor } from '@/types/extensions';
+import type { ComponentType } from 'react';
+import { registerExtension } from '../registry';
 import DiffViewer from './DiffViewer';
 
-const descriptor: ExtensionDescriptor = {
+registerExtension({
   id: 'diff-viewer',
-  canHandle(tab) { return !!(tab as unknown as Record<string, unknown>)?._isDiff; },
-  priority: 100,
-  component: DiffViewer,
-};
-
-export default descriptor;
+  canHandle: (tab) => tab.type === 'diff',
+  priority: 90,
+  component: DiffViewer as unknown as ComponentType<Record<string, unknown>>,
+});

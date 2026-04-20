@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { useFileSystem } from '../../context/FileSystemContext';
 import { useToast } from './Toast';
 import gitService from '../../services/gitService';
+import { executeCommand } from '../../extensions/commandRegistry';
 
 type GitStatusCode = 'M' | 'A' | 'D' | 'R' | 'C' | 'U' | '?';
 
@@ -26,9 +27,8 @@ interface SelectedDiff {
   staged: boolean;
 }
 
-interface SourceControlPanelProps {
-  onOpenDiff?: (path: string | null, diffText?: string, staged?: boolean) => void;
-}
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+interface SourceControlPanelProps {}
 
 const STATUS_LABELS: Record<string, string> = {
   M: 'Modified',
@@ -59,7 +59,7 @@ const STATUS_COLORS: Record<string, string> = {
   U: 'text-[#9b6bc7] bg-[#9b6bc7]/10',
 };
 
-function SourceControlPanel({ onOpenDiff }: SourceControlPanelProps) {
+function SourceControlPanel(_props: SourceControlPanelProps) {
   const { workspacePath, updateGitChangeCount } = useFileSystem();
   const { showToast } = useToast();
 
@@ -290,18 +290,17 @@ function SourceControlPanel({ onOpenDiff }: SourceControlPanelProps) {
 
     if (selectedDiff?.path === filePath && selectedDiff?.staged === isStaged) {
       setSelectedDiff(null);
-      onOpenDiff?.(null);
       return;
     }
 
     try {
       const diffText = await gitService.diff(workspacePath, filePath, isStaged);
       setSelectedDiff({ path: filePath, staged: isStaged });
-      onOpenDiff?.(filePath, diffText, isStaged);
+      executeCommand('diff.open', { filePath, diffText, isStaged });
     } catch (err) {
       showToast('Failed to load diff: ' + (err as Error).message, 'error');
     }
-  }, [workspacePath, selectedDiff, onOpenDiff, showToast]);
+  }, [workspacePath, selectedDiff, showToast]);
 
   const handleCommitKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {

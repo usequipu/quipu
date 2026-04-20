@@ -131,7 +131,6 @@ jobs:
           name: windows-release
           path: |
             release/*.exe
-            release/*.msi
 
   publish-release:
     name: Publish GitHub Release

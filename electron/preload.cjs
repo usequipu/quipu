@@ -62,4 +62,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     kernelStop: () => ipcRenderer.invoke('jupyter-stop'),
     kernelProxyRest: (method, apiPath, body) => ipcRenderer.invoke('jupyter-proxy-rest', method, apiPath, body),
     kernelGetChannelUrl: (kernelId) => ipcRenderer.invoke('jupyter-get-channel-url', kernelId),
+
+    // Plugin management
+    getQuipuDir: () => ipcRenderer.invoke('get-quipu-dir'),
+    readPluginsConfig: () => ipcRenderer.invoke('read-plugins-config'),
+    writePluginsConfig: (content) => ipcRenderer.invoke('write-plugins-config', content),
+    listPluginDirs: () => ipcRenderer.invoke('list-plugin-dirs'),
+    removePluginDir: (id) => ipcRenderer.invoke('remove-plugin-dir', id),
+    downloadAndExtractPlugin: (params) => ipcRenderer.invoke('download-and-extract-plugin', params),
 });

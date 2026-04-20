@@ -5,7 +5,7 @@ import { useFileSystem } from '../../context/FileSystemContext';
 import { useTab } from '../../context/TabContext';
 import searchService from '../../services/searchService';
 import { commands } from '../../data/commands';
-import type { Command as CommandType } from '../../data/commands';
+import { getRegisteredCommands, executeCommand } from '../../extensions/commandRegistry';
 
 interface FileEntry {
   name: string;
@@ -69,14 +69,38 @@ export default function QuickOpen({ isOpen, onClose, onAction, initialValue = ''
       .slice(0, 100);
   }, [allFiles, query, isCommandMode]);
 
-  // Filtered commands for command mode
-  const filteredCommands = useMemo((): CommandType[] => {
+  // Unified command shape for the palette — covers both static and plugin commands.
+  type DisplayCommand =
+    | { type: 'static'; key: string; label: string; category: string; shortcut?: string; action: string }
+    | { type: 'plugin'; key: string; label: string; category: string; shortcut?: string; id: string };
+
+  // Filtered commands for command mode — merges static built-ins with plugin-registered commands.
+  const filteredCommands = useMemo((): DisplayCommand[] => {
     if (!isCommandMode) return [];
-    const commandQuery = query.trimStart().slice(1).trim().toLowerCase();
-    if (!commandQuery) return commands;
-    return commands.filter((c: CommandType) =>
-      c.label.toLowerCase().includes(commandQuery) ||
-      c.category.toLowerCase().includes(commandQuery)
+    const q = query.trimStart().slice(1).trim().toLowerCase();
+
+    const all: DisplayCommand[] = [
+      ...commands.map((c) => ({
+        type: 'static' as const,
+        key: c.action,
+        label: c.label,
+        category: c.category,
+        shortcut: c.shortcut,
+        action: c.action,
+      })),
+      ...getRegisteredCommands().map((c) => ({
+        type: 'plugin' as const,
+        key: `plugin:${c.id}`,
+        label: c.label,
+        category: c.category,
+        shortcut: c.shortcut,
+        id: c.id,
+      })),
+    ];
+
+    if (!q) return all;
+    return all.filter(
+      (c) => c.label.toLowerCase().includes(q) || c.category.toLowerCase().includes(q),
     );
   }, [query, isCommandMode]);
 
@@ -87,9 +111,11 @@ export default function QuickOpen({ isOpen, onClose, onAction, initialValue = ''
     onClose();
   }, [workspacePath, openFile, onClose]);
 
-  const handleCommandSelect = useCallback((command: CommandType) => {
+  const handleCommandSelect = useCallback((command: DisplayCommand) => {
     onClose();
-    if (onAction) {
+    if (command.type === 'plugin') {
+      executeCommand(command.id);
+    } else {
       onAction(command.action);
     }
   }, [onClose, onAction]);
@@ -158,10 +184,10 @@ export default function QuickOpen({ isOpen, onClose, onAction, initialValue = ''
               <Command.Empty className="p-4 text-center text-[13px] text-text-primary opacity-50 italic">
                 No matching commands
               </Command.Empty>
-              {filteredCommands.map((cmd: CommandType) => (
+              {filteredCommands.map((cmd) => (
                 <Command.Item
-                  key={cmd.action}
-                  value={cmd.action}
+                  key={cmd.key}
+                  value={cmd.key}
                   onSelect={() => handleCommandSelect(cmd)}
                   className={cn(
                     "flex items-center justify-between py-1.5 px-4 cursor-pointer",

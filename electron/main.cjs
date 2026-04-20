@@ -5,6 +5,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const pty = require('node-pty');
+const AdmZip = require('adm-zip');
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 try {
@@ -22,6 +23,11 @@ protocol.registerSchemesAsPrivileged([{
 }]);
 
 const HIDDEN_DIRS = new Set(['.git']);
+
+// Plugin management paths
+const QUIPU_HOME_DIR = path.join(os.homedir(), '.quipu');
+const PLUGINS_CONFIG_PATH = path.join(QUIPU_HOME_DIR, 'plugins.json');
+const PLUGINS_DIR = path.join(QUIPU_HOME_DIR, 'plugins');
 
 // Storage: simple JSON file in app userData directory
 function getStorageFile() {
@@ -842,6 +848,82 @@ app.whenReady().then(() => {
             ptyProcesses.delete(terminalId);
         }
         return { success: true };
+    });
+
+    // Plugin management IPC handlers
+    ipcMain.handle('get-quipu-dir', () => QUIPU_HOME_DIR);
+
+    ipcMain.handle('read-plugins-config', async () => {
+        try {
+            return await fs.promises.readFile(PLUGINS_CONFIG_PATH, 'utf-8');
+        } catch (err) {
+            if (err.code === 'ENOENT') return null;
+            throw err;
+        }
+    });
+
+    ipcMain.handle('write-plugins-config', async (event, content) => {
+        await fs.promises.mkdir(QUIPU_HOME_DIR, { recursive: true });
+        await fs.promises.writeFile(PLUGINS_CONFIG_PATH, content, 'utf-8');
+        return { success: true };
+    });
+
+    ipcMain.handle('list-plugin-dirs', async () => {
+        try {
+            const entries = await fs.promises.readdir(PLUGINS_DIR, { withFileTypes: true });
+            return entries
+                .filter(e => e.isDirectory())
+                .map(e => e.name);
+        } catch (err) {
+            if (err.code === 'ENOENT') return [];
+            throw err;
+        }
+    });
+
+    ipcMain.handle('remove-plugin-dir', async (event, id) => {
+        const pluginPath = path.join(PLUGINS_DIR, id);
+        await fs.promises.rm(pluginPath, { recursive: true, force: true });
+        return { success: true };
+    });
+
+    ipcMain.handle('download-and-extract-plugin', async (event, { id, downloadUrl }) => {
+        const destDir = path.join(PLUGINS_DIR, id);
+        const resolvedDest = path.resolve(destDir);
+
+        // Download the zip
+        let zipBuffer;
+        try {
+            const response = await net.fetch(downloadUrl);
+            if (!response.ok) {
+                return { error: `Download failed: ${response.status} ${response.statusText}` };
+            }
+            const arrayBuffer = await response.arrayBuffer();
+            zipBuffer = Buffer.from(arrayBuffer);
+        } catch (err) {
+            return { error: `Download failed: ${err.message}` };
+        }
+
+        // Validate all entries for zip slip before extracting anything
+        try {
+            const zip = new AdmZip(zipBuffer);
+            const entries = zip.getEntries();
+
+            for (const entry of entries) {
+                if (entry.isDirectory) continue;
+                // Normalize separators and strip leading slashes
+                const normalized = entry.entryName.replace(/\\/g, '/').replace(/^\/+/, '');
+                const entryResolved = path.resolve(destDir, normalized);
+                if (!entryResolved.startsWith(resolvedDest + path.sep)) {
+                    return { error: `Zip slip detected in entry: ${entry.entryName}` };
+                }
+            }
+
+            await fs.promises.mkdir(destDir, { recursive: true });
+            zip.extractAllTo(destDir, /* overwrite */ true);
+            return { success: true };
+        } catch (err) {
+            return { error: `Extraction failed: ${err.message}` };
+        }
     });
 
     app.on('activate', () => {

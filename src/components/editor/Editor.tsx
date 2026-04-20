@@ -163,10 +163,11 @@ const Editor: React.FC<EditorProps> = ({
     const [showMenu, setShowMenu] = useState<boolean>(false);
     const [comments, setComments] = useState<CommentData[]>([]);
     const [showCommentInput, setShowCommentInput] = useState<boolean>(false);
-    const [commentInputTop, setCommentInputTop] = useState<number>(0);
+
     const savedSelectionRef = useRef<SavedSelection | null>(null);
     const menuRef = useRef<HTMLDivElement | null>(null);
     const pageRef = useRef<HTMLDivElement | null>(null);
+    const commentWrapperRef = useRef<HTMLDivElement | null>(null);
     const commentsRef = useRef<Record<number, HTMLDivElement | null>>({});
     const loadedTabRef = useRef<string | null>(null);
     const isLoadingContentRef = useRef<boolean>(false); // suppress onUpdate during setContent
@@ -175,7 +176,8 @@ const Editor: React.FC<EditorProps> = ({
     const [showFindBar, setShowFindBar] = useState<boolean>(false);
     const [commentsOverflow, setCommentsOverflow] = useState<boolean>(false);
     const [commentPanelOpen, setCommentPanelOpen] = useState<boolean>(false);
-    const [commentsVisible, setCommentsVisible] = useState<boolean>(true); // float mode visibility
+    const [commentsVisible, setCommentsVisible] = useState<boolean>(true);
+    const [commentTrackLeft, setCommentTrackLeft] = useState<number>(0);
 
     // Editor mode: 'richtext' (default) or 'obsidian'
     const [editorMode, setEditorMode] = useState<EditorMode>(() => {
@@ -307,13 +309,13 @@ const Editor: React.FC<EditorProps> = ({
         return () => el.removeEventListener('wheel', handler);
     }, [handleZoomIn, handleZoomOut]);
 
-    // Detect if floating comments have space, accounting for zoom
+    // Detect if floating comments have space and track their fixed left position
     useEffect(() => {
         const el = editorScrollRef.current;
         if (!el) return;
         const check = () => {
             const scaledDocWidth = 816 * (zoomLevel / 100);
-            const needed = scaledDocWidth + 300 + 80;
+            const needed = scaledDocWidth + 300; // page + comment track (296px) + tiny buffer
             setCommentsOverflow(el.clientWidth < needed);
         };
         check();
@@ -335,9 +337,8 @@ const Editor: React.FC<EditorProps> = ({
         setEditorContextMenu(null);
     }, []);
 
-
-    // New state for adjusted positions
     const [adjustedPositions, setAdjustedPositions] = useState<Record<number, number>>({});
+    const [commentInputTop, setCommentInputTop] = useState<number>(0);
 
     // Ref keeps handleImageUpload fresh inside the static editorProps closure
     const handleImageUploadRef = useRef<((file: File, view: EditorView, insertPos?: number) => Promise<void>) | null>(null);
@@ -959,51 +960,43 @@ const Editor: React.FC<EditorProps> = ({
         };
     }, [activeTabId, editor, workspacePath, activeFile?.path, activeFile?.isQuipu, frameReloadKey]);
 
-    // Effect to calculate positions preventing overlap
+
+    // Recalculate adjusted positions to prevent overlap.
+    // Uses viewport coordinates (matching position:fixed). Cards above the wrapper
+    // top edge are left as-is and filtered out during render.
     useEffect(() => {
         const newPositions: Record<number, number> = {};
-        let lastBottom = 0;
-        const GAP = 16; // Gap between comments
-
-        // Sort comments by their original top position to process them in order
+        const wrapperTop = commentWrapperRef.current?.getBoundingClientRect().top ?? 0;
+        let lastBottom = wrapperTop;
+        const GAP = 16;
         const sortedComments = [...comments].sort((a, b) => a.top - b.top);
-
         sortedComments.forEach((comment, index) => {
-            const el = commentsRef.current[index];
-            if (el) {
-                const height = el.getBoundingClientRect().height;
-                let top = comment.top;
-
-                // If this comment would overlap with the previous one (plus gap), push it down
-                if (top < lastBottom + GAP) {
-                    top = lastBottom + GAP;
-                }
-
-                newPositions[index] = top;
+            let top = comment.top;
+            if (top >= wrapperTop) {
+                if (top < lastBottom + GAP) top = lastBottom + GAP;
+                const el = commentsRef.current[index];
+                const height = el ? el.getBoundingClientRect().height : 80;
                 lastBottom = top + height;
-            } else {
-                // Fallback if ref not yet available (shouldn't happen often in effect)
-                newPositions[index] = comment.top;
             }
+            newPositions[index] = top;
         });
-
         setAdjustedPositions(newPositions);
-    }, [comments]); // Re-run when comments change
+    }, [comments]);
 
     const extractComments = (editor: TiptapEditor): void => {
         const commentsData: CommentData[] = [];
-        const scrollEl = editorScrollRef.current;
-        const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
-        const scrollRect = scrollEl?.getBoundingClientRect();
-        const scrollContainerTop = scrollRect ? scrollRect.top : 0;
+
+        // Track left = right edge of page + gap, in viewport X (for position:fixed).
+        const pageRect = pageRef.current?.getBoundingClientRect();
+        if (pageRect) setCommentTrackLeft(pageRect.right + 16);
 
         editor.state.doc.descendants((node, pos) => {
             if (node.marks) {
                 const commentMark = node.marks.find(m => m.type.name === 'comment');
                 if (commentMark) {
-                    // Get viewport coordinates and convert to scroll-container-relative
                     const coords = editor.view.coordsAtPos(pos);
-                    const relativeTop = coords.top - scrollContainerTop + scrollTop;
+                    // viewport Y — used directly with position:fixed
+                    const relativeTop = coords.top;
 
                     commentsData.push({
                         text: node.text ?? '',
@@ -1050,17 +1043,11 @@ const Editor: React.FC<EditorProps> = ({
         const { from, to } = editor.state.selection;
         savedSelectionRef.current = { from, to };
 
-        // Position relative to scroll container
         const coords = editor.view.coordsAtPos(from);
-        const scrollEl = editorScrollRef.current;
-        const scrollRect = scrollEl?.getBoundingClientRect();
-        const relativeTop = coords.top - (scrollRect ? scrollRect.top : 0) + (scrollEl?.scrollTop ?? 0);
-
-        setCommentInputTop(relativeTop);
+        setCommentInputTop(coords.top);
         setShowCommentInput(true);
         setShowMenu(false);
 
-        // If in overflow mode, auto-open the panel
         if (commentsOverflow) {
             setCommentPanelOpen(true);
         }
@@ -1143,14 +1130,45 @@ const Editor: React.FC<EditorProps> = ({
         savedSelectionRef.current = null;
     };
 
-    // Re-extract comment positions on zoom, resize, scroll, and layout changes
-    // Recalculate comment positions on zoom, resize, scroll, frontmatter toggle
+    // Seed commentTrackLeft immediately after mount so the track renders even if
+    // extractComments fires before refs are available (React commits refs before effects run,
+    // so useLayoutEffect here is guaranteed to see non-null refs).
+    useEffect(() => {
+        const wrapperEl = commentWrapperRef.current;
+        const pageEl = pageRef.current;
+        if (wrapperEl && pageEl) {
+            setCommentTrackLeft(
+                pageEl.getBoundingClientRect().right - wrapperEl.getBoundingClientRect().left + 16
+            );
+        }
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Re-extract after zoom/frontmatter changes. The page div has a 300ms CSS transition
+    // on transform/margin, so we wait for transitionend for accurate coords.
+    // A 350ms fallback covers cases where no transition fires (e.g. same zoom level).
     useEffect(() => {
         if (!editor || editor.isDestroyed) return;
-        const timer = setTimeout(() => {
+        const page = pageRef.current;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+
+        const run = () => {
             if (!editor.isDestroyed) extractComments(editor);
-        }, 100);
-        return () => clearTimeout(timer);
+        };
+
+        const onTransitionEnd = (e: TransitionEvent) => {
+            if (e.propertyName === 'transform' || e.propertyName === 'margin-right') {
+                if (timer) clearTimeout(timer);
+                run();
+            }
+        };
+
+        page?.addEventListener('transitionend', onTransitionEnd);
+        timer = setTimeout(run, 350); // fallback after transition duration
+
+        return () => {
+            page?.removeEventListener('transitionend', onTransitionEnd);
+            if (timer) clearTimeout(timer);
+        };
     }, [zoomLevel, activeTab?.frontmatterCollapsed]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
@@ -1276,6 +1294,8 @@ const Editor: React.FC<EditorProps> = ({
                 </div>,
                 document.body
             )}
+
+
             {editorMode === 'richtext' && editor && (
                 <div className="shrink-0 flex items-center gap-1 px-4 py-2 border-b border-border bg-bg-surface">
                     <ToolbarButton
@@ -1491,12 +1511,11 @@ const Editor: React.FC<EditorProps> = ({
             )}
 
             {/* Flex row: editor scroll area + optional comment panel */}
-            <div className="flex flex-1 overflow-hidden">
+            <div ref={commentWrapperRef} className="flex flex-1 overflow-hidden relative">
             <div
                 ref={editorScrollRef}
                 className={cn(
                     "flex-1 flex justify-center items-start overflow-y-auto relative bg-page-bg",
-                    !commentsOverflow && commentsVisible && comments.length > 0 && "pr-[120px]",
                     "pt-0 pb-12 px-16",
                     "max-[1400px]:justify-start max-[1400px]:pl-12",
                     "max-[1200px]:overflow-x-auto max-[1200px]:px-8 max-[1200px]:pb-8",
@@ -1506,8 +1525,9 @@ const Editor: React.FC<EditorProps> = ({
                 <div
                     className={cn(
                         "w-[816px] bg-page-bg",
-                        "pt-6 pb-16 px-10 relative shrink-0 transition-[width,transform] duration-300",
-                        "max-[1150px]:w-full max-[1150px]:max-w-[816px]",
+                        "pt-6 pb-16 px-10 relative shrink-0 transition-[width,transform,margin] duration-300",
+                        !commentsOverflow && commentsVisible && (comments.length > 0 || showCommentInput) && "mr-[296px]",
+                        "max-[1150px]:w-full max-[1150px]:max-w-[816px] max-[1150px]:mr-0",
                     )}
                     style={zoomLevel !== 100 ? {
                         transform: `scale(${zoomLevel / 100})`,
@@ -1550,108 +1570,6 @@ const Editor: React.FC<EditorProps> = ({
                     </div>
                 </div>
 
-                {/* Floating Comments Track (wide viewport only) */}
-                {!commentsOverflow && commentsVisible && <div className={cn(
-                    "absolute top-0 w-[280px] bottom-0 pointer-events-none",
-                )}
-                style={{
-                    left: `calc(50% + ${(816 * zoomLevel / 100) / 2}px)`,
-                }}
-                >
-                    {showCommentInput && !commentsOverflow && (
-                        <div
-                            className="absolute w-[240px] bg-bg-surface rounded-lg shadow-lg p-2.5 pointer-events-auto border border-accent z-[100]"
-                            style={{ top: commentInputTop }}
-                        >
-                            <textarea
-                                value={commentText}
-                                onChange={(e) => setCommentText(e.target.value)}
-                                onKeyDown={(e) => {
-                                    if (((e.ctrlKey || e.metaKey) || e.shiftKey) && e.key === 'Enter') {
-                                        e.preventDefault();
-                                        addComment();
-                                    }
-                                    if (e.key === 'Escape') cancelComment();
-                                }}
-                                placeholder="Comment..."
-                                autoFocus
-                                rows={2}
-                                className="w-full border border-border rounded py-1.5 px-2 text-[13px] resize-none outline-none mb-1.5 text-page-text focus:border-accent"
-                            />
-                            <div className="flex items-center justify-between gap-1">
-                                <select
-                                    value={commentType}
-                                    onChange={(e) => setCommentType(e.target.value as AnnotationTypeLabel)}
-                                    className="text-[10px] bg-bg-elevated border border-border rounded px-1 py-0.5 text-text-secondary outline-none cursor-pointer"
-                                >
-                                    {ANNOTATION_TYPES.map(t => (
-                                        <option key={t} value={t}>{t}</option>
-                                    ))}
-                                </select>
-                                <div className="flex gap-1">
-                                    <button onClick={cancelComment} className="py-1 px-2 rounded text-[11px] cursor-pointer border-none bg-transparent text-text-tertiary hover:bg-bg-elevated">Cancel</button>
-                                    <button onClick={addComment} className="py-1 px-2 rounded text-[11px] cursor-pointer border-none bg-accent text-white hover:bg-accent-hover">Add</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {comments.map((c, i) => (
-                        <div
-                            key={c.id || i}
-                            ref={(el: HTMLDivElement | null) => { commentsRef.current[i] = el; }}
-                            className="absolute w-[280px] bg-bg-surface rounded-lg shadow-md p-3 pointer-events-auto border border-transparent hover:shadow-lg"
-                            style={{
-                                top: adjustedPositions[i] !== undefined ? adjustedPositions[i] : c.top,
-                                transition: 'top 0.3s ease-out'
-                            }}
-                        >
-                            <div className="flex justify-between mb-1 text-xs">
-                                <select
-                                    value={c.type || 'comment'}
-                                    onChange={(e) => {
-                                        // Update type in FRAME — Editor comments don't store type on the mark,
-                                        // only in the sidebar display. Update local state + FRAME.
-                                        const newType = e.target.value as AnnotationTypeLabel;
-                                        setComments(prev => prev.map(cm =>
-                                            cm.id === c.id ? { ...cm, type: newType } : cm
-                                        ));
-                                        if (workspacePath && activeFile?.path) {
-                                            frameService.readFrame(workspacePath, activeFile.path).then(frame => {
-                                                if (!frame?.annotations) return;
-                                                const ann = frame.annotations.find(a => a.id === c.id);
-                                                if (ann) {
-                                                    ann.type = newType;
-                                                    frame.updatedAt = new Date().toISOString();
-                                                    const relativePath = activeFile.path.startsWith(workspacePath + '/')
-                                                        ? activeFile.path.substring(workspacePath.length + 1)
-                                                        : activeFile.path;
-                                                    const framePath = `${workspacePath}/.quipu/meta/${relativePath}.frame.json`;
-                                                    recentFrameSaveRef.current = Date.now();
-                                                    fs.writeFile(framePath, JSON.stringify(frame, null, 2));
-                                                }
-                                            }).catch(() => {});
-                                        }
-                                    }}
-                                    className={`px-1 py-0.5 rounded text-[10px] font-medium border-none outline-none cursor-pointer ${TYPE_COLORS[(c.type ?? 'comment') as AnnotationTypeLabel] || TYPE_COLORS.comment}`}
-                                >
-                                    {ANNOTATION_TYPES.map(t => (
-                                        <option key={t} value={t}>{t}</option>
-                                    ))}
-                                </select>
-                                <button
-                                    className="border-none bg-transparent text-text-tertiary cursor-pointer p-0.5 rounded flex items-center justify-center transition-colors hover:bg-bg-elevated hover:text-page-text"
-                                    onClick={() => resolveComment(c.id)}
-                                    title="Resolve comment"
-                                >
-                                    <XIcon size={12} />
-                                </button>
-                            </div>
-                            <div className="text-[13px] text-page-text mb-1.5 whitespace-pre-wrap leading-relaxed">{c.comment}</div>
-                            <div className="text-[11px] text-text-secondary/60 border-l-2 border-warning/40 pl-2 italic line-clamp-2">"{c.text}"</div>
-                        </div>
-                    ))}
-                </div>}
 
                 {/* Table Context Menu */}
                 {tableContextMenu && (
@@ -1742,8 +1660,115 @@ const Editor: React.FC<EditorProps> = ({
                 )}
             </div>
 
-            {/* Comment Panel — collapsible side panel */}
-            {commentsOverflow && comments.length > 0 && commentPanelOpen && (
+            {/* Floating comment track — fixed-position portal so it never affects layout.
+                Cards with viewport Y below the wrapper top edge are hidden via JS check. */}
+            {!commentsOverflow && commentsVisible && commentTrackLeft > 0 && createPortal(
+                <>
+                    {showCommentInput && (
+                        <div
+                            className="bg-bg-surface rounded-lg shadow-lg p-2.5 border border-accent"
+                            style={{ position: 'fixed', top: commentInputTop, left: commentTrackLeft, width: 240, zIndex: 200 }}
+                        >
+                            <textarea
+                                value={commentText}
+                                onChange={(e) => setCommentText(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (((e.ctrlKey || e.metaKey) || e.shiftKey) && e.key === 'Enter') {
+                                        e.preventDefault();
+                                        addComment();
+                                    }
+                                    if (e.key === 'Escape') cancelComment();
+                                }}
+                                placeholder="Comment..."
+                                autoFocus
+                                rows={2}
+                                className="w-full border border-border rounded py-1.5 px-2 text-[13px] resize-none outline-none mb-1.5 text-page-text focus:border-accent"
+                            />
+                            <div className="flex items-center justify-between gap-1">
+                                <select
+                                    value={commentType}
+                                    onChange={(e) => setCommentType(e.target.value as AnnotationTypeLabel)}
+                                    className="text-[10px] bg-bg-elevated border border-border rounded px-1 py-0.5 text-text-secondary outline-none cursor-pointer"
+                                >
+                                    {ANNOTATION_TYPES.map(t => (
+                                        <option key={t} value={t}>{t}</option>
+                                    ))}
+                                </select>
+                                <div className="flex gap-1">
+                                    <button onClick={cancelComment} className="py-1 px-2 rounded text-[11px] cursor-pointer border-none bg-transparent text-text-tertiary hover:bg-bg-elevated">Cancel</button>
+                                    <button onClick={addComment} className="py-1 px-2 rounded text-[11px] cursor-pointer border-none bg-accent text-white hover:bg-accent-hover">Add</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {comments.map((c, i) => {
+                        const top = adjustedPositions[i] !== undefined ? adjustedPositions[i] : c.top;
+                        const wrapperTop = commentWrapperRef.current?.getBoundingClientRect().top ?? 0;
+                        if (top < wrapperTop) return null;
+                        return (
+                            <div
+                                key={c.id || i}
+                                ref={(el: HTMLDivElement | null) => { commentsRef.current[i] = el; }}
+                                className="bg-bg-surface rounded-lg shadow-md p-3 border border-transparent hover:shadow-lg"
+                                style={{
+                                    position: 'fixed',
+                                    top,
+                                    left: commentTrackLeft,
+                                    width: 280,
+                                    zIndex: 100,
+                                    transition: 'top 0.15s ease-out',
+                                }}
+                            >
+                                <div className="flex justify-between mb-1 text-xs">
+                                    <select
+                                        value={c.type || 'comment'}
+                                        onChange={(e) => {
+                                            const newType = e.target.value as AnnotationTypeLabel;
+                                            setComments(prev => prev.map(cm =>
+                                                cm.id === c.id ? { ...cm, type: newType } : cm
+                                            ));
+                                            if (workspacePath && activeFile?.path) {
+                                                frameService.readFrame(workspacePath, activeFile.path).then(frame => {
+                                                    if (!frame?.annotations) return;
+                                                    const ann = frame.annotations.find(a => a.id === c.id);
+                                                    if (ann) {
+                                                        ann.type = newType;
+                                                        frame.updatedAt = new Date().toISOString();
+                                                        const relativePath = activeFile.path.startsWith(workspacePath + '/')
+                                                            ? activeFile.path.substring(workspacePath.length + 1)
+                                                            : activeFile.path;
+                                                        const framePath = `${workspacePath}/.quipu/meta/${relativePath}.frame.json`;
+                                                        recentFrameSaveRef.current = Date.now();
+                                                        fs.writeFile(framePath, JSON.stringify(frame, null, 2));
+                                                    }
+                                                }).catch(() => {});
+                                            }
+                                        }}
+                                        className={`px-1 py-0.5 rounded text-[10px] font-medium border-none outline-none cursor-pointer ${TYPE_COLORS[(c.type ?? 'comment') as AnnotationTypeLabel] || TYPE_COLORS.comment}`}
+                                    >
+                                        {ANNOTATION_TYPES.map(t => (
+                                            <option key={t} value={t}>{t}</option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        className="border-none bg-transparent text-text-tertiary cursor-pointer p-0.5 rounded flex items-center justify-center transition-colors hover:bg-bg-elevated hover:text-page-text"
+                                        onClick={() => resolveComment(c.id)}
+                                        title="Resolve comment"
+                                    >
+                                        <XIcon size={12} />
+                                    </button>
+                                </div>
+                                <div className="text-[13px] text-page-text mb-1.5 whitespace-pre-wrap leading-relaxed">{c.comment}</div>
+                                <div className="text-[11px] text-text-secondary/60 border-l-2 border-warning/40 pl-2 italic line-clamp-2">"{c.text}"</div>
+                            </div>
+                        );
+                    })}
+                </>,
+                document.body
+            )}
+
+            {/* Comment Panel — collapsible side panel (narrow viewport / overflow mode) */}
+            {commentsOverflow && (comments.length > 0 || showCommentInput) && commentPanelOpen && (
                 <div className="shrink-0 w-[320px] border-l border-border/30 bg-bg-surface overflow-y-auto">
                     <div className="px-4 py-3 border-b border-border/30 sticky top-0 bg-bg-surface z-10 flex items-center justify-between">
                         <span className="text-sm font-medium text-text-primary">
