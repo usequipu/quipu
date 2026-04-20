@@ -198,7 +198,10 @@ useDebugValue,Profiler,StrictMode,version,use}=R;`,
 
   _reactDomProxy = URL.createObjectURL(new Blob([
     `const RD=globalThis.__quipuReactDOM;export default RD;
-export const{createPortal,flushSync,findDOMNode,render,hydrate,unmountComponentAtNode}=RD;`,
+export const{createPortal,flushSync,unstable_batchedUpdates,version,
+findDOMNode,render,hydrate,unmountComponentAtNode,
+preconnect,prefetchDNS,preinit,preinitModule,preload,preloadModule,
+requestFormReset,useFormState,useFormStatus}=RD;`,
   ], { type: 'application/javascript' }));
 
   _jsxProxy = URL.createObjectURL(new Blob([
@@ -236,7 +239,7 @@ export async function importFromBlobUrl(source: string, hostApi?: PluginApi): Pr
   // If plugin imports react externally, redirect to host React proxies.
   if (hostApi && /from\s*['"]react['"]|from\s*['"]react\//.test(source)) {
     await ensureReactProxies(hostApi);
-    patchedSource = source
+    patchedSource = patchedSource
       .replace(/(['"])react\/jsx-runtime\1/g, `'${_jsxProxy}'`)
       .replace(/(['"])react-dom\/client\1/g,  `'${_reactDomProxy}'`)
       .replace(/(['"])react-dom\1/g,          `'${_reactDomProxy}'`)

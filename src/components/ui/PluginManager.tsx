@@ -295,18 +295,15 @@ export default function PluginManager() {
                       <button
                         onClick={() => handleToggleEnabled(entry.id)}
                         className={cn(
-                          'flex-shrink-0 w-8 h-4.5 rounded-full relative transition-colors',
+                          'flex-shrink-0 relative rounded-full transition-colors',
                           entry.enabled ? 'bg-accent' : 'bg-bg-overlay',
                         )}
-                        style={{ minWidth: 32, height: 18 }}
+                        style={{ width: 32, height: 18 }}
                         title={entry.enabled ? 'Disable' : 'Enable'}
                       >
                         <span
-                          className={cn(
-                            'absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform',
-                            entry.enabled ? 'translate-x-4' : 'translate-x-0.5',
-                          )}
-                          style={{ width: 14, height: 14 }}
+                          className="absolute rounded-full bg-white shadow-sm transition-all"
+                          style={{ width: 14, height: 14, top: 2, left: entry.enabled ? 16 : 2 }}
                         />
                       </button>
                     </div>

@@ -57,6 +57,8 @@ interface ActiveDiff {
 function AppContent() {
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
   const [editorRawMode, setEditorRawMode] = useState<boolean>(false);
+  // Incremented after plugins finish loading so resolveViewer re-runs for already-open tabs.
+  const [, setPluginRevision] = useState(0);
   const toggleEditorModeRef = React.useRef<(() => void) | null>(null);
   const toggleFindRef = React.useRef<(() => void) | null>(null);
   const {
@@ -174,6 +176,7 @@ function AppContent() {
       result.errors.forEach((err) => {
         showToast(`Plugin "${err.id}" failed to load: ${err.reason}`, 'warning');
       });
+      setPluginRevision(r => r + 1);
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
