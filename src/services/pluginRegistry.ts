@@ -22,8 +22,7 @@ export interface PluginRegistryService {
 // Cache
 // ---------------------------------------------------------------------------
 
-// Placeholder — replaced when the quipu-plugins GitHub Pages repo is published.
-const PLUGIN_REGISTRY_URL = 'https://quipu-plugins.github.io/registry/plugins.json';
+const PLUGIN_REGISTRY_URL = 'https://raw.githubusercontent.com/usequipu/registry/main/plugins.json';
 const CACHE_KEY = 'plugin-registry-cache';
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 

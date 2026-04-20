@@ -6,12 +6,19 @@
  * connects to the Go server via HTTP/WebSocket. A minimal preload
  * (preload-thin.cjs) injects the server URL via contextBridge.
  */
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, net: electronNet } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
-const net = require('net');
+const netTcp = require('net');
 const http = require('http');
 const fs = require('fs');
+const os = require('os');
+const AdmZip = require('adm-zip');
+
+// Plugin management paths
+const QUIPU_HOME_DIR = path.join(os.homedir(), '.quipu');
+const PLUGINS_CONFIG_PATH = path.join(QUIPU_HOME_DIR, 'plugins.json');
+const PLUGINS_DIR = path.join(QUIPU_HOME_DIR, 'plugins');
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 try {
@@ -31,14 +38,14 @@ let serverPort;
  */
 function findFreePort(preferred) {
     return new Promise((resolve, reject) => {
-        const server = net.createServer();
+        const server = netTcp.createServer();
         server.listen(preferred, '127.0.0.1', () => {
             const { port } = server.address();
             server.close(() => resolve(port));
         });
         server.on('error', () => {
             // Preferred port busy, let OS pick one
-            const server2 = net.createServer();
+            const server2 = netTcp.createServer();
             server2.listen(0, '127.0.0.1', () => {
                 const { port } = server2.address();
                 server2.close(() => resolve(port));
@@ -186,6 +193,91 @@ function createWindow() {
 
 // Window control IPC handlers
 ipcMain.on('window-minimize', () => mainWindow?.minimize());
+
+// Plugin management IPC handlers
+ipcMain.handle('get-quipu-dir', () => QUIPU_HOME_DIR);
+
+ipcMain.handle('read-plugins-config', async () => {
+    try {
+        return await fs.promises.readFile(PLUGINS_CONFIG_PATH, 'utf-8');
+    } catch (err) {
+        if (err.code === 'ENOENT') return null;
+        throw err;
+    }
+});
+
+ipcMain.handle('write-plugins-config', async (event, content) => {
+    await fs.promises.mkdir(QUIPU_HOME_DIR, { recursive: true });
+    await fs.promises.writeFile(PLUGINS_CONFIG_PATH, content, 'utf-8');
+    return { success: true };
+});
+
+ipcMain.handle('list-plugin-dirs', async () => {
+    try {
+        const entries = await fs.promises.readdir(PLUGINS_DIR, { withFileTypes: true });
+        return entries.filter(e => e.isDirectory()).map(e => e.name);
+    } catch (err) {
+        if (err.code === 'ENOENT') return [];
+        throw err;
+    }
+});
+
+ipcMain.handle('remove-plugin-dir', async (event, id) => {
+    const pluginPath = path.join(PLUGINS_DIR, id);
+    await fs.promises.rm(pluginPath, { recursive: true, force: true });
+    return { success: true };
+});
+
+ipcMain.handle('read-file', async (event, filePath) => {
+    // Sandboxed to QUIPU_HOME_DIR for plugin file reads
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(QUIPU_HOME_DIR + path.sep) && resolved !== QUIPU_HOME_DIR) {
+        return null;
+    }
+    try {
+        return await fs.promises.readFile(resolved, 'utf-8');
+    } catch (err) {
+        if (err.code === 'ENOENT') return null;
+        throw err;
+    }
+});
+
+ipcMain.handle('download-and-extract-plugin', async (event, { id, downloadUrl }) => {
+    const destDir = path.join(PLUGINS_DIR, id);
+    const resolvedDest = path.resolve(destDir);
+
+    let zipBuffer;
+    try {
+        const response = await electronNet.fetch(downloadUrl);
+        if (!response.ok) {
+            return { error: `Download failed: ${response.status} ${response.statusText}` };
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        zipBuffer = Buffer.from(arrayBuffer);
+    } catch (err) {
+        return { error: `Download failed: ${err.message}` };
+    }
+
+    try {
+        const zip = new AdmZip(zipBuffer);
+        const entries = zip.getEntries();
+
+        for (const entry of entries) {
+            if (entry.isDirectory) continue;
+            const normalized = entry.entryName.replace(/\\/g, '/').replace(/^\/+/, '');
+            const entryResolved = path.resolve(destDir, normalized);
+            if (!entryResolved.startsWith(resolvedDest + path.sep)) {
+                return { error: `Zip slip detected in entry: ${entry.entryName}` };
+            }
+        }
+
+        await fs.promises.mkdir(destDir, { recursive: true });
+        zip.extractAllTo(destDir, /* overwrite */ true);
+        return { success: true };
+    } catch (err) {
+        return { error: `Extraction failed: ${err.message}` };
+    }
+});
 ipcMain.on('window-maximize', () => {
     if (mainWindow?.isMaximized()) {
         mainWindow.unmaximize();

@@ -1,6 +1,7 @@
 /**
- * Minimal preload for thin shell mode.
- * Only exposes the Go server URL — no IPC, no file system, no terminal.
+ * Preload for thin shell (production) mode.
+ * Exposes the Go server URL and plugin management IPC.
+ * File system and terminal operations are handled by the Go server.
  */
 const { contextBridge, ipcRenderer } = require('electron');
 
@@ -15,4 +16,15 @@ contextBridge.exposeInMainWorld('__QUIPU_WINDOW__', {
     minimize: () => ipcRenderer.send('window-minimize'),
     maximize: () => ipcRenderer.send('window-maximize'),
     close: () => ipcRenderer.send('window-close'),
+});
+
+contextBridge.exposeInMainWorld('electronAPI', {
+    // Plugin management
+    getQuipuDir: () => ipcRenderer.invoke('get-quipu-dir'),
+    readPluginsConfig: () => ipcRenderer.invoke('read-plugins-config'),
+    writePluginsConfig: (content) => ipcRenderer.invoke('write-plugins-config', content),
+    listPluginDirs: () => ipcRenderer.invoke('list-plugin-dirs'),
+    removePluginDir: (id) => ipcRenderer.invoke('remove-plugin-dir', id),
+    downloadAndExtractPlugin: (params) => ipcRenderer.invoke('download-and-extract-plugin', params),
+    readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
 });

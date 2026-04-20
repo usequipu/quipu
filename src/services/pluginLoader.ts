@@ -168,13 +168,83 @@ export function validateManifest(raw: unknown): ManifestValidationResult {
 // Blob URL dynamic import (exported so tests can spy on it)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// React proxy blob URLs — created once, reused across all plugins.
+// Redirects plugin's `import from 'react'` to the host React instance so
+// all hooks share the same dispatcher (prevents "Invalid hook call").
+// ---------------------------------------------------------------------------
+
+let _reactProxy: string | null = null;
+let _reactDomProxy: string | null = null;
+let _jsxProxy: string | null = null;
+
+async function ensureReactProxies(hostApi: PluginApi): Promise<void> {
+  if (_reactProxy) return;
+
+  const jsxRuntime = await import('react/jsx-runtime') as Record<string, unknown>;
+  (globalThis as Record<string, unknown>).__quipuReact    = hostApi.React;
+  (globalThis as Record<string, unknown>).__quipuReactDOM = hostApi.ReactDOM;
+  (globalThis as Record<string, unknown>).__quipuJsx      = jsxRuntime;
+
+  _reactProxy = URL.createObjectURL(new Blob([
+    `const R=globalThis.__quipuReact;export default R;
+export const{useState,useEffect,useCallback,useMemo,useRef,useContext,
+createContext,createElement,forwardRef,memo,lazy,Suspense,Fragment,
+Component,PureComponent,Children,cloneElement,isValidElement,createRef,
+startTransition,useTransition,useDeferredValue,useId,useInsertionEffect,
+useLayoutEffect,useImperativeHandle,useReducer,useSyncExternalStore,
+useDebugValue,Profiler,StrictMode,version,use}=R;`,
+  ], { type: 'application/javascript' }));
+
+  _reactDomProxy = URL.createObjectURL(new Blob([
+    `const RD=globalThis.__quipuReactDOM;export default RD;
+export const{createPortal,flushSync,findDOMNode,render,hydrate,unmountComponentAtNode}=RD;`,
+  ], { type: 'application/javascript' }));
+
+  _jsxProxy = URL.createObjectURL(new Blob([
+    `const J=globalThis.__quipuJsx;
+export const jsx=J.jsx,jsxs=J.jsxs,Fragment=J.Fragment;`,
+  ], { type: 'application/javascript' }));
+}
+
 /**
- * Wraps a plugin source string in a Blob URL, dynamically imports it,
- * and revokes the URL immediately after import resolves.
+ * Loads a plugin from its ESM source string.
+ *
+ * For plugins built with react/react-dom externalized (v0.1.1+), rewrites
+ * their import specifiers to proxy blob URLs that forward to the host React
+ * instance, preventing the two-React-instances hook failure.
+ *
+ * Legacy plugins that bundle their own React load as-is via blob URL.
  */
-export async function importFromBlobUrl(source: string): Promise<unknown> {
-  const blob = new Blob([source], { type: 'application/javascript' });
-  const url = URL.createObjectURL(blob);
+export async function importFromBlobUrl(source: string, hostApi?: PluginApi): Promise<unknown> {
+  // Polyfill `process` for libraries like Excalidraw that reference it.
+  if (typeof (globalThis as Record<string, unknown>).process === 'undefined') {
+    (globalThis as Record<string, unknown>).process = {
+      env: { NODE_ENV: 'production' }, browser: true, version: '',
+    };
+  }
+
+  let patchedSource = source;
+
+  // Polyfill CJS `exports` for plugins whose bundled dependencies reference it.
+  // Rollup sometimes emits `exports.xxx = ...` helpers inside ESM bundles when
+  // inlining CJS packages; injecting a local var keeps the module from throwing.
+  if (/\bexports\b/.test(patchedSource)) {
+    patchedSource = 'var exports = {};\n' + patchedSource;
+  }
+
+  // If plugin imports react externally, redirect to host React proxies.
+  if (hostApi && /from\s*['"]react['"]|from\s*['"]react\//.test(source)) {
+    await ensureReactProxies(hostApi);
+    patchedSource = source
+      .replace(/(['"])react\/jsx-runtime\1/g, `'${_jsxProxy}'`)
+      .replace(/(['"])react-dom\/client\1/g,  `'${_reactDomProxy}'`)
+      .replace(/(['"])react-dom\1/g,          `'${_reactDomProxy}'`)
+      .replace(/(['"])react\1/g,              `'${_reactProxy}'`);
+  }
+
+  const blob = new Blob([patchedSource], { type: 'application/javascript' });
+  const url  = URL.createObjectURL(blob);
   try {
     // eslint-disable-next-line @typescript-eslint/no-implied-eval
     return await import(/* @vite-ignore */ url);
@@ -199,7 +269,7 @@ const electronPluginLoader: PluginLoaderService = {
   async loadAll(api: PluginApi, options: PluginLoaderOptions = {}): Promise<PluginLoadResult> {
     const loaded: PluginLoadResult['loaded'] = [];
     const errors: PluginLoadResult['errors'] = [];
-    const doImport = options._importFromBlobUrl ?? importFromBlobUrl;
+    const doImport = options._importFromBlobUrl ?? ((src: string) => importFromBlobUrl(src, api));
 
     // 1. Read plugins config
     let configJson: string | null;
