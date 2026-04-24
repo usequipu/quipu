@@ -2,8 +2,9 @@ const { app, BrowserWindow, ipcMain, dialog, protocol, net, shell, session } = r
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const http = require('http');
 const crypto = require('crypto');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const pty = require('node-pty');
 const AdmZip = require('adm-zip');
 
@@ -84,6 +85,14 @@ function writeStorage(data) {
 let mainWindow;
 const ptyProcesses = new Map(); // terminalId -> ptyProcess
 const MAX_TERMINALS = 10;
+
+// Agent subprocesses (Claude Code CLI, per-turn spawn — legacy).
+const agentProcesses = new Map(); // spawnId -> { proc, agentId, buffer }
+const MAX_AGENTS = 20;
+
+// Persistent agent sessions (Claude Code CLI with stream-json I/O).
+// One subprocess per agent for as long as the session lives.
+const agentSessions = new Map(); // sessionKey -> { proc, agentId, buffer }
 
 const createWindow = () => {
     // Create the browser window.
@@ -345,6 +354,15 @@ app.whenReady().then(() => {
 
     ipcMain.handle('get-home-dir', async () => {
         return os.homedir();
+    });
+
+    ipcMain.handle('path-exists', async (event, targetPath) => {
+        try {
+            await fs.promises.access(targetPath);
+            return true;
+        } catch {
+            return false;
+        }
     });
 
     ipcMain.handle('read-directory', async (event, dirPath) => {
@@ -674,6 +692,23 @@ app.whenReady().then(() => {
                     return;
                 }
                 resolve({ output: stdout });
+            });
+        });
+    });
+
+    ipcMain.handle('git-clone', async (event, { url, targetDir }) => {
+        if (typeof url !== 'string' || url.length === 0) throw new Error('git-clone: url required');
+        if (typeof targetDir !== 'string' || targetDir.length === 0) throw new Error('git-clone: targetDir required');
+        await fs.promises.mkdir(path.dirname(targetDir), { recursive: true });
+        return new Promise((resolve, reject) => {
+            execFile('git', ['clone', '--depth', '1', url, targetDir], {
+                timeout: 120000,
+            }, (err, stdout, stderr) => {
+                if (err) {
+                    reject(new Error(stderr || err.message || 'git clone failed'));
+                    return;
+                }
+                resolve({ output: stdout + stderr });
             });
         });
     });
@@ -1043,6 +1078,319 @@ app.whenReady().then(() => {
         return { success: true };
     });
 
+    // Agent subprocess IPC — spawns `claude` per turn with stream-json output.
+    // Options: { message, systemPrompt, model, addDirs: string[], resumeSessionId?, cwd? }
+    ipcMain.handle('agent-spawn', async (event, { agentId, options }) => {
+        if (agentProcesses.size >= MAX_AGENTS) {
+            throw new Error('Maximum number of concurrent agents reached');
+        }
+        if (!agentId || !options || typeof options.message !== 'string') {
+            throw new Error('agent-spawn: agentId and options.message required');
+        }
+
+        const spawnId = crypto.randomUUID();
+        const args = [
+            '-p', options.message,
+            '--output-format', 'stream-json',
+            '--verbose',
+        ];
+        if (options.resumeSessionId) {
+            args.push('--resume', options.resumeSessionId);
+        }
+        if (options.systemPrompt && options.systemPrompt.trim().length > 0) {
+            args.push('--append-system-prompt', options.systemPrompt);
+        }
+        if (options.model && options.model.trim().length > 0) {
+            args.push('--model', options.model);
+        }
+        if (Array.isArray(options.addDirs)) {
+            for (const dir of options.addDirs) {
+                if (typeof dir === 'string' && dir.length > 0) {
+                    args.push('--add-dir', dir);
+                }
+            }
+        }
+        if (options.permissionMode && typeof options.permissionMode === 'string') {
+            args.push('--permission-mode', options.permissionMode);
+        }
+
+        const cwd = typeof options.cwd === 'string' && options.cwd.length > 0 ? options.cwd : process.env.HOME;
+        let proc;
+        try {
+            proc = spawn('claude', args, {
+                cwd,
+                env: process.env,
+                stdio: ['ignore', 'pipe', 'pipe'],
+            });
+        } catch (err) {
+            throw new Error(`Failed to spawn claude: ${err.message || err}`);
+        }
+
+        agentProcesses.set(spawnId, { proc, agentId, buffer: '' });
+
+        const emit = (event) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('agent-event', { spawnId, agentId, event });
+            }
+        };
+
+        proc.on('error', (err) => {
+            emit({ type: 'error', message: err.message || String(err) });
+        });
+
+        proc.stdout.setEncoding('utf-8');
+        proc.stdout.on('data', (chunk) => {
+            const state = agentProcesses.get(spawnId);
+            if (!state) return;
+            state.buffer += chunk;
+            let idx;
+            while ((idx = state.buffer.indexOf('\n')) !== -1) {
+                const line = state.buffer.slice(0, idx).trim();
+                state.buffer = state.buffer.slice(idx + 1);
+                if (!line) continue;
+                try {
+                    emit(JSON.parse(line));
+                } catch {
+                    emit({ type: 'stdout_raw', text: line });
+                }
+            }
+        });
+
+        proc.stderr.setEncoding('utf-8');
+        proc.stderr.on('data', (chunk) => {
+            emit({ type: 'stderr', text: chunk });
+        });
+
+        proc.on('close', (code, signal) => {
+            const state = agentProcesses.get(spawnId);
+            if (state && state.buffer.trim().length > 0) {
+                try {
+                    emit(JSON.parse(state.buffer.trim()));
+                } catch {
+                    emit({ type: 'stdout_raw', text: state.buffer.trim() });
+                }
+            }
+            agentProcesses.delete(spawnId);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('agent-exit', { spawnId, agentId, code, signal });
+            }
+        });
+
+        return { spawnId };
+    });
+
+    ipcMain.handle('agent-kill', async (event, { spawnId }) => {
+        const state = agentProcesses.get(spawnId);
+        if (state) {
+            try { state.proc.kill(); } catch { /* ignore */ }
+            agentProcesses.delete(spawnId);
+        }
+        return { success: true };
+    });
+
+    // -------- Persistent-session agent runtime (stream-json I/O) --------
+    // One subprocess per agent, alive across turns. Supports interactive
+    // permission prompts via can_use_tool events.
+
+    function emitSessionEvent(agentId, sessionKey, event) {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('agent-session-event', { sessionKey, agentId, event });
+        }
+    }
+
+    ipcMain.handle('agent-session-start', async (event, { agentId, options }) => {
+        if (!agentId) throw new Error('agent-session-start: agentId required');
+        // If a session already exists for this agent, keep it.
+        for (const [key, state] of agentSessions) {
+            if (state.agentId === agentId) return { sessionKey: key, reused: true };
+        }
+
+        const opts = options || {};
+        const args = [
+            '-p',
+            '--input-format', 'stream-json',
+            '--output-format', 'stream-json',
+            '--verbose',
+            // Route permission prompts over stdio so we can ask the user via our
+            // own UI. The flag isn't in --help but is the same path the Agent SDK uses.
+            '--permission-prompt-tool', 'stdio',
+        ];
+        if (opts.permissionMode && typeof opts.permissionMode === 'string') {
+            args.push('--permission-mode', opts.permissionMode);
+        }
+        if (opts.systemPrompt && typeof opts.systemPrompt === 'string' && opts.systemPrompt.trim().length > 0) {
+            args.push('--append-system-prompt', opts.systemPrompt);
+        }
+        if (opts.model && typeof opts.model === 'string' && opts.model.trim().length > 0) {
+            args.push('--model', opts.model);
+        }
+        if (Array.isArray(opts.addDirs)) {
+            for (const dir of opts.addDirs) {
+                if (typeof dir === 'string' && dir.length > 0) args.push('--add-dir', dir);
+            }
+        }
+        if (Array.isArray(opts.allowedTools) && opts.allowedTools.length > 0) {
+            args.push('--allowedTools', ...opts.allowedTools.filter(t => typeof t === 'string' && t.length > 0));
+        }
+        if (opts.resumeSessionId && typeof opts.resumeSessionId === 'string') {
+            args.push('--resume', opts.resumeSessionId);
+        }
+
+        const cwd = typeof opts.cwd === 'string' && opts.cwd.length > 0 ? opts.cwd : process.env.HOME;
+        let proc;
+        try {
+            proc = spawn('claude', args, {
+                cwd,
+                env: process.env,
+                stdio: ['pipe', 'pipe', 'pipe'],
+            });
+        } catch (err) {
+            throw new Error(`Failed to spawn claude: ${err.message || String(err)}`);
+        }
+
+        const sessionKey = crypto.randomUUID();
+        const state = { proc, agentId, buffer: '' };
+        agentSessions.set(sessionKey, state);
+
+        // Send the initialize control_request immediately so the CLI knows we
+        // can handle can_use_tool prompts via stdio.
+        try {
+            const initPayload = {
+                type: 'control_request',
+                request_id: crypto.randomUUID(),
+                request: { subtype: 'initialize', hooks: {}, sdkMcpServers: [] },
+            };
+            proc.stdin.write(JSON.stringify(initPayload) + '\n');
+        } catch (err) {
+            console.warn('[agent] failed to send initialize', err);
+        }
+
+        proc.on('error', (err) => {
+            emitSessionEvent(agentId, sessionKey, { type: 'error', message: err.message || String(err) });
+        });
+
+        proc.stdout.setEncoding('utf-8');
+        proc.stdout.on('data', (chunk) => {
+            const s = agentSessions.get(sessionKey);
+            if (!s) return;
+            s.buffer += chunk;
+            let idx;
+            while ((idx = s.buffer.indexOf('\n')) !== -1) {
+                const line = s.buffer.slice(0, idx).trim();
+                s.buffer = s.buffer.slice(idx + 1);
+                if (!line) continue;
+                try {
+                    emitSessionEvent(agentId, sessionKey, JSON.parse(line));
+                } catch {
+                    emitSessionEvent(agentId, sessionKey, { type: 'stdout_raw', text: line });
+                }
+            }
+        });
+
+        proc.stderr.setEncoding('utf-8');
+        proc.stderr.on('data', (chunk) => {
+            emitSessionEvent(agentId, sessionKey, { type: 'stderr', text: chunk });
+        });
+
+        proc.on('close', (code, signal) => {
+            const s = agentSessions.get(sessionKey);
+            if (s && s.buffer.trim().length > 0) {
+                try { emitSessionEvent(agentId, sessionKey, JSON.parse(s.buffer.trim())); }
+                catch { emitSessionEvent(agentId, sessionKey, { type: 'stdout_raw', text: s.buffer.trim() }); }
+            }
+            agentSessions.delete(sessionKey);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('agent-session-exit', { sessionKey, agentId, code, signal });
+            }
+        });
+
+        return { sessionKey, reused: false };
+    });
+
+    ipcMain.on('agent-session-write', (event, { sessionKey, payload }) => {
+        const s = agentSessions.get(sessionKey);
+        if (!s || !s.proc.stdin.writable) return;
+        try {
+            s.proc.stdin.write(JSON.stringify(payload) + '\n');
+        } catch (err) {
+            emitSessionEvent(s.agentId, sessionKey, { type: 'error', message: `stdin write failed: ${err.message || String(err)}` });
+        }
+    });
+
+    ipcMain.handle('agent-session-stop', async (event, { sessionKey }) => {
+        const s = agentSessions.get(sessionKey);
+        if (s) {
+            try { s.proc.stdin.end(); } catch { /* ignore */ }
+            try { s.proc.kill(); } catch { /* ignore */ }
+            agentSessions.delete(sessionKey);
+        }
+        return { success: true };
+    });
+
+    // Ask Claude Code for the authoritative list of slash commands + plugin
+    // paths by spawning it with stream-json output, capturing the init event,
+    // then killing before the API call completes (no token cost).
+    ipcMain.handle('claude-list-slash-commands', async (event, { cwd } = {}) => {
+        return await new Promise((resolve) => {
+            let proc;
+            try {
+                proc = spawn('claude', [
+                    '-p', '__probe__',
+                    '--output-format', 'stream-json',
+                    '--verbose',
+                    '--permission-mode', 'plan',
+                ], {
+                    cwd: typeof cwd === 'string' && cwd.length > 0 ? cwd : process.env.HOME,
+                    env: process.env,
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                });
+            } catch (err) {
+                resolve({ error: `spawn failed: ${err.message || String(err)}` });
+                return;
+            }
+
+            let buffer = '';
+            let settled = false;
+            const finish = (payload) => {
+                if (settled) return;
+                settled = true;
+                try { proc.kill(); } catch { /* ignore */ }
+                resolve(payload);
+            };
+
+            proc.on('error', (err) => finish({ error: err.message || String(err) }));
+            proc.on('close', () => {
+                if (!settled) finish({ error: 'claude exited before init event' });
+            });
+
+            // Safety timeout — init normally arrives in <2s.
+            const timer = setTimeout(() => finish({ error: 'timeout waiting for init event' }), 15000);
+
+            proc.stdout.setEncoding('utf-8');
+            proc.stdout.on('data', (chunk) => {
+                buffer += chunk;
+                let idx;
+                while ((idx = buffer.indexOf('\n')) !== -1) {
+                    const line = buffer.slice(0, idx).trim();
+                    buffer = buffer.slice(idx + 1);
+                    if (!line) continue;
+                    try {
+                        const event = JSON.parse(line);
+                        if (event && event.type === 'system' && event.subtype === 'init') {
+                            clearTimeout(timer);
+                            finish({
+                                slashCommands: Array.isArray(event.slash_commands) ? event.slash_commands : [],
+                                plugins: Array.isArray(event.plugins) ? event.plugins : [],
+                                skills: Array.isArray(event.skills) ? event.skills : [],
+                            });
+                            return;
+                        }
+                    } catch { /* ignore non-JSON lines */ }
+                }
+            });
+        });
+    });
+
     // Plugin management IPC handlers
     ipcMain.handle('get-quipu-dir', () => QUIPU_HOME_DIR);
 
@@ -1117,6 +1465,80 @@ app.whenReady().then(() => {
         } catch (err) {
             return { error: `Extraction failed: ${err.message}` };
         }
+    });
+
+    // Kamalu OAuth: spawn a localhost HTTP listener, return the URL the
+    // browser should redirect back to. The renderer opens the sign-in page in
+    // the system browser; when the page redirects to our loopback with a
+    // ?token=..., we capture it and push it back to the renderer.
+    ipcMain.handle('kamalu:start-oauth', async (_event, { signInUrl }) => {
+        return new Promise((resolve, reject) => {
+            const state = crypto.randomBytes(16).toString('hex');
+            let settled = false;
+            const server = http.createServer((req, res) => {
+                try {
+                    const url = new URL(req.url, 'http://127.0.0.1');
+                    if (url.pathname !== '/callback') {
+                        res.writeHead(404).end();
+                        return;
+                    }
+                    const token = url.searchParams.get('token');
+                    const returnedState = url.searchParams.get('state');
+                    const serverUrl = url.searchParams.get('server');
+                    const errorParam = url.searchParams.get('error');
+
+                    if (errorParam) {
+                        res.writeHead(400, { 'Content-Type': 'text/html' });
+                        res.end(`<!doctype html><meta charset="utf-8"><title>Kamalu</title><body style="font-family:system-ui;padding:40px;color:#b91c1c"><h2>Sign-in failed</h2><p>${errorParam}</p><p>You can close this tab.</p></body>`);
+                        if (!settled) {
+                            settled = true;
+                            server.close();
+                            reject(new Error(errorParam));
+                        }
+                        return;
+                    }
+
+                    if (!token || returnedState !== state) {
+                        res.writeHead(400, { 'Content-Type': 'text/plain' }).end('Invalid callback');
+                        return;
+                    }
+
+                    res.writeHead(200, { 'Content-Type': 'text/html' });
+                    res.end('<!doctype html><meta charset="utf-8"><title>Kamalu</title><body style="font-family:system-ui;padding:40px"><h2>Signed in to Kamalu</h2><p>You can close this tab and return to Quipu.</p><script>setTimeout(()=>window.close(),800)</script></body>');
+
+                    if (!settled) {
+                        settled = true;
+                        server.close();
+                        resolve({ token, serverUrl });
+                    }
+                } catch (err) {
+                    res.writeHead(500).end();
+                    if (!settled) {
+                        settled = true;
+                        server.close();
+                        reject(err);
+                    }
+                }
+            });
+            server.on('error', (err) => {
+                if (!settled) { settled = true; reject(err); }
+            });
+            server.listen(0, '127.0.0.1', () => {
+                const port = server.address().port;
+                const redirectUri = `http://127.0.0.1:${port}/callback`;
+                const url = new URL(signInUrl);
+                url.searchParams.set('redirect_uri', redirectUri);
+                url.searchParams.set('state', state);
+                shell.openExternal(url.toString());
+            });
+            setTimeout(() => {
+                if (!settled) {
+                    settled = true;
+                    server.close();
+                    reject(new Error('Sign-in timed out'));
+                }
+            }, 5 * 60 * 1000);
+        });
     });
 
     app.on('activate', () => {

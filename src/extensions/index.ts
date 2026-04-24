@@ -9,6 +9,11 @@ import type { ExtensionDescriptor } from '@/types/extensions';
 // diff-viewer stays in core (registered as side-effect for tab.type === 'diff').
 import './diff-viewer/index';
 
+// agent viewers stay in core — they couple to Electron IPC for subprocess management.
+import './agent-chat/index';
+import './agent-editor/index';
+import './repo-editor/index';
+
 // database-viewer stays in core permanently (see plugin architecture plan §Key Decisions).
 import databaseViewer from './database-viewer';
 

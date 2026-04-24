@@ -12,7 +12,8 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { XIcon, CircleIcon } from '@phosphor-icons/react';
+import { XIcon, CircleIcon, RobotIcon, GearIcon, GitForkIcon } from '@phosphor-icons/react';
+import type { Icon as PhosphorIcon } from '@phosphor-icons/react';
 import { cn } from '@/lib/utils';
 import { useTab } from '../../context/TabContext';
 
@@ -21,6 +22,16 @@ interface Tab {
   name: string;
   path: string;
   isDirty: boolean;
+  type?: string;
+}
+
+function tabTypeIcon(type: string | undefined): { Icon: PhosphorIcon; className: string } | null {
+  switch (type) {
+    case 'agent': return { Icon: RobotIcon, className: 'text-accent' };
+    case 'agent-editor': return { Icon: GearIcon, className: 'text-accent' };
+    case 'repo-editor': return { Icon: GitForkIcon, className: 'text-accent' };
+    default: return null;
+  }
 }
 
 interface SortableTabProps {
@@ -61,6 +72,12 @@ function SortableTab({ tab, isActive, onSwitch, onClose }: SortableTabProps) {
       onClick={() => onSwitch(tab.id)}
       title={tab.path}
     >
+      {(() => {
+        const typeIcon = tabTypeIcon(tab.type);
+        if (!typeIcon) return null;
+        const { Icon, className } = typeIcon;
+        return <Icon size={13} weight="regular" className={cn('shrink-0', className)} aria-hidden />;
+      })()}
       <span className="overflow-hidden text-ellipsis max-w-[180px] font-sans">
         {tab.name}
       </span>

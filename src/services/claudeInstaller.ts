@@ -48,7 +48,7 @@ workspace/
 
 **Path formula**: \`{workspacePath}/.quipu/meta/{relativePath}.frame.json\`
 
-## JSON Schema (v1)
+## JSON Schema (v1) — canonical
 
 \`\`\`json
 {
@@ -65,7 +65,16 @@ workspace/
       "text": "Refactor this to use useCallback",
       "type": "review",
       "author": "user",
-      "timestamp": "2026-03-01T12:00:00Z"
+      "selectedText": "const handleClick = () => { ... }",
+      "timestamp": "2026-03-01T12:00:00Z",
+      "responses": [
+        {
+          "id": "uuid-v4",
+          "author": "assistant",
+          "body": "Agreed. Wrapping in useCallback with [] deps since there are no closures over props.",
+          "createdAt": "2026-03-01T14:30:00Z"
+        }
+      ]
     }
   ],
   "instructions": "This file handles the TipTap editor setup. Always preserve the comment mark extension when modifying.",
@@ -89,9 +98,62 @@ workspace/
 | \`id\` | string | UUID v4 for this FRAME |
 | \`filePath\` | string | Relative path from workspace root |
 | \`annotations[].type\` | string | One of: \`comment\`, \`review\`, \`todo\`, \`bug\`, \`question\`, \`instruction\` |
-| \`annotations[].author\` | string | \`"user"\` or \`"ai"\` |
-| \`history[]\` | array | Capped at 20 entries (FIFO eviction). Store summaries, not full responses. |
+| \`annotations[].author\` | string | \`"user"\` or \`"assistant"\` |
+| \`annotations[].text\` | string | The comment body (note: comments use \`text\`, responses use \`body\`) |
+| \`annotations[].timestamp\` | string | ISO 8601 UTC |
+| \`annotations[].responses[]\` | array | **Threaded replies** — see rules below |
+| \`annotations[].responses[].body\` | string | Reply body (**\`body\`, not \`text\`**) |
+| \`annotations[].responses[].createdAt\` | string | ISO 8601 UTC (**\`createdAt\`, not \`timestamp\`**) |
+| \`annotations[].responses[].author\` | string | \`"user"\` or \`"assistant"\` |
+| \`history[]\` | array | Capped at 20 entries (FIFO). Managed by the Quipu UI — don't write here unless asked. |
 | \`instructions\` | string | Persistent context Claude should know about this file |
+
+## Threaded replies (the \`responses\` array)
+
+When the user asks you to **reply to a comment** in a FRAME, append to the target annotation's \`responses\` array. The schema is strict:
+
+- The array **must** be named \`responses\` — not \`replies\`, not \`comments\`.
+- Each response object has exactly these fields: \`id\`, \`author\`, \`body\`, \`createdAt\`.
+  - \`body\` (not \`text\`, not \`content\`)
+  - \`createdAt\` (not \`timestamp\`, not \`date\`)
+  - \`author\`: use \`"assistant"\` when you write a reply
+  - \`id\`: a fresh UUID v4
+- Preserve every existing annotation and response. **Append only** — never reorder, modify, or remove existing entries unless the user explicitly asks.
+- Do not touch the top-level \`history\` array when adding a reply. The Quipu UI manages history separately.
+
+### Worked example
+
+Input frame (one user question, no replies yet):
+
+\`\`\`json
+{ "version": 1, "type": "frame", "id": "...", "filePath": "notes.md",
+  "createdAt": "...", "updatedAt": "...",
+  "annotations": [
+    { "id": "a1", "line": 3, "text": "What's the time complexity?",
+      "type": "question", "author": "user", "timestamp": "..." }
+  ],
+  "instructions": "", "history": [] }
+\`\`\`
+
+After you reply to annotation \`a1\`:
+
+\`\`\`json
+{ "version": 1, "type": "frame", "id": "...", "filePath": "notes.md",
+  "createdAt": "...", "updatedAt": "<now>",
+  "annotations": [
+    { "id": "a1", "line": 3, "text": "What's the time complexity?",
+      "type": "question", "author": "user", "timestamp": "...",
+      "responses": [
+        { "id": "r1", "author": "assistant",
+          "body": "O(n log n) — the sort dominates the loop.",
+          "createdAt": "<now>" }
+      ]
+    }
+  ],
+  "instructions": "", "history": [] }
+\`\`\`
+
+Note: only \`updatedAt\` and the new response changed.
 
 ## How to Read a FRAME
 

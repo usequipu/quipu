@@ -32,6 +32,7 @@ import pluginLoader, { createPluginApi } from './services/pluginLoader';
 import type { PluginApi } from './types/plugin-types';
 import { builtinKeybindings } from './data/builtinKeybindings';
 import FirstRunWizard from './components/ui/FirstRunWizard';
+import StatusBar from './components/ui/StatusBar';
 import './extensions'; // register all viewer extensions
 
 interface ContextMenuItem {
@@ -182,6 +183,17 @@ function AppContent() {
 
   const sidePanelRef = usePanelRef();
   const terminalPanelRef = usePanelRef();
+
+  // Start the terminal panel collapsed — users open it explicitly via the
+  // activity bar / keyboard shortcut when they need it.
+  React.useEffect(() => {
+    // Defer one frame so react-resizable-panels has finished mounting.
+    const timer = window.setTimeout(() => {
+      terminalPanelRef.current?.collapse();
+    }, 0);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handlePanelToggle = useCallback((panelId: string) => {
     const isCollapsed = sidePanelRef.current?.isCollapsed();
@@ -389,6 +401,10 @@ function AppContent() {
 
   useEffect(() => {
     const handleContextMenu = (e: MouseEvent) => {
+      // If a local React handler already claimed this event (e.g. the
+      // FileExplorer's empty-area menu or a file-tree item), don't open
+      // the global fallback menu on top of it.
+      if (e.defaultPrevented) return;
       e.preventDefault();
 
       // If the right-click originated inside the FileExplorer's own context menu
@@ -842,7 +858,7 @@ function AppContent() {
         onAction={handleMenuAction}
         initialValue={quickOpenInitialValue}
       />
-      <div className="flex flex-row flex-1 overflow-hidden">
+      <div className="flex flex-row flex-1 overflow-hidden min-h-0">
         <ActivityBar activePanel={activePanel} onPanelToggle={handlePanelToggle} />
         <div className="flex flex-col flex-1 overflow-hidden">
         <TitleBar title={title} onAction={handleMenuAction} />
@@ -947,6 +963,7 @@ function AppContent() {
       </Group>
         </div>
       </div>
+      <StatusBar />
     </div>
   );
 }

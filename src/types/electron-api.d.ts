@@ -23,6 +23,7 @@ export interface TerminalDataEvent {
 export interface ElectronAPI {
   // File system
   readDirectory: (dirPath: string) => Promise<DirectoryEntry[]>;
+  pathExists: (targetPath: string) => Promise<boolean>;
   readFile: (filePath: string) => Promise<string>;
   writeFile: (filePath: string, content: string) => Promise<{ success: boolean }>;
   createFile: (filePath: string) => Promise<{ success: boolean }>;
@@ -55,6 +56,7 @@ export interface ElectronAPI {
   gitCommit: (dirPath: string, message: string) => Promise<unknown>;
   gitPush: (dirPath: string) => Promise<unknown>;
   gitPull: (dirPath: string) => Promise<unknown>;
+  gitClone: (url: string, targetDir: string) => Promise<{ output: string }>;
   gitBranches: (dirPath: string) => Promise<unknown>;
   gitCheckout: (dirPath: string, branch: string) => Promise<unknown>;
   gitLog: (dirPath: string) => Promise<unknown>;
@@ -89,6 +91,81 @@ export interface ElectronAPI {
   listPluginDirs: () => Promise<string[]>;
   removePluginDir: (id: string) => Promise<{ success: boolean }>;
   downloadAndExtractPlugin: (params: { id: string; downloadUrl: string }) => Promise<{ success: true } | { error: string }>;
+
+  // Kamalu OAuth
+  kamaluStartOAuth: (signInUrl: string) => Promise<{ token: string; serverUrl: string | null }>;
+
+  // Agent subprocess — legacy per-turn spawn.
+  agentSpawn: (agentId: string, options: AgentSpawnOptions) => Promise<{ spawnId: string }>;
+  agentKill: (spawnId: string) => Promise<{ success: boolean }>;
+  onAgentEvent: (callback: (event: AgentEventPayload) => void) => unknown;
+  removeAgentEventListener: (handler: unknown) => void;
+  onAgentExit: (callback: (event: AgentExitPayload) => void) => unknown;
+  removeAgentExitListener: (handler: unknown) => void;
+
+  // Persistent agent session — stream-json I/O with permission prompts.
+  agentSessionStart: (agentId: string, options: AgentSessionStartOptions) => Promise<{ sessionKey: string; reused: boolean }>;
+  agentSessionWrite: (sessionKey: string, payload: unknown) => void;
+  agentSessionStop: (sessionKey: string) => Promise<{ success: boolean }>;
+  onAgentSessionEvent: (callback: (event: AgentSessionEventPayload) => void) => unknown;
+  removeAgentSessionEventListener: (handler: unknown) => void;
+  onAgentSessionExit: (callback: (event: AgentSessionExitPayload) => void) => unknown;
+  removeAgentSessionExitListener: (handler: unknown) => void;
+
+  claudeListSlashCommands: (cwd?: string) => Promise<ClaudeSlashCommandProbeResult>;
+}
+
+export interface AgentSessionStartOptions {
+  systemPrompt?: string;
+  model?: string;
+  addDirs?: string[];
+  resumeSessionId?: string;
+  cwd?: string;
+  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'auto' | 'dontAsk' | 'plan';
+  allowedTools?: string[];
+}
+
+export interface AgentSessionEventPayload {
+  sessionKey: string;
+  agentId: string;
+  event: Record<string, unknown>;
+}
+
+export interface AgentSessionExitPayload {
+  sessionKey: string;
+  agentId: string;
+  code: number | null;
+  signal: string | null;
+}
+
+export interface ClaudeSlashCommandProbeResult {
+  slashCommands?: string[];
+  plugins?: Array<{ name: string; path: string; source?: string }>;
+  skills?: string[];
+  error?: string;
+}
+
+export interface AgentSpawnOptions {
+  message: string;
+  systemPrompt?: string;
+  model?: string;
+  addDirs?: string[];
+  resumeSessionId?: string;
+  cwd?: string;
+  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
+}
+
+export interface AgentEventPayload {
+  spawnId: string;
+  agentId: string;
+  event: Record<string, unknown>;
+}
+
+export interface AgentExitPayload {
+  spawnId: string;
+  agentId: string;
+  code: number | null;
+  signal: string | null;
 }
 
 export interface SearchOptions {

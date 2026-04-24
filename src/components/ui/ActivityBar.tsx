@@ -5,6 +5,8 @@ import {
   GitBranchIcon,
   PuzzlePieceIcon,
   CircleIcon,
+  RobotIcon,
+  GitForkIcon,
 } from "@phosphor-icons/react";
 import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
@@ -16,6 +18,8 @@ const ICON_MAP: Record<string, PhosphorIcon> = {
   MagnifyingGlassIcon,
   GitBranchIcon,
   PuzzlePieceIcon,
+  RobotIcon,
+  GitForkIcon,
 };
 
 interface ActivityBarProps {

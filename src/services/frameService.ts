@@ -8,6 +8,13 @@ function generateId(): string {
   return crypto.randomUUID();
 }
 
+export interface FrameAnnotationResponse {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+}
+
 export interface FrameAnnotation {
   id: string;
   line?: number;
@@ -22,6 +29,13 @@ export interface FrameAnnotation {
   topRatio?: number;
   detached?: boolean;
   timestamp: string;
+  /** Threaded replies under this annotation (human or agent). */
+  responses?: FrameAnnotationResponse[];
+}
+
+export interface AddResponseParams {
+  body: string;
+  author?: string;
 }
 
 export interface FrameHistoryEntry {
@@ -75,6 +89,8 @@ export interface FrameService {
   createFrame: (workspacePath: string, filePath: string) => Promise<Frame>;
   addAnnotation: (workspacePath: string, filePath: string, params: AddAnnotationParams) => Promise<Frame>;
   removeAnnotation: (workspacePath: string, filePath: string, annotationId: string) => Promise<Frame | null>;
+  addResponse: (workspacePath: string, filePath: string, annotationId: string, params: AddResponseParams) => Promise<Frame | null>;
+  removeResponse: (workspacePath: string, filePath: string, annotationId: string, responseId: string) => Promise<Frame | null>;
   addHistoryEntry: (workspacePath: string, filePath: string, params: AddHistoryParams) => Promise<Frame>;
   updateInstructions: (workspacePath: string, filePath: string, instructions: string) => Promise<Frame>;
   resolveAnnotations: (workspacePath: string, filePath: string, plainTextCorpus?: string) => Promise<void>;
@@ -175,6 +191,30 @@ async function removeAnnotation(workspacePath: string, filePath: string, annotat
   if (!frame) return null;
 
   frame.annotations = frame.annotations.filter((a) => a.id !== annotationId);
+  return writeFrame(workspacePath, filePath, frame);
+}
+
+async function addResponse(workspacePath: string, filePath: string, annotationId: string, { body, author = 'user' }: AddResponseParams): Promise<Frame | null> {
+  const frame = await readFrame(workspacePath, filePath);
+  if (!frame) return null;
+  const annotation = frame.annotations.find((a) => a.id === annotationId);
+  if (!annotation) return frame;
+  const response: FrameAnnotationResponse = {
+    id: generateId(),
+    author,
+    body,
+    createdAt: new Date().toISOString(),
+  };
+  annotation.responses = [...(annotation.responses ?? []), response];
+  return writeFrame(workspacePath, filePath, frame);
+}
+
+async function removeResponse(workspacePath: string, filePath: string, annotationId: string, responseId: string): Promise<Frame | null> {
+  const frame = await readFrame(workspacePath, filePath);
+  if (!frame) return null;
+  const annotation = frame.annotations.find((a) => a.id === annotationId);
+  if (!annotation || !annotation.responses) return frame;
+  annotation.responses = annotation.responses.filter((r) => r.id !== responseId);
   return writeFrame(workspacePath, filePath, frame);
 }
 
@@ -313,6 +353,8 @@ const frameService: FrameService = {
   createFrame,
   addAnnotation,
   removeAnnotation,
+  addResponse,
+  removeResponse,
   addHistoryEntry,
   updateInstructions,
   resolveAnnotations,

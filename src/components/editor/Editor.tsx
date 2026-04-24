@@ -6,7 +6,7 @@ import {
     TextHOneIcon, TextHTwoIcon, TextHThreeIcon,
     ListBulletsIcon, ListNumbersIcon, QuotesIcon, CodeIcon, CodeBlockIcon,
     TableIcon, MagnifyingGlassPlusIcon, MagnifyingGlassMinusIcon, ChatCircleDotsIcon,
-    WarningIcon,
+    WarningIcon, CaretDownIcon, CaretRightIcon,
 } from '@phosphor-icons/react';
 import { cn } from '@/lib/utils';
 import { useEditor, EditorContent } from '@tiptap/react';
@@ -35,7 +35,7 @@ import type { SlashCommandMenuRef } from './SlashCommandMenu';
 import CommentPanel from './CommentPanel';
 import FrontmatterProperties from './FrontmatterProperties';
 import frameService from '../../services/frameService';
-import type { FrameAnnotation } from '../../services/frameService';
+import type { FrameAnnotation, FrameAnnotationResponse } from '../../services/frameService';
 import fs from '../../services/fileSystem';
 import type { Tab } from '../../types/tab';
 
@@ -187,6 +187,11 @@ const Editor: React.FC<EditorProps> = ({
     const [comments, setComments] = useState<CommentData[]>([]);
     const [showCommentInput, setShowCommentInput] = useState<boolean>(false);
     const [detachedAnnotations, setDetachedAnnotations] = useState<FrameAnnotation[]>([]);
+    const [commentResponses, setCommentResponses] = useState<Record<string, FrameAnnotationResponse[]>>({});
+    const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+    const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
+
+    const toggleThread = (id: string) => setExpandedThreads(prev => ({ ...prev, [id]: !prev[id] }));
     const [commentPortalTarget, setCommentPortalTarget] = useState<HTMLElement | null>(null);
 
     const savedSelectionRef = useRef<SavedSelection | null>(null);
@@ -904,6 +909,19 @@ const Editor: React.FC<EditorProps> = ({
                 const frame = await frameService.readFrame(workspacePath, activeFile.path);
                 if (cancelled) return;
 
+                // Populate the response map for threaded replies.
+                if (frame?.annotations) {
+                    const map: Record<string, FrameAnnotationResponse[]> = {};
+                    for (const ann of frame.annotations) {
+                        if (ann.responses && ann.responses.length > 0) {
+                            map[ann.id] = ann.responses;
+                        }
+                    }
+                    setCommentResponses(map);
+                } else {
+                    setCommentResponses({});
+                }
+
                 const { doc } = editor.state;
                 const { tr } = editor.state;
                 let applied = false;
@@ -1299,6 +1317,47 @@ const Editor: React.FC<EditorProps> = ({
             if (rafId) cancelAnimationFrame(rafId);
         };
     }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const handleAddReply = async (commentId: string): Promise<void> => {
+        if (!workspacePath || !activeFile?.path) return;
+        const body = (replyDrafts[commentId] ?? '').trim();
+        if (!body) return;
+        try {
+            const updated = await frameService.addResponse(workspacePath, activeFile.path, commentId, { body, author: 'user' });
+            if (updated) {
+                const map: Record<string, FrameAnnotationResponse[]> = {};
+                for (const ann of updated.annotations) {
+                    if (ann.responses && ann.responses.length > 0) map[ann.id] = ann.responses;
+                }
+                setCommentResponses(map);
+                recentFrameSaveRef.current = Date.now();
+            }
+            setReplyDrafts((prev) => {
+                const next = { ...prev };
+                delete next[commentId];
+                return next;
+            });
+        } catch (err) {
+            console.warn('[frame] addResponse failed', err);
+        }
+    };
+
+    const handleRemoveReply = async (commentId: string, responseId: string): Promise<void> => {
+        if (!workspacePath || !activeFile?.path) return;
+        try {
+            const updated = await frameService.removeResponse(workspacePath, activeFile.path, commentId, responseId);
+            if (updated) {
+                const map: Record<string, FrameAnnotationResponse[]> = {};
+                for (const ann of updated.annotations) {
+                    if (ann.responses && ann.responses.length > 0) map[ann.id] = ann.responses;
+                }
+                setCommentResponses(map);
+                recentFrameSaveRef.current = Date.now();
+            }
+        } catch (err) {
+            console.warn('[frame] removeResponse failed', err);
+        }
+    };
 
     const resolveComment = (commentId: string): void => {
         if (!editor || !commentId) return;
@@ -1871,6 +1930,72 @@ const Editor: React.FC<EditorProps> = ({
                                 </div>
                                 <div className="text-[13px] text-page-text mb-1.5 whitespace-pre-wrap leading-relaxed">{c.comment}</div>
                                 <div className="text-[11px] text-text-secondary/60 border-l-2 border-warning/40 pl-2 italic line-clamp-2">"{c.text}"</div>
+
+                                {/* Thread toggle + replies (collapsed by default) */}
+                                {(() => {
+                                    const replies = commentResponses[c.id] ?? [];
+                                    const isOpen = !!expandedThreads[c.id];
+                                    return (
+                                        <>
+                                            {replies.length > 0 && (
+                                                <button
+                                                    type="button"
+                                                    className="mt-2 flex items-center gap-1 text-[10px] text-text-tertiary hover:text-text-primary transition-colors"
+                                                    onClick={(e) => { e.stopPropagation(); toggleThread(c.id); }}
+                                                >
+                                                    {isOpen ? <CaretDownIcon size={9} weight="bold" /> : <CaretRightIcon size={9} weight="bold" />}
+                                                    <span>{isOpen ? 'Hide' : 'Show'} {replies.length} repl{replies.length === 1 ? 'y' : 'ies'}</span>
+                                                </button>
+                                            )}
+                                            {isOpen && replies.length > 0 && (
+                                                <ul className="mt-2 space-y-1.5">
+                                                    {replies.map((r) => (
+                                                        <li key={r.id} className="group/reply pl-2 border-l-2 border-accent/40">
+                                                            <div className="flex items-center justify-between mb-0.5">
+                                                                <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">{r.author}</span>
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); handleRemoveReply(c.id, r.id); }}
+                                                                    className="opacity-0 group-hover/reply:opacity-100 text-text-tertiary hover:text-error p-0.5 rounded hover:bg-bg-elevated transition-opacity"
+                                                                    title="Remove reply"
+                                                                >
+                                                                    <XIcon size={10} />
+                                                                </button>
+                                                            </div>
+                                                            <div className="text-[12px] text-page-text whitespace-pre-wrap leading-relaxed">{r.body}</div>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            )}
+                                        </>
+                                    );
+                                })()}
+
+                                {/* Reply composer */}
+                                <div className="mt-2 flex items-start gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                    <textarea
+                                        value={replyDrafts[c.id] ?? ''}
+                                        onChange={(e) => setReplyDrafts((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                                        onFocus={() => setExpandedThreads((prev) => ({ ...prev, [c.id]: true }))}
+                                        onKeyDown={(e) => {
+                                            if ((e.ctrlKey || e.metaKey || e.shiftKey) && e.key === 'Enter') {
+                                                e.preventDefault();
+                                                handleAddReply(c.id);
+                                            }
+                                        }}
+                                        placeholder="Reply…"
+                                        className="flex-1 min-h-[26px] max-h-24 px-2 py-1 rounded border border-border bg-bg-base text-[11px] focus:outline-none focus:border-accent resize-y"
+                                        rows={1}
+                                    />
+                                    {(replyDrafts[c.id] ?? '').trim().length > 0 && (
+                                        <button
+                                            onClick={() => handleAddReply(c.id)}
+                                            className="px-2 h-6 rounded bg-accent text-white text-[10px] font-medium hover:bg-accent-hover"
+                                            title="Send reply (Ctrl+Enter)"
+                                        >
+                                            Send
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         );
                     })}
@@ -1959,6 +2084,72 @@ const Editor: React.FC<EditorProps> = ({
                             <div className="text-sm text-page-text mb-1.5 whitespace-pre-wrap">{c.comment}</div>
                             <div className="text-xs text-text-tertiary border-l-2 border-warning/50 pl-2 italic truncate">
                                 &ldquo;{c.text}&rdquo;
+                            </div>
+
+                            {/* Thread toggle + replies (collapsed by default) */}
+                            {(() => {
+                                const replies = commentResponses[c.id] ?? [];
+                                const isOpen = !!expandedThreads[c.id];
+                                return (
+                                    <>
+                                        {replies.length > 0 && (
+                                            <button
+                                                type="button"
+                                                className="mt-2 flex items-center gap-1 text-[11px] text-text-tertiary hover:text-text-primary transition-colors"
+                                                onClick={(e) => { e.stopPropagation(); toggleThread(c.id); }}
+                                            >
+                                                {isOpen ? <CaretDownIcon size={10} weight="bold" /> : <CaretRightIcon size={10} weight="bold" />}
+                                                <span>{isOpen ? 'Hide' : 'Show'} {replies.length} repl{replies.length === 1 ? 'y' : 'ies'}</span>
+                                            </button>
+                                        )}
+                                        {isOpen && replies.length > 0 && (
+                                            <ul className="mt-2 space-y-1.5">
+                                                {replies.map((r) => (
+                                                    <li key={r.id} className="group/reply pl-3 border-l-2 border-accent/40">
+                                                        <div className="flex items-center justify-between mb-0.5">
+                                                            <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">{r.author}</span>
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); handleRemoveReply(c.id, r.id); }}
+                                                                className="opacity-0 group-hover/reply:opacity-100 text-text-tertiary hover:text-error p-0.5 rounded hover:bg-bg-elevated transition-opacity"
+                                                                title="Remove reply"
+                                                            >
+                                                                <XIcon size={10} />
+                                                            </button>
+                                                        </div>
+                                                        <div className="text-xs text-page-text whitespace-pre-wrap">{r.body}</div>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
+                                    </>
+                                );
+                            })()}
+
+                            {/* Reply composer */}
+                            <div className="mt-2 flex items-start gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                <textarea
+                                    value={replyDrafts[c.id] ?? ''}
+                                    onChange={(e) => setReplyDrafts((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                                    onFocus={() => setExpandedThreads((prev) => ({ ...prev, [c.id]: true }))}
+                                    onKeyDown={(e) => {
+                                        if ((e.ctrlKey || e.metaKey || e.shiftKey) && e.key === 'Enter') {
+                                            e.preventDefault();
+                                            handleAddReply(c.id);
+                                        }
+                                    }}
+                                    placeholder="Reply…"
+                                    className="flex-1 min-h-[28px] max-h-24 px-2 py-1 rounded border border-border bg-bg-base text-xs focus:outline-none focus:border-accent resize-y"
+                                    rows={1}
+                                />
+                                {(replyDrafts[c.id] ?? '').trim().length > 0 && (
+                                    <button
+                                        onClick={() => handleAddReply(c.id)}
+                                        className="px-2 h-7 rounded bg-accent text-white text-[10px] font-medium hover:bg-accent-hover"
+                                        title="Send reply (Ctrl+Enter)"
+                                    >
+                                        Send
+                                    </button>
+                                )}
                             </div>
                         </div>
                     ))}

@@ -4,6 +4,8 @@ import FileExplorer from '../components/ui/FileExplorer';
 import SearchPanel from '../components/ui/SearchPanel';
 import SourceControlPanel from '../components/ui/SourceControlPanel';
 import PluginManager from '../components/ui/PluginManager';
+import AgentsPanel from '../components/ui/AgentsPanel';
+import ReposPanel from '../components/ui/ReposPanel';
 
 // ---------------------------------------------------------------------------
 // Git badge count — written each render by ActivityBar before reading panels
@@ -65,6 +67,24 @@ registerPanel({
   component: SourceControlPanel as unknown as ComponentType<any>,
   order: 2,
   badge: () => (_gitBadgeCount > 0 ? _gitBadgeCount : null),
+});
+
+registerPanel({
+  id: 'agents',
+  label: 'Agents',
+  icon: 'RobotIcon',
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  component: AgentsPanel as unknown as ComponentType<any>,
+  order: 10,
+});
+
+registerPanel({
+  id: 'repos',
+  label: 'Repos',
+  icon: 'GitForkIcon',
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  component: ReposPanel as unknown as ComponentType<any>,
+  order: 11,
 });
 
 registerPanel({

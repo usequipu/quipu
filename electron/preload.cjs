@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openFileDialog: (options) => ipcRenderer.invoke('open-file-dialog', options),
     getHomeDir: () => ipcRenderer.invoke('get-home-dir'),
     readDirectory: (dirPath) => ipcRenderer.invoke('read-directory', dirPath),
+    pathExists: (targetPath) => ipcRenderer.invoke('path-exists', targetPath),
     readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
     writeFile: (filePath, content) => ipcRenderer.invoke('write-file', filePath, content),
     createFile: (filePath) => ipcRenderer.invoke('create-file', filePath),
@@ -56,6 +57,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     gitCommit: (dirPath, message) => ipcRenderer.invoke('git-commit', dirPath, message),
     gitPush: (dirPath) => ipcRenderer.invoke('git-push', dirPath),
     gitPull: (dirPath) => ipcRenderer.invoke('git-pull', dirPath),
+    gitClone: (url, targetDir) => ipcRenderer.invoke('git-clone', { url, targetDir }),
     gitBranches: (dirPath) => ipcRenderer.invoke('git-branches', dirPath),
     gitCheckout: (dirPath, branch) => ipcRenderer.invoke('git-checkout', dirPath, branch),
     gitLog: (dirPath) => ipcRenderer.invoke('git-log', dirPath),
@@ -74,4 +76,50 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listPluginDirs: () => ipcRenderer.invoke('list-plugin-dirs'),
     removePluginDir: (id) => ipcRenderer.invoke('remove-plugin-dir', id),
     downloadAndExtractPlugin: (params) => ipcRenderer.invoke('download-and-extract-plugin', params),
+
+    // Kamalu OAuth
+    kamaluStartOAuth: (signInUrl) => ipcRenderer.invoke('kamalu:start-oauth', { signInUrl }),
+
+    // Agent subprocess (legacy per-turn spawn).
+    agentSpawn: (agentId, options) => ipcRenderer.invoke('agent-spawn', { agentId, options }),
+    agentKill: (spawnId) => ipcRenderer.invoke('agent-kill', { spawnId }),
+
+    // Persistent agent session (stream-json I/O — supports permission prompts).
+    agentSessionStart: (agentId, options) => ipcRenderer.invoke('agent-session-start', { agentId, options }),
+    agentSessionWrite: (sessionKey, payload) => ipcRenderer.send('agent-session-write', { sessionKey, payload }),
+    agentSessionStop: (sessionKey) => ipcRenderer.invoke('agent-session-stop', { sessionKey }),
+    onAgentSessionEvent: (callback) => {
+        const handler = (event, payload) => callback(payload);
+        ipcRenderer.on('agent-session-event', handler);
+        return handler;
+    },
+    removeAgentSessionEventListener: (handler) => {
+        ipcRenderer.removeListener('agent-session-event', handler);
+    },
+    onAgentSessionExit: (callback) => {
+        const handler = (event, payload) => callback(payload);
+        ipcRenderer.on('agent-session-exit', handler);
+        return handler;
+    },
+    removeAgentSessionExitListener: (handler) => {
+        ipcRenderer.removeListener('agent-session-exit', handler);
+    },
+
+    claudeListSlashCommands: (cwd) => ipcRenderer.invoke('claude-list-slash-commands', { cwd }),
+    onAgentEvent: (callback) => {
+        const handler = (event, payload) => callback(payload);
+        ipcRenderer.on('agent-event', handler);
+        return handler;
+    },
+    removeAgentEventListener: (handler) => {
+        ipcRenderer.removeListener('agent-event', handler);
+    },
+    onAgentExit: (callback) => {
+        const handler = (event, payload) => callback(payload);
+        ipcRenderer.on('agent-exit', handler);
+        return handler;
+    },
+    removeAgentExitListener: (handler) => {
+        ipcRenderer.removeListener('agent-exit', handler);
+    },
 });

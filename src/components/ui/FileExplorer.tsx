@@ -3,12 +3,18 @@ import {
   CaretRightIcon, CaretDownIcon, FileIcon as PhFileIcon, FolderIcon, FolderOpenIcon,
   NotebookIcon, FileJsIcon, FileJsxIcon, FileCssIcon, FileHtmlIcon,
   FileCodeIcon, FileMdIcon, FileTextIcon, ArrowClockwiseIcon,
+  CloudIcon, CloudCheckIcon, CircleNotchIcon,
 } from '@phosphor-icons/react';
 import { cn } from '@/lib/utils';
 import { useFileSystem } from '../../context/FileSystemContext';
 import { useTab } from '../../context/TabContext';
+import { useKamalu } from '../../context/KamaluContext';
 import ContextMenu from './ContextMenu';
+import { useToast } from './Toast';
+import SyncKnowledgeBaseDialog from './SyncKnowledgeBaseDialog';
+import PublishKnowledgeBaseDialog from './PublishKnowledgeBaseDialog';
 import type { FileTreeEntry } from '../../types/workspace';
+import type { KamaluBase } from '../../services/kamaluFileSystem';
 
 type PhosphorIconComponent = typeof PhFileIcon;
 
@@ -79,6 +85,7 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
     openFile,
     openTabs,
   } = useTab();
+  const { status: kamaluStatus } = useKamalu();
 
   const [children, setChildren] = useState<FileTreeEntry[]>([]);
   const [contextMenu, setContextMenu] = useState<ContextMenuPosition | null>(null);
@@ -87,6 +94,8 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
   const [isCreating, setIsCreating] = useState<CreatingType>(null);
   const [createValue, setCreateValue] = useState<string>('');
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
+  const [showSyncDialog, setShowSyncDialog] = useState(false);
+  const [showPublishDialog, setShowPublishDialog] = useState(false);
   const renameRef = useRef<HTMLInputElement | null>(null);
   const createRef = useRef<HTMLInputElement | null>(null);
 
@@ -242,6 +251,18 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
         onClick: handleNewDatabase,
       });
       items.push({ separator: true });
+
+      if (kamaluStatus === 'connected') {
+        items.push({
+          label: 'Sync with knowledge base…',
+          onClick: () => { closeContextMenu(); setShowSyncDialog(true); },
+        });
+        items.push({
+          label: 'Publish as knowledge base…',
+          onClick: () => { closeContextMenu(); setShowPublishDialog(true); },
+        });
+        items.push({ separator: true });
+      }
     }
 
     items.push({
@@ -255,7 +276,7 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
     });
 
     return items;
-  }, [entry, handleNewFile, handleNewFolder, handleNewDatabase, handleRenameStart, handleDelete]);
+  }, [entry, handleNewFile, handleNewFolder, handleNewDatabase, handleRenameStart, handleDelete, kamaluStatus, closeContextMenu]);
 
   // --- Drag and drop ---
   const handleDragStart = useCallback((e: React.DragEvent) => {
@@ -353,6 +374,23 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
         />
       )}
 
+      {entry.isDirectory && showSyncDialog && (
+        <SyncKnowledgeBaseDialog
+          open={showSyncDialog}
+          onClose={() => setShowSyncDialog(false)}
+          localFolderPath={entry.path}
+          localFolderName={entry.name}
+        />
+      )}
+      {entry.isDirectory && showPublishDialog && (
+        <PublishKnowledgeBaseDialog
+          open={showPublishDialog}
+          onClose={() => setShowPublishDialog(false)}
+          localFolderPath={entry.path}
+          localFolderName={entry.name}
+        />
+      )}
+
       {entry.isDirectory && isExpanded && (
         <div>
           {isCreating && (
@@ -382,14 +420,203 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
   );
 }
 
+interface RemoteTreeItemProps {
+  entry: FileTreeEntry;
+  baseId: string;
+  depth?: number;
+  isLocal: boolean;
+  workspacePath: string | null;
+}
+
+function RemoteTreeItem({ entry, baseId, depth = 0, isLocal, workspacePath }: RemoteTreeItemProps) {
+  const { fetchRemoteDirectory } = useKamalu();
+  const { openFile } = useTab();
+  const { showToast } = useToast();
+  const [children, setChildren] = useState<FileTreeEntry[]>([]);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleClick = useCallback(async () => {
+    if (entry.isDirectory) {
+      if (!isExpanded) {
+        setIsLoading(true);
+        try {
+          const entries = await fetchRemoteDirectory(baseId, entry.path);
+          setChildren(entries);
+        } finally {
+          setIsLoading(false);
+        }
+      }
+      setIsExpanded(prev => !prev);
+    } else {
+      if (isLocal && workspacePath) {
+        openFile(`${workspacePath}/${entry.path}`, entry.name);
+      } else {
+        showToast('File is not in your local workspace. Pull it first with kamalu-cli.', 'info');
+      }
+    }
+  }, [entry, isExpanded, baseId, isLocal, workspacePath, fetchRemoteDirectory, openFile, showToast]);
+
+  const FileIcon = getFileIcon(entry.name);
+
+  return (
+    <div>
+      <div
+        className="flex items-center h-[26px] mx-1 rounded-md cursor-pointer gap-1 whitespace-nowrap overflow-hidden hover:bg-bg-elevated"
+        style={{ paddingLeft: `${8 + depth * 16}px` }}
+        onClick={handleClick}
+      >
+        {entry.isDirectory ? (
+          isExpanded
+            ? <CaretDownIcon size={14} className="shrink-0 text-text-tertiary" />
+            : <CaretRightIcon size={14} className="shrink-0 text-text-tertiary" />
+        ) : (
+          <span className="shrink-0 w-[14px]" />
+        )}
+        {entry.isDirectory ? (
+          isExpanded
+            ? <FolderOpenIcon size={16} className="shrink-0" />
+            : <FolderIcon size={16} className="shrink-0" />
+        ) : (
+          <FileIcon size={16} className="shrink-0" />
+        )}
+        <span className="overflow-hidden text-ellipsis flex-1 leading-[26px]">{entry.name}</span>
+        {isLoading && <CircleNotchIcon size={12} className="shrink-0 mr-1 text-text-tertiary animate-spin" />}
+      </div>
+      {isExpanded && (
+        <div>
+          {children.map(child => (
+            <RemoteTreeItem
+              key={child.path}
+              entry={child}
+              baseId={baseId}
+              depth={depth + 1}
+              isLocal={isLocal}
+              workspacePath={workspacePath}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KamaluSection() {
+  const { status, bases, activeBase, setActiveBase, fetchRemoteDirectory, detectedConfig } = useKamalu();
+  const { workspacePath } = useFileSystem();
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [rootEntries, setRootEntries] = useState<FileTreeEntry[]>([]);
+  const [isLoadingRoot, setIsLoadingRoot] = useState(false);
+
+  const displayBase = detectedConfig
+    ? (bases.find(b => b.id === detectedConfig.baseId) ?? activeBase)
+    : activeBase;
+
+  const isLocal = !!(detectedConfig && displayBase && detectedConfig.baseId === displayBase.id && workspacePath);
+
+  useEffect(() => {
+    if (status !== 'connected' || !displayBase) {
+      setRootEntries([]);
+      return;
+    }
+    setIsLoadingRoot(true);
+    fetchRemoteDirectory(displayBase.id, '')
+      .then(setRootEntries)
+      .catch(() => setRootEntries([]))
+      .finally(() => setIsLoadingRoot(false));
+  }, [status, displayBase, fetchRemoteDirectory]);
+
+  if (status === 'disconnected' || status === 'error') return null;
+
+  return (
+    <div className="border-t border-border mt-1 pt-1 shrink-0">
+      <div
+        className="h-[35px] flex items-center gap-2 px-3 cursor-pointer select-none hover:bg-bg-elevated"
+        onClick={() => setIsCollapsed(prev => !prev)}
+      >
+        {isCollapsed
+          ? <CaretRightIcon size={14} className="shrink-0 text-text-tertiary" />
+          : <CaretDownIcon size={14} className="shrink-0 text-text-tertiary" />
+        }
+        <span className="flex-1 text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">Kamalu Remote</span>
+        {status === 'connecting' && <CircleNotchIcon size={12} className="shrink-0 text-text-tertiary animate-spin" />}
+        {status === 'connected' && (
+          displayBase
+            ? <CloudCheckIcon size={14} className="shrink-0 text-accent" />
+            : <CloudIcon size={14} className="shrink-0 text-text-tertiary" />
+        )}
+      </div>
+
+      {!isCollapsed && (
+        <div className="overflow-y-auto max-h-64 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb:hover]:bg-text-tertiary [&::-webkit-scrollbar-thumb]:rounded-full">
+          {status === 'connected' && !displayBase && (
+            <div className="px-3 py-1">
+              {bases.length === 0 ? (
+                <p className="text-text-tertiary text-[12px] m-0">No bases found</p>
+              ) : (
+                <div className="flex flex-col gap-0.5">
+                  <p className="text-text-tertiary text-[11px] mb-1">Select a knowledge base:</p>
+                  {bases.map((base: KamaluBase) => (
+                    <button
+                      key={base.id}
+                      className="flex items-center gap-2 h-[26px] px-2 rounded-md text-[12px] text-left text-text-primary hover:bg-bg-elevated transition-colors w-full"
+                      onClick={() => setActiveBase(base)}
+                    >
+                      <CloudIcon size={14} className="shrink-0 text-text-tertiary" />
+                      <span className="truncate">{base.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {status === 'connected' && displayBase && (
+            <div>
+              <div className="flex items-center gap-1.5 px-4 py-0.5">
+                <CloudCheckIcon size={11} className="shrink-0 text-accent" />
+                <span className="text-[11px] text-text-secondary truncate">{displayBase.name}</span>
+              </div>
+              {isLoadingRoot ? (
+                <div className="flex items-center gap-2 px-4 py-2 text-text-tertiary text-[12px]">
+                  <CircleNotchIcon size={12} className="animate-spin" />
+                  <span>Loading...</span>
+                </div>
+              ) : (
+                <div className="py-1">
+                  {rootEntries.map(entry => (
+                    <RemoteTreeItem
+                      key={entry.path}
+                      entry={entry}
+                      baseId={displayBase.id}
+                      depth={0}
+                      isLocal={isLocal}
+                      workspacePath={workspacePath}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function FileExplorer() {
   const { workspacePath, fileTree, openFolder, refreshDirectory, renameEntry, createNewFile, createNewFolder } = useFileSystem();
   const { openFile } = useTab();
+  const { status: kamaluStatus } = useKamalu();
   const [isRootDragOver, setIsRootDragOver] = useState<boolean>(false);
   const [rootContextMenu, setRootContextMenu] = useState<ContextMenuPosition | null>(null);
   const [isRootCreating, setIsRootCreating] = useState<CreatingType>(null);
   const [rootCreateValue, setRootCreateValue] = useState<string>('');
+  const [showRootSync, setShowRootSync] = useState(false);
+  const [showRootPublish, setShowRootPublish] = useState(false);
   const rootCreateRef = useRef<HTMLInputElement | null>(null);
+
+  const workspaceName = workspacePath ? (workspacePath.split('/').pop() ?? 'workspace') : 'workspace';
 
   // Document-level dragend listener to clear all stuck drag highlights
   useEffect(() => {
@@ -418,6 +645,9 @@ export default function FileExplorer() {
     // Only show if clicking on empty space (not on a file tree item)
     if ((e.target as HTMLElement).closest('[data-context="file-tree-item"]')) return;
     e.preventDefault();
+    // Stop the document-level listener in App.tsx from also opening its
+    // fallback "Paste" menu on top of this one.
+    e.stopPropagation();
     setRootContextMenu({ x: e.clientX, y: e.clientY });
   }, [workspacePath]);
 
@@ -522,7 +752,7 @@ export default function FileExplorer() {
         <div className="flex flex-col flex-1 overflow-hidden">
           <div
             className={cn(
-              "flex-1 overflow-y-auto overflow-x-hidden py-1",
+              "flex flex-col flex-1 overflow-y-auto overflow-x-hidden py-1",
               "[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb:hover]:bg-text-tertiary [&::-webkit-scrollbar-thumb]:rounded-full",
               isRootDragOver && "bg-accent/10",
             )}
@@ -551,6 +781,7 @@ export default function FileExplorer() {
             {fileTree.map((entry: FileTreeEntry) => (
               <FileTreeItem key={entry.path} entry={entry} depth={0} />
             ))}
+            <KamaluSection />
 
             {rootContextMenu && (
               <ContextMenu
@@ -558,9 +789,38 @@ export default function FileExplorer() {
                   { label: 'New File', onClick: handleRootNewFile },
                   { label: 'New Folder', onClick: handleRootNewFolder },
                   { label: 'New Database', onClick: handleRootNewDatabase },
+                  ...(kamaluStatus === 'connected'
+                    ? [
+                        { separator: true } as const,
+                        {
+                          label: 'Sync with knowledge base…',
+                          onClick: () => { setRootContextMenu(null); setShowRootSync(true); },
+                        },
+                        {
+                          label: 'Publish as knowledge base…',
+                          onClick: () => { setRootContextMenu(null); setShowRootPublish(true); },
+                        },
+                      ]
+                    : []),
                 ]}
                 position={{ x: rootContextMenu.x, y: rootContextMenu.y }}
                 onClose={() => setRootContextMenu(null)}
+              />
+            )}
+            {showRootSync && workspacePath && (
+              <SyncKnowledgeBaseDialog
+                open={showRootSync}
+                onClose={() => setShowRootSync(false)}
+                localFolderPath={workspacePath}
+                localFolderName={workspaceName}
+              />
+            )}
+            {showRootPublish && workspacePath && (
+              <PublishKnowledgeBaseDialog
+                open={showRootPublish}
+                onClose={() => setShowRootPublish(false)}
+                localFolderPath={workspacePath}
+                localFolderName={workspaceName}
               />
             )}
           </div>

@@ -19,8 +19,17 @@ interface ExtractedFrontmatter {
   body: string;
 }
 
+interface SessionSnapshotEntry {
+  path: string;
+  scrollPosition: number;
+  /** Set for synthetic tabs (e.g. 'agent', 'agent-editor', 'repo-editor'). */
+  type?: string;
+  /** Persisted display name — needed when a synthetic tab can't be rebuilt from its path alone. */
+  name?: string;
+}
+
 interface SessionSnapshot {
-  openFilePaths: Array<{ path: string; scrollPosition: number }>;
+  openFilePaths: Array<SessionSnapshotEntry>;
   activeFilePath: string | null;
   expandedFolders: string[];
 }
@@ -46,6 +55,11 @@ export interface TabContextValue {
 
   // File operations
   openFile: (filePath: string, fileName: string) => Promise<void>;
+  openAgentTab: (agentId: string, agentName: string) => void;
+  openAgentEditorTab: (agentId: string, agentName: string) => void;
+  openRepoEditorTab: (repoId: string, repoName: string) => void;
+  /** Rename any open tab(s) whose `path` matches. Used for agent auto-renames. */
+  renameTabsByPath: (path: string, newName: string) => void;
   saveFile: (editorInstance: Editor | null) => Promise<void>;
   setIsDirty: (dirty: boolean) => void;
   updateTabContent: (tabId: string, content: string | JSONContent) => void;
@@ -251,7 +265,29 @@ export function TabProvider({ children }: TabProviderProps) {
     const savedPaths = session.openFilePaths.slice(0, MAX_TABS);
     const tabsMap = new Map<string, Tab>();
 
-    await Promise.all(savedPaths.map(async ({ path: filePath, scrollPosition }) => {
+    await Promise.all(savedPaths.map(async ({ path: filePath, scrollPosition, type, name: savedName }) => {
+      // Synthetic tabs (agent chat, agent editor, repo editor) don't back onto
+      // disk files — rebuild them in-memory instead of trying to read them.
+      if (type === 'agent' || type === 'agent-editor' || type === 'repo-editor') {
+        tabsMap.set(filePath, {
+          id: crypto.randomUUID(),
+          type,
+          path: filePath,
+          name: savedName ?? filePath.replace(/^[^:]+:\/\//, ''),
+          content: null,
+          tiptapJSON: null,
+          isDirty: false,
+          isQuipu: false,
+          isMarkdown: false,
+          scrollPosition: scrollPosition ?? 0,
+          frontmatter: null,
+          frontmatterRaw: null,
+          diskContent: null,
+          frontmatterCollapsed: true,
+        });
+        return;
+      }
+
       const fileName = filePath.split(/[\\/]/).pop() || '';
       const isPdf = /\.pdf$/i.test(fileName);
       const isMedia = /\.(jpe?g|png|gif|svg|webp|bmp|ico|mp4|webm|ogg|mov)$/i.test(fileName);
@@ -458,6 +494,64 @@ export function TabProvider({ children }: TabProviderProps) {
       showToast('Failed to open file: ' + message, 'error');
     }
   }, [openTabs, showToast, extractFrontmatter]);
+
+  type SyntheticTabType = 'agent' | 'agent-editor' | 'repo-editor';
+
+  const openSyntheticTab = useCallback((tabType: SyntheticTabType, entityId: string, entityName: string) => {
+    const path = `${tabType}://${entityId}`;
+    const existing = openTabs.find(t => t.path === path);
+    if (existing) {
+      setActiveTabId(existing.id);
+      return;
+    }
+    if (openTabs.length >= MAX_TABS) {
+      showToast('Close a tab to open more', 'warning');
+      return;
+    }
+    const isEditor = tabType === 'agent-editor' || tabType === 'repo-editor';
+    const newTab: Tab = {
+      id: crypto.randomUUID(),
+      type: tabType,
+      path,
+      name: isEditor ? `${entityName} — edit` : entityName,
+      content: null,
+      tiptapJSON: null,
+      isDirty: false,
+      isQuipu: false,
+      isMarkdown: false,
+      scrollPosition: 0,
+      frontmatter: null,
+      frontmatterRaw: null,
+      diskContent: null,
+      frontmatterCollapsed: true,
+    };
+    setOpenTabs(prev => [...prev, newTab]);
+    setActiveTabId(newTab.id);
+  }, [openTabs, showToast]);
+
+  const openAgentTab = useCallback((agentId: string, agentName: string) => {
+    openSyntheticTab('agent', agentId, agentName);
+  }, [openSyntheticTab]);
+
+  const openAgentEditorTab = useCallback((agentId: string, agentName: string) => {
+    openSyntheticTab('agent-editor', agentId, agentName);
+  }, [openSyntheticTab]);
+
+  const openRepoEditorTab = useCallback((repoId: string, repoName: string) => {
+    openSyntheticTab('repo-editor', repoId, repoName);
+  }, [openSyntheticTab]);
+
+  const renameTabsByPath = useCallback((path: string, newName: string) => {
+    setOpenTabs(prev => {
+      let changed = false;
+      const next = prev.map(t => {
+        if (t.path !== path || t.name === newName) return t;
+        changed = true;
+        return { ...t, name: newName };
+      });
+      return changed ? next : prev;
+    });
+  }, []);
 
   const closeTab = useCallback((tabId: string) => {
     const tab = openTabs.find(t => t.id === tabId);
@@ -777,6 +871,10 @@ export function TabProvider({ children }: TabProviderProps) {
     isDirty,
     // File operations
     openFile,
+    openAgentTab,
+    openAgentEditorTab,
+    openRepoEditorTab,
+    renameTabsByPath,
     saveFile,
     setIsDirty,
     updateTabContent,

@@ -10,9 +10,9 @@ origin: docs/brainstorms/2026-04-02-kamalu-knowledge-platform-requirements.md
 
 ## Overview
 
-Kamalu is a new multi-repo product: a distributed knowledge management platform combining a filesystem-first knowledge base with real-time collaborative editing, path-based permissions, partial sync, and publishing. Three repos: kamalu-server (TypeScript), kamalu-cli (TypeScript), kamalu (web site, React).
+Kamalu is a two-repo backend product: kamalu-server (TypeScript/Node.js) and kamalu-cli (TypeScript). There is no separate Kamalu web site — Quipu (desktop and browser) is the web UI. Quipu gains a "remote mode" that connects to kamalu-server as a backend, replacing the local filesystem and Go server. Quipu desktop also gets Yjs collaborative editing when connected to a Kamalu remote.
 
-The existing Quipu codebase provides extractable components (TipTap editor, file explorer, UI primitives) that Kamalu's web UI will reuse as shared packages.
+The Kamalu architecture: kamalu-server hosts knowledge bases as real .md files on the filesystem, enforces path-based permissions, provides Yjs collaborative editing via Hocuspocus, and exposes the Kamalu sync protocol for CLI and Quipu desktop access.
 
 ## Problem Frame
 
@@ -26,7 +26,7 @@ Teams accumulate knowledge across Notion, scattered docs/ folders, wikis, and bl
 - R4. Google Docs-style version snapshots in PostgreSQL
 - R5. Path-glob + per-document ACL permissions
 - R6. Server-enforced partial sync via Kamalu protocol
-- R7. Web UI respects permission model
+- R7. Quipu (web + desktop) respects permission model when connected to Kamalu remote
 - R8. Public content for publishing
 - R9. Custom sync protocol (kamalu clone/sync/push/pull)
 - R10. CLI commands for permissions, profiles, history
@@ -34,23 +34,25 @@ Teams accumulate knowledge across Notion, scattered docs/ folders, wikis, and bl
 - R12. TypeScript server, multiple knowledge bases per instance, three API surfaces
 - R13. Yjs document sync via Hocuspocus (in-process)
 - R14. Full-text search with permission-scoped results
-- R15. Bidirectional sync: web edits flush to files, CLI pushes merge into active Yjs sessions
-- R16. Web UI reuses extracted Quipu components
-- R17. Google Docs-style multi-cursor collab via Yjs
-- R18. Publishing: designated public paths auto-publish on save
-- R19. Admin UI for users, teams, permissions, profiles
-- R20. Quipu desktop connects via Kamalu sync protocol
+- R15. Bidirectional sync: Quipu edits flush to files, CLI pushes merge into active Yjs sessions
+- R16. ~~Separate kamalu web site~~ → Quipu IS the web UI; no separate site
+- R17. Google Docs-style multi-cursor collab via Yjs — implemented in Quipu when connected to Kamalu
+- R18. Publishing: designated public paths auto-publish on save (served by kamalu-server)
+- R19. Admin UI: lightweight admin routes served by kamalu-server (not a separate app)
+- R20. Quipu desktop connects to Kamalu server via sync protocol AND Yjs collaborative editing
 - R21. AI agent authentication and partial sync
 - R22. FRAME annotations for AI context
-- R23. Shared component extraction from Quipu
+- R23. ~~Shared component extraction prerequisite~~ → dropped (no separate kamalu site)
 - R24. Description frontmatter indexed for future AI discovery
 
 ## Scope Boundaries
 
+- **Not in scope:** Separate kamalu web site — Quipu is the web UI
 - **Not in scope:** Git compatibility, mobile apps, offline-first web, custom publishing themes, Notion/Confluence migration, end-to-end encryption
 - **Not in scope:** Full Git-style VCS — snapshots only, no commit DAG
-- **Deferred to post-MVP:** R20 (Quipu desktop integration via sync protocol — requires Quipu architecture changes), R21 (dedicated AI agent API — CLI covers basic AI access for now)
-- **Deferred:** Video/audio content, analytics, plugin system, Quipu live-editing toggle, AI context engineering features (browse-before-clone, frontmatter RAG)
+- **Not in scope:** Quipu component extraction into npm packages — dropped since there is no separate kamalu site
+- **Deferred:** R21 (dedicated AI agent API — CLI covers basic AI access for now)
+- **Deferred:** Video/audio content, analytics, plugin system, AI context engineering features (browse-before-clone, frontmatter RAG)
 
 ## Context & Research
 
@@ -123,8 +125,8 @@ Teams accumulate knowledge across Notion, scattered docs/ folders, wikis, and bl
 graph TB
     subgraph "Clients"
         CLI["kamalu-cli<br/>(TypeScript)"]
-        WEB["kamalu site<br/>(React + Yjs)"]
-        QUIPU["Quipu desktop"]
+        QUIPU_B["Quipu browser<br/>(React + Yjs)"]
+        QUIPU_D["Quipu desktop<br/>(Electron + Yjs)"]
     end
 
     subgraph "kamalu-server (TypeScript / Node.js)"
@@ -143,9 +145,10 @@ graph TB
     end
 
     CLI -->|"Kamalu Protocol<br/>(WebSocket)"| SYNC
-    WEB -->|"REST + WebSocket"| REST
-    WEB -->|"Yjs sync<br/>(WebSocket)"| HOCUS
-    QUIPU -->|"Kamalu Protocol"| SYNC
+    QUIPU_B -->|"REST + WebSocket"| REST
+    QUIPU_B -->|"Yjs sync<br/>(WebSocket)"| HOCUS
+    QUIPU_D -->|"Kamalu Protocol<br/>(sync + REST)"| SYNC
+    QUIPU_D -->|"Yjs sync<br/>(WebSocket)"| HOCUS
 
     REST --> PERM
     SYNC --> PERM
@@ -199,62 +202,15 @@ graph TB
 
 ## Implementation Units
 
-### Phase 1: Shared Infrastructure
+### Phase 1: kamalu-server Foundation
 
-- [ ] **Unit 1: Extract shared packages from Quipu**
-
-  **Goal:** Create npm workspace packages for the TipTap editor, file explorer, TipTap extensions, and UI primitives that both Quipu desktop and Kamalu web can consume.
-
-  **Requirements:** R23, R16
-
-  **Dependencies:** None — this is the foundational unit.
-
-  **Files:**
-  **Target repo:** quipu_simple (this repo)
-  - Create: `packages/editor/` — extracted Editor component + TipTap config
-  - Create: `packages/file-explorer/` — extracted FileExplorer with provider interface
-  - Create: `packages/tiptap-extensions/` — RevealMarkdown, BlockDragHandle, FindReplace, WikiLink
-  - Create: `packages/ui/` — shadcn primitives (button, input, badge, collapsible)
-  - Modify: `package.json` — add npm workspaces configuration
-  - Modify: `src/components/Editor.jsx` — import from `@quipu/editor` instead of local
-  - Modify: `src/components/FileExplorer.jsx` — import from `@quipu/file-explorer` instead of local
-  - Test: `packages/editor/__tests__/Editor.test.jsx`
-  - Test: `packages/file-explorer/__tests__/FileExplorer.test.jsx`
-
-  **Approach:**
-  - Editor.jsx is already prop-driven (receives all data from App.jsx, not from context). Extract it with its 11-prop interface intact. Abstract `frameService` dependency behind an optional `onFrameAnnotation` callback prop. Abstract `fileSystem.uploadImage` behind an `onImageUpload` prop.
-  - FileExplorer.jsx deeply couples to `useWorkspace()`. Define a `FileExplorerProvider` context interface with the 11 values it needs (activeFile, expandedFolders, toggleFolder, openFile, etc.). Quipu provides this via WorkspaceContext; Kamalu provides its own implementation.
-  - TipTap extensions are standalone — extract as-is into `@quipu/tiptap-extensions`.
-  - UI primitives are standalone — extract as-is into `@quipu/ui`.
-  - After extraction, Quipu's `src/components/` imports from the packages. Verify Quipu still works identically.
-
-  **Patterns to follow:**
-  - `src/services/fileSystem.js` adapter pattern — same concept of abstracting dependencies behind interfaces
-  - Existing prop contract on Editor.jsx (11 props from App.jsx)
-
-  **Test scenarios:**
-  - Happy path: Extracted Editor renders with all 11 props, all TipTap extensions load, markdown round-trip works
-  - Happy path: Extracted FileExplorer renders a file tree via the provider interface, folder expand/collapse works
-  - Integration: Quipu app imports from packages and renders identically to pre-extraction behavior
-  - Edge case: Editor with no `onFrameAnnotation` callback — FRAME features gracefully disabled
-  - Edge case: FileExplorer with empty file tree — renders empty state
-
-  **Verification:**
-  - Quipu app runs identically after extraction (no visual or behavioral regression)
-  - Packages have no imports from `src/context/`, `src/services/`, or other Quipu-internal modules
-  - Each package has its own `package.json` with correct peer dependencies
-
----
-
-### Phase 2: kamalu-server Foundation
-
-- [ ] **Unit 2: kamalu-server project scaffolding + PostgreSQL schema + auth**
+- [ ] **Unit 1: kamalu-server project scaffolding + PostgreSQL schema + auth**
 
   **Goal:** Create the kamalu-server repo with TypeScript project structure, PostgreSQL schema for all core tables, and JWT-based authentication.
 
   **Requirements:** R1, R2, R5, R12
 
-  **Dependencies:** None (runs in parallel with Unit 1)
+  **Dependencies:** None
 
   **Files:**
   **Target repo:** kamalu-server (new repo)
@@ -292,13 +248,13 @@ graph TB
   - Permission engine correctly handles path-glob matching with per-document overrides
   - Docker Compose brings up the full development environment
 
-- [ ] **Unit 3: File storage engine + REST API**
+- [ ] **Unit 2: File storage engine + REST API**
 
   **Goal:** Implement the file storage layer that manages knowledge base content on the filesystem, syncs metadata to PostgreSQL, and exposes REST endpoints for file CRUD.
 
   **Requirements:** R1, R7, R14, R24
 
-  **Dependencies:** Unit 2 (auth + permissions + schema)
+  **Dependencies:** Unit 1 (auth + permissions + schema)
 
   **Files:**
   **Target repo:** kamalu-server
@@ -337,15 +293,15 @@ graph TB
 
 ---
 
-### Phase 3: Collaborative Editing
+### Phase 2: Collaborative Editing
 
-- [ ] **Unit 4: Hocuspocus integration + Yjs collaborative editing**
+- [ ] **Unit 3: Hocuspocus integration + Yjs collaborative editing**
 
   **Goal:** Add real-time collaborative editing via Hocuspocus running in-process. Documents load from filesystem, Yjs handles live collaboration, and content flushes back to .md files on session end.
 
   **Requirements:** R13, R15, R17
 
-  **Dependencies:** Unit 3 (file storage engine)
+  **Dependencies:** Unit 2 (file storage engine)
 
   **Files:**
   **Target repo:** kamalu-server
@@ -362,7 +318,7 @@ graph TB
   - Hocuspocus `onLoadDocument`: check PostgreSQL for existing Yjs state (BYTEA). If none, read .md from filesystem, parse frontmatter, convert body to ProseMirror JSON via tiptap-markdown, create Y.Doc and apply.
   - Hocuspocus `onStoreDocument` (debounced, ~2s): persist Yjs state to PostgreSQL, serialize Y.Doc to markdown via `@tiptap/static-renderer`, write .md file to filesystem, update metadata cache.
   - **CLI push into active session**: when the file watcher detects a change to a file with an active Hocuspocus document, read the new file content, parse to ProseMirror JSON, convert to Y.Doc updates, and merge into the active document. CRDT merge handles conflicts. Notify connected web clients.
-  - **Critical**: TipTap extensions used server-side for rendering must match the client-side extensions exactly. The `@quipu/tiptap-extensions` package (from Unit 1) provides the shared list.
+  - **Critical**: TipTap extensions used server-side for rendering must match the client-side extensions exactly (same list as Quipu's editor).
 
   **Test scenarios:**
   - Happy path: Open document for editing -> Yjs state created from .md file -> edit -> close session -> .md file updated on disk
@@ -381,15 +337,15 @@ graph TB
 
 ---
 
-### Phase 4: Sync Protocol + CLI
+### Phase 3: Sync Protocol + CLI
 
-- [ ] **Unit 5: Kamalu sync protocol implementation**
+- [ ] **Unit 4: Kamalu sync protocol implementation**
 
   **Goal:** Implement the server-side sync protocol handler and the kamalu-cli that speaks it. Enables partial clone/sync of knowledge bases with permission filtering.
 
   **Requirements:** R6, R9, R10, R11
 
-  **Dependencies:** Unit 3 (file storage + permissions)
+  **Dependencies:** Unit 2 (file storage + permissions)
 
   **Files:**
   **Target repo:** kamalu-server
@@ -439,69 +395,73 @@ graph TB
 
 ---
 
-### Phase 5: Web UI
+### Phase 4: Quipu ↔ Kamalu Integration
 
-- [ ] **Unit 6: kamalu site — document browser, editor, and admin**
+- [ ] **Unit 5: Quipu remote mode — connect to kamalu-server as a backend**
 
-  **Goal:** Create the kamalu web application using extracted Quipu components for document browsing and editing, plus admin interfaces for users, teams, permissions, and profiles.
+  **Goal:** Add kamalu-server as a remote backend option to Quipu (both desktop and browser). When connected to a Kamalu remote, Quipu uses kamalu-server's REST API for file operations, Hocuspocus for Yjs collaborative editing (with live multi-cursor presence), and the Kamalu sync protocol for desktop offline/online transitions.
 
-  **Requirements:** R7, R16, R17, R19
+  **Requirements:** R7, R15, R17, R20
 
-  **Dependencies:** Unit 1 (shared packages), Unit 4 (Hocuspocus)
+  **Dependencies:** Unit 3 (Hocuspocus), Unit 4 (sync protocol)
 
   **Files:**
-  **Target repo:** kamalu (new repo)
-  - Create: `package.json` — React, Vite, TipTap, Yjs, @hocuspocus/provider, @quipu/* packages
-  - Create: `src/App.tsx` — root layout with sidebar + document area
-  - Create: `src/components/DocumentEditor.tsx` — wraps @quipu/editor with Yjs collaboration
-  - Create: `src/components/KnowledgeExplorer.tsx` — wraps @quipu/file-explorer with Kamalu backend
-  - Create: `src/components/AdminPanel.tsx` — user/team/permission/profile management
-  - Create: `src/components/VersionHistory.tsx` — snapshot browser and restore UI
-  - Create: `src/providers/KamaluWorkspaceProvider.tsx` — implements FileExplorerProvider for Kamalu backend
-  - Create: `src/services/api.ts` — REST API client for kamalu-server
-  - Create: `src/services/collab.ts` — HocuspocusProvider setup with JWT auth
-  - Create: `src/hooks/useAuth.ts` — authentication state and token management
-  - Test: `src/__tests__/DocumentEditor.test.tsx`
-  - Test: `src/__tests__/AdminPanel.test.tsx`
+  **Target repo:** quipu_simple
+  - Create: `src/services/kamaluService.ts` — REST API client for kamalu-server (file CRUD, search, snapshots, permissions)
+  - Create: `src/services/kamaluSync.ts` — Kamalu sync protocol client for Quipu desktop (WebSocket, clone/push/pull)
+  - Create: `src/services/kamaluCollab.ts` — HocuspocusProvider setup, JWT auth, reconnection logic
+  - Modify: `src/services/fileSystem.ts` — add `kamalu` runtime adapter alongside `electron` and `browser`
+  - Create: `src/context/KamaluContext.tsx` — remote workspace state: server URL, active knowledge base, auth token, connection status
+  - Modify: `src/context/WorkspaceContext.tsx` — compose KamaluProvider when in kamalu mode
+  - Create: `src/components/ui/KamaluConnect.tsx` — connect-to-server dialog (URL + login), knowledge base picker
+  - Create: `src/components/ui/CollaborationCursors.tsx` — render remote user cursors + presence in the editor
+  - Modify: `src/components/editor/Editor.tsx` — conditionally add `Collaboration` + `CollaborationCursor` TipTap extensions when a Hocuspocus provider is active; disable built-in History extension in that mode
+  - Modify: `src/components/ui/TabBar.tsx` — show collaboration presence avatars when in kamalu mode
+  - Create: `src/components/ui/VersionHistory.tsx` — browse snapshots, restore previous version (calls kamalu-server REST API)
+  - Test: `src/services/__tests__/kamaluService.test.ts`
+  - Test: `src/components/__tests__/KamaluConnect.test.tsx`
 
   **Approach:**
-  - The web app consumes `@quipu/editor`, `@quipu/file-explorer`, `@quipu/tiptap-extensions`, and `@quipu/ui` packages.
-  - `DocumentEditor` wraps the extracted editor and adds Yjs collaboration (Collaboration + CollaborationCursor extensions, HocuspocusProvider for WebSocket connection). **Disables built-in history** in favor of Yjs undo manager.
-  - `KamaluWorkspaceProvider` implements the `FileExplorerProvider` interface by calling kamalu-server REST API instead of local filesystem. File tree is permission-filtered server-side.
-  - Admin panel: CRUD for users, teams, permissions (path-glob rules), profiles. Calls REST API.
-  - Version history: list snapshots for a document, preview a snapshot, restore to a previous version.
-  - Auth: login page, JWT token storage in httpOnly cookies or localStorage, token refresh.
+  - The existing dual-runtime adapter pattern (`isElectron() ? electronFS : browserFS`) gains a third branch: `isKamalu() ? kamaluFS : ...`. `isKamalu()` returns true when `KamaluContext` has an active server connection.
+  - `kamaluService.ts` implements the same interface as `fileSystem.ts` — same method signatures, different transport (REST to kamalu-server instead of local FS or Electron IPC).
+  - Yjs collaboration: when opening a file on a Kamalu remote, `kamaluCollab.ts` creates a `HocuspocusProvider` connected to `wss://{server}/collab/{base}/{filePath}` with the JWT. The Editor receives this provider and activates the `Collaboration` extension. On disconnect (tab close, desktop going offline), the provider's disconnect handler fires — Hocuspocus persists Yjs state to PostgreSQL server-side.
+  - Reconnection follows the pattern from `docs/solutions/integration-issues/terminal-websocket-reconnection.md`: `intentionalClose` flag, max retries, progressive UI feedback via toast.
+  - Desktop sync: Quipu desktop can also use `kamalu sync` semantics — pull changes when coming back online, push local edits. `kamaluSync.ts` implements the sync protocol client (reusing logic from kamalu-cli's `src/sync/client.ts`).
+  - Auth: JWT stored in localStorage (browser) or OS keychain via Electron's `safeStorage` (desktop). Token refresh handled by `kamaluService.ts`.
 
   **Patterns to follow:**
-  - `src/context/WorkspaceContext.jsx` — reference for the provider pattern (but cleaner, without the god-object anti-pattern)
-  - `src/components/Editor.jsx` prop contract — same 11 props, plus collaboration-specific additions
-  - Tailwind CSS v4, Phosphor Icons, cn() utility — same design language as Quipu
+  - `src/services/fileSystem.ts` — adapter pattern for the runtime switch
+  - `src/context/TabContext.tsx` — file operation patterns (openFile, saveFile, conflict resolution)
+  - `docs/solutions/integration-issues/terminal-websocket-reconnection.md` — WebSocket reconnection with intentionalClose flag
 
   **Test scenarios:**
-  - Happy path: Log in -> see knowledge base file tree (permission-filtered) -> open document -> edit -> see changes saved
-  - Happy path: Two users open same document -> see each other's cursors -> edits merge
-  - Happy path: Admin creates team, assigns permissions, creates profile -> team member clones with profile
-  - Happy path: Browse version history -> see auto-snapshots -> restore previous version
-  - Error path: Open document without edit permission -> read-only mode
-  - Error path: Session expires -> prompted to re-login, no data loss
-  - Edge case: Open 10 documents in tabs -> switch between them without losing unsaved changes
+  - Happy path: Open KamaluConnect dialog -> enter server URL + credentials -> connect -> see knowledge base file tree (permission-filtered) -> open file -> edit -> edits save to server filesystem
+  - Happy path: Two Quipu tabs open same kamalu document -> see each other's cursors -> edits merge via Yjs CRDT
+  - Happy path: Open version history panel -> see auto-snapshots -> restore a previous version -> document reverts
+  - Happy path: Quipu desktop goes offline -> edits buffered locally -> comes back online -> sync resolves
+  - Error path: Kamalu server unreachable -> clear error toast, local editing still works for already-loaded content
+  - Error path: JWT expires mid-session -> prompt for re-login, no data loss
+  - Error path: Open file without edit permission -> editor renders read-only
+  - Edge case: Switch from local workspace to kamalu remote and back -> no state bleed between modes
+  - Integration: CLI push while Quipu has same document open -> Yjs CRDT merges change -> cursor not disrupted
 
   **Verification:**
-  - Notion-like experience: sidebar file tree, document editor, real-time collaboration
-  - Permission model enforced: users see only what they're allowed to
-  - Collaboration works: multiple cursors, live presence, CRDT merge
+  - Quipu connects to a running kamalu-server and shows the knowledge base file tree
+  - Two Quipu instances editing the same document show live multi-cursor presence
+  - `npm run dev` (local mode) still works identically — kamalu mode is additive, not a breaking change
+  - Quipu desktop: file edits made offline are pushed on reconnect without data loss
 
 ---
 
-### Phase 6: Features
+### Phase 5: Features
 
-- [ ] **Unit 7: Version snapshots + publishing**
+- [ ] **Unit 6: Version snapshots + publishing**
 
   **Goal:** Implement Google Docs-style version history and public page publishing.
 
   **Requirements:** R4, R8, R18
 
-  **Dependencies:** Unit 4 (Hocuspocus flush), Unit 3 (file storage)
+  **Dependencies:** Unit 3 (Hocuspocus flush), Unit 2 (file storage)
 
   **Files:**
   **Target repo:** kamalu-server
@@ -534,13 +494,13 @@ graph TB
   - Restoring a snapshot updates the .md file and any active editing session
   - Public pages are accessible without authentication at the expected URLs
 
-- [ ] **Unit 8: FRAME annotations + frontmatter indexing**
+- [ ] **Unit 7: FRAME annotations + frontmatter indexing**
 
   **Goal:** Implement FRAME annotation support (sidecar .frame.json files) and frontmatter description indexing for future AI discovery.
 
   **Requirements:** R3, R22, R24
 
-  **Dependencies:** Unit 3 (file storage)
+  **Dependencies:** Unit 2 (file storage)
 
   **Files:**
   **Target repo:** kamalu-server
@@ -579,8 +539,8 @@ graph TB
 - **Error propagation:** Hocuspocus connection errors surface as toast notifications in the web UI and reconnection attempts. REST API errors return structured JSON with status codes. CLI errors print to stderr with exit codes.
 - **State lifecycle risks:** Yjs state in memory during editing is vulnerable to server crashes. Mitigation: debounced PostgreSQL persistence (every ~2s). On restart, Hocuspocus rehydrates from PostgreSQL. Worst case: loss of last ~2s of edits.
 - **API surface parity:** REST API and sync protocol must enforce the same permission rules. Publishing API bypasses auth for designated public paths only.
-- **Integration coverage:** The critical cross-layer flow is: CLI push -> file watcher -> active Yjs session merge -> web client notification. This must be tested end-to-end.
-- **Unchanged invariants:** The Quipu desktop app continues to work with its existing Go server for local files. Component extraction (Unit 1) must not break Quipu's existing behavior.
+- **Integration coverage:** The critical cross-layer flows are: (1) CLI push -> file watcher -> active Yjs session merge -> Quipu client notification; (2) Quipu edit -> Hocuspocus flush -> .md file on disk. Both must be tested end-to-end.
+- **Unchanged invariants:** Quipu continues to work in local mode (Electron + local Go server + browser + local Go server) when not connected to a Kamalu remote. Kamalu mode is additive — it must not break existing Quipu behavior.
 
 ## Risks & Dependencies
 
@@ -590,27 +550,24 @@ graph TB
 | Hocuspocus memory pressure with many concurrent documents | Configure document eviction (unload after N minutes of inactivity). Monitor memory usage. Set per-instance document limits. |
 | Permission evaluation becomes slow for large file trees | Cache permission results per-request. Denormalize effective permissions into a materialized view if needed. |
 | CLI push into active Yjs session produces unexpected merge results | Test CRDT merge behavior thoroughly. Add "file locked" fallback mode for safety-critical documents. |
-| Component extraction breaks Quipu desktop | Run Quipu's existing tests after extraction. Manual testing of critical flows. |
-| Three-repo development coordination | Use consistent versioning for shared packages. Pin package versions in consuming repos. |
+| Quipu kamalu mode breaks local mode | Keep kamalu adapter behind `isKamalu()` guard. Run full Quipu test suite after each Quipu change. |
+| Two-repo development coordination | kamalu-server and kamalu-cli share the sync protocol types — keep them in sync. |
 
 ## Phased Delivery
 
-### Phase 1: Shared Infrastructure (Units 1-2)
-Component extraction + server scaffolding. Can run in parallel. Exit criteria: Quipu works with extracted packages, kamalu-server starts with auth + permissions.
+### Phase 1: kamalu-server Foundation (Units 1-2)
+Server scaffolding + file storage. Can run in parallel (Unit 1 + Unit 2 after Unit 1 completes). Exit criteria: kamalu-server starts, auth + permissions work, files on disk, permission-filtered REST API.
 
-### Phase 2: Core Server (Unit 3)
-File storage engine + REST API. Exit criteria: files on disk, metadata in PostgreSQL, permission-filtered API.
+### Phase 2: Collaborative Editing (Unit 3)
+Hocuspocus integration. Exit criteria: two Quipu browser tabs can collaboratively edit a document on kamalu-server, changes flush to .md files.
 
-### Phase 3: Collaborative Editing (Unit 4)
-Hocuspocus integration. Exit criteria: two browsers can collaboratively edit a document, changes flush to .md files.
-
-### Phase 4: Sync + CLI (Unit 5)
+### Phase 3: Sync + CLI (Unit 4)
 Kamalu sync protocol + CLI. Exit criteria: `kamalu clone` + `kamalu push` + `kamalu pull` work with permission filtering.
 
-### Phase 5: Web UI (Unit 6)
-Full web application. Exit criteria: Notion-like experience with collab, admin panel, version history.
+### Phase 4: Quipu Integration (Unit 5)
+Quipu remote mode. Exit criteria: Quipu connects to kamalu-server, file tree is permission-filtered, collaborative editing works with live multi-cursor presence, desktop sync works.
 
-### Phase 6: Features (Units 7-8)
+### Phase 5: Features (Units 6-7)
 Snapshots, publishing, FRAME annotations. Exit criteria: version history, public pages, AI-readable annotations.
 
 ## Alternative Approaches Considered

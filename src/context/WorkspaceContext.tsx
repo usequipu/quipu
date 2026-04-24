@@ -3,9 +3,28 @@ import storage from '../services/storageService';
 import { FileSystemProvider, useFileSystem } from './FileSystemContext';
 import { TabProvider, useTab } from './TabContext';
 import { TerminalProvider } from './TerminalContext';
+import { KamaluProvider, useKamalu } from './KamaluContext';
+import { AgentProvider } from './AgentContext';
+import { RepoProvider } from './RepoContext';
+
+function KamaluWorkspaceSync() {
+  const { workspacePath } = useFileSystem();
+  const { notifyWorkspacePath } = useKamalu();
+  useEffect(() => {
+    if (workspacePath) notifyWorkspacePath(workspacePath);
+  }, [workspacePath, notifyWorkspacePath]);
+  return null;
+}
+
+interface SessionSnapshotEntry {
+  path: string;
+  scrollPosition: number;
+  type?: string;
+  name?: string;
+}
 
 interface SessionSnapshot {
-  openFilePaths: Array<{ path: string; scrollPosition: number }>;
+  openFilePaths: Array<SessionSnapshotEntry>;
   activeFilePath: string | null;
   expandedFolders: string[];
 }
@@ -25,7 +44,11 @@ function SessionPersistence({ children }: { children: React.ReactNode }) {
       const snapshot: SessionSnapshot = {
         openFilePaths: openTabs
           .filter(t => t.path)
-          .map(t => ({ path: t.path, scrollPosition: t.scrollPosition ?? 0 })),
+          .map(t => ({
+            path: t.path,
+            scrollPosition: t.scrollPosition ?? 0,
+            ...(t.type ? { type: t.type, name: t.name } : {}),
+          })),
         activeFilePath: openTabs.find(t => t.id === activeTabId)?.path ?? null,
         expandedFolders: [...expandedFolders],
       };
@@ -47,14 +70,21 @@ function SessionPersistence({ children }: { children: React.ReactNode }) {
  */
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   return (
-    <FileSystemProvider>
-      <TabProvider>
-        <TerminalProvider>
-          <SessionPersistence>
-            {children}
-          </SessionPersistence>
-        </TerminalProvider>
-      </TabProvider>
-    </FileSystemProvider>
+    <KamaluProvider>
+      <FileSystemProvider>
+        <TabProvider>
+          <RepoProvider>
+            <AgentProvider>
+              <TerminalProvider>
+                <SessionPersistence>
+                  <KamaluWorkspaceSync />
+                  {children}
+                </SessionPersistence>
+              </TerminalProvider>
+            </AgentProvider>
+          </RepoProvider>
+        </TabProvider>
+      </FileSystemProvider>
+    </KamaluProvider>
   );
 }
