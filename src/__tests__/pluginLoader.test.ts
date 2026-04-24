@@ -24,15 +24,12 @@ const makeElectronApi = (overrides: Record<string, unknown> = {}) =>
     writePluginsConfig: vi.fn().mockResolvedValue({ success: true }),
     getQuipuDir: vi.fn().mockResolvedValue(MOCK_QUIPU_DIR),
     readFile: vi.fn().mockResolvedValue(null),
+    pathExists: vi.fn().mockResolvedValue(true),
     listPluginDirs: vi.fn().mockResolvedValue([]),
     removePluginDir: vi.fn().mockResolvedValue({ success: true }),
     downloadAndExtractPlugin: vi.fn().mockResolvedValue({ success: true }),
     ...overrides,
   }) as unknown as typeof window.electronAPI;
-
-// ---------------------------------------------------------------------------
-// validateManifest (pure function — tested independently)
-// ---------------------------------------------------------------------------
 
 describe('validateManifest', () => {
   let validateManifest: typeof import('../services/pluginLoader')['validateManifest'];
@@ -72,9 +69,7 @@ describe('validateManifest', () => {
     if (!result.valid) expect(result.reason).toMatch(/id/);
   });
 
-  it('rejects id starting with a number that would fail regex', () => {
-    // ids starting with a digit followed by valid chars are actually OK per regex
-    // but ids with capital letters are not
+  it('rejects id with capital letters', () => {
     const result = validateManifest({
       id: 'MyPlugin',
       name: 'My Plugin',
@@ -101,7 +96,6 @@ describe('validateManifest', () => {
   });
 
   it('rejects incompatible quipuVersion range', () => {
-    // Host version is 0.0.0 in tests (VITE_APP_VERSION not set)
     const result = validateManifest({
       id: 'my-plugin',
       name: 'My Plugin',
@@ -143,10 +137,6 @@ describe('validateManifest', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Browser mode (no-op stub)
-// ---------------------------------------------------------------------------
-
 describe('pluginLoader — browser runtime', () => {
   let pluginLoader: typeof import('../services/pluginLoader')['default'];
   let isElectron: typeof import('../services/pluginLoader')['isElectron'];
@@ -169,10 +159,6 @@ describe('pluginLoader — browser runtime', () => {
     expect(result.errors).toEqual([]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Electron mode — config edge cases
-// ---------------------------------------------------------------------------
 
 describe('pluginLoader — Electron runtime, config handling', () => {
   let pluginLoader: typeof import('../services/pluginLoader')['default'];
@@ -219,13 +205,8 @@ describe('pluginLoader — Electron runtime, config handling', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Electron mode — manifest validation errors
-// ---------------------------------------------------------------------------
-
 describe('pluginLoader — Electron runtime, manifest validation', () => {
   let pluginLoader: typeof import('../services/pluginLoader')['default'];
-  let importFromBlobUrl: typeof import('../services/pluginLoader')['importFromBlobUrl'];
 
   const validManifest = JSON.stringify({
     id: 'valid-plugin',
@@ -241,12 +222,11 @@ describe('pluginLoader — Electron runtime, manifest validation', () => {
       readPluginsConfig: vi.fn().mockResolvedValue(
         JSON.stringify({ plugins: [{ id: 'some-plugin', enabled: true }] })
       ),
-      readFile: vi.fn().mockResolvedValue(null), // manifest not found by default
+      readFile: vi.fn().mockResolvedValue(null),
     });
     vi.resetModules();
     const mod = await import('../services/pluginLoader');
     pluginLoader = mod.default;
-    importFromBlobUrl = mod.importFromBlobUrl;
   });
 
   afterEach(() => {
@@ -254,7 +234,6 @@ describe('pluginLoader — Electron runtime, manifest validation', () => {
   });
 
   it('collects error when manifest.json not found', async () => {
-    // readFile returns null → ENOENT
     const result = await pluginLoader.loadAll(makeApi());
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].id).toBe('some-plugin');
@@ -299,20 +278,13 @@ describe('pluginLoader — Electron runtime, manifest validation', () => {
   });
 
   it('collects error when entry file is not found', async () => {
-    // First call (manifest) returns the valid manifest; second call (entry) returns null
-    const readFileMock = window.electronAPI!.readFile as ReturnType<typeof vi.fn>;
-    readFileMock
-      .mockResolvedValueOnce(validManifest)  // manifest read
-      .mockResolvedValueOnce(null);          // entry read → not found
+    (window.electronAPI!.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(validManifest);
+    (window.electronAPI!.pathExists as ReturnType<typeof vi.fn>).mockResolvedValue(false);
     const result = await pluginLoader.loadAll(makeApi());
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].reason).toMatch(/entry not found/);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Electron mode — error isolation and successful load
-// ---------------------------------------------------------------------------
 
 describe('pluginLoader — Electron runtime, error isolation and init', () => {
   let pluginLoader: typeof import('../services/pluginLoader')['default'];
@@ -327,12 +299,11 @@ describe('pluginLoader — Electron runtime, error isolation and init', () => {
       quipuVersion: '*',
     });
 
-  const PLUGIN_SOURCE = `export function init(api) { api.register({ id: 'test' }); }`;
-
   beforeEach(async () => {
     window.electronAPI = makeElectronApi({
       readPluginsConfig: vi.fn(),
       readFile: vi.fn(),
+      pathExists: vi.fn().mockResolvedValue(true),
     });
     vi.resetModules();
     const mod = await import('../services/pluginLoader');
@@ -353,19 +324,15 @@ describe('pluginLoader — Electron runtime, error isolation and init', () => {
       })
     );
 
-    const readFileMock = window.electronAPI!.readFile as ReturnType<typeof vi.fn>;
-    readFileMock
+    (window.electronAPI!.readFile as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce(validManifest('bad-plugin'))
-      .mockResolvedValueOnce(PLUGIN_SOURCE)
-      .mockResolvedValueOnce(validManifest('good-plugin'))
-      .mockResolvedValueOnce(PLUGIN_SOURCE);
+      .mockResolvedValueOnce(validManifest('good-plugin'));
 
-    // Use _importFromBlobUrl option to inject mock importers
     const mockImporter = vi.fn()
-      .mockResolvedValueOnce({ init: () => { throw new Error('boom'); } })  // bad-plugin
-      .mockResolvedValueOnce({ init: vi.fn() });                            // good-plugin
+      .mockResolvedValueOnce({ init: () => { throw new Error('boom'); } })
+      .mockResolvedValueOnce({ init: vi.fn() });
 
-    const result = await pluginLoader.loadAll(makeApi(), { _importFromBlobUrl: mockImporter });
+    const result = await pluginLoader.loadAll(makeApi(), { _importPlugin: mockImporter });
 
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].id).toBe('bad-plugin');
@@ -380,12 +347,12 @@ describe('pluginLoader — Electron runtime, error isolation and init', () => {
     (window.electronAPI!.readPluginsConfig as ReturnType<typeof vi.fn>).mockResolvedValue(
       JSON.stringify({ plugins: [{ id: 'no-init', enabled: true }] })
     );
-    (window.electronAPI!.readFile as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(validManifest('no-init'))
-      .mockResolvedValueOnce(PLUGIN_SOURCE);
+    (window.electronAPI!.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+      validManifest('no-init')
+    );
 
     const result = await pluginLoader.loadAll(makeApi(), {
-      _importFromBlobUrl: vi.fn().mockResolvedValueOnce({ notInit: vi.fn() }),
+      _importPlugin: vi.fn().mockResolvedValueOnce({ notInit: vi.fn() }),
     });
 
     expect(result.errors).toHaveLength(1);
@@ -396,18 +363,32 @@ describe('pluginLoader — Electron runtime, error isolation and init', () => {
     (window.electronAPI!.readPluginsConfig as ReturnType<typeof vi.fn>).mockResolvedValue(
       JSON.stringify({ plugins: [{ id: 'my-plugin', enabled: true }] })
     );
-    (window.electronAPI!.readFile as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(validManifest('my-plugin'))
-      .mockResolvedValueOnce(PLUGIN_SOURCE);
+    (window.electronAPI!.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+      validManifest('my-plugin')
+    );
 
     const initFn = vi.fn();
     const api = makeApi();
     await pluginLoader.loadAll(api, {
-      _importFromBlobUrl: vi.fn().mockResolvedValueOnce({ init: initFn }),
+      _importPlugin: vi.fn().mockResolvedValueOnce({ init: initFn }),
     });
 
     expect(initFn).toHaveBeenCalledOnce();
     expect(initFn).toHaveBeenCalledWith(api);
+  });
+
+  it('imports plugin via quipu-plugin:// URL built from manifest entry', async () => {
+    (window.electronAPI!.readPluginsConfig as ReturnType<typeof vi.fn>).mockResolvedValue(
+      JSON.stringify({ plugins: [{ id: 'excalidraw-plugin', enabled: true }] })
+    );
+    (window.electronAPI!.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+      validManifest('excalidraw-plugin')
+    );
+
+    const importer = vi.fn().mockResolvedValueOnce({ init: vi.fn() });
+    await pluginLoader.loadAll(makeApi(), { _importPlugin: importer });
+
+    expect(importer).toHaveBeenCalledWith('quipu-plugin://excalidraw-plugin/index.js');
   });
 
   it('calls registerKeybinding for each valid keybinding in manifest contributes', async () => {
@@ -422,8 +403,8 @@ describe('pluginLoader — Electron runtime, error isolation and init', () => {
         keybindings: [
           { command: 'git.commit', key: 'ctrl+shift+g', mac: 'cmd+shift+g' },
           { command: 'git.push', key: 'ctrl+shift+p' },
-          { key: 'ctrl+x' },         // missing command — should be skipped
-          { command: 'x', key: '' }, // empty key — should be skipped
+          { key: 'ctrl+x' },
+          { command: 'x', key: '' },
         ],
       },
     });
@@ -431,17 +412,14 @@ describe('pluginLoader — Electron runtime, error isolation and init', () => {
     (window.electronAPI!.readPluginsConfig as ReturnType<typeof vi.fn>).mockResolvedValue(
       JSON.stringify({ plugins: [{ id: 'kb-plugin', enabled: true }] })
     );
-    (window.electronAPI!.readFile as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(manifest)
-      .mockResolvedValueOnce(PLUGIN_SOURCE);
+    (window.electronAPI!.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(manifest);
 
     const registerKeybinding = vi.fn();
     await pluginLoader.loadAll(makeApi(), {
-      _importFromBlobUrl: vi.fn().mockResolvedValueOnce({ init: vi.fn() }),
+      _importPlugin: vi.fn().mockResolvedValueOnce({ init: vi.fn() }),
       registerKeybinding,
     });
 
-    // Only the 2 valid entries should be registered
     expect(registerKeybinding).toHaveBeenCalledTimes(2);
     expect(registerKeybinding).toHaveBeenCalledWith({
       key: 'ctrl+shift+g',

@@ -10,14 +10,7 @@ import type {
 import type { ExtensionDescriptor } from '../types/extensions';
 import type { KeybindingEntry } from '../extensions/keybindingRegistry';
 
-// ---------------------------------------------------------------------------
-// App version (set by vite.config.ts in U7; falls back to '0.0.0' until then)
-// ---------------------------------------------------------------------------
 const APP_VERSION: string = import.meta.env.VITE_APP_VERSION ?? '0.0.0';
-
-// ---------------------------------------------------------------------------
-// Manifest types
-// ---------------------------------------------------------------------------
 
 interface KeybindingDeclaration {
   command: string;
@@ -48,10 +41,6 @@ export interface PluginsConfig {
   plugins: PluginsConfigEntry[];
 }
 
-// ---------------------------------------------------------------------------
-// Public service interface
-// ---------------------------------------------------------------------------
-
 export interface PluginLoadResult {
   loaded: { id: string; name: string }[];
   errors: { id: string; reason: string }[];
@@ -68,19 +57,16 @@ export interface PluginLoaderOptions {
    */
   registerKeybinding?: (entry: KeybindingEntry) => void;
   /**
-   * Override the Blob URL dynamic import. Used in tests to avoid real ES module
-   * imports which aren't supported in jsdom.
+   * Override the dynamic import. Tests pass a stub because jsdom cannot
+   * resolve `quipu-plugin://` URLs. Production resolves via the Electron
+   * protocol handler (see electron/main.cjs).
    */
-  _importFromBlobUrl?: (source: string) => Promise<unknown>;
+  _importPlugin?: (url: string) => Promise<unknown>;
 }
 
 export interface PluginLoaderService {
   loadAll(api: PluginApi, options?: PluginLoaderOptions): Promise<PluginLoadResult>;
 }
-
-// ---------------------------------------------------------------------------
-// createPluginApi factory
-// ---------------------------------------------------------------------------
 
 interface PluginApiFactoryParams {
   register: (descriptor: ExtensionDescriptor) => void;
@@ -90,10 +76,6 @@ interface PluginApiFactoryParams {
   services: PluginApi['services'];
 }
 
-/**
- * Constructs the PluginApi object passed to each plugin's init() function.
- * Called by App.tsx once all registries are available.
- */
 export function createPluginApi(params: PluginApiFactoryParams): PluginApi {
   return {
     register: params.register,
@@ -107,10 +89,6 @@ export function createPluginApi(params: PluginApiFactoryParams): PluginApi {
     ReactDOM: ReactDOM as PluginApi['ReactDOM'],
   };
 }
-
-// ---------------------------------------------------------------------------
-// Manifest validation
-// ---------------------------------------------------------------------------
 
 const PLUGIN_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const REQUIRED_FIELDS: (keyof PluginManifest)[] = [
@@ -164,117 +142,36 @@ export function validateManifest(raw: unknown): ManifestValidationResult {
   return { valid: true, manifest };
 }
 
-// ---------------------------------------------------------------------------
-// Blob URL dynamic import (exported so tests can spy on it)
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// React proxy blob URLs — created once, reused across all plugins.
-// Redirects plugin's `import from 'react'` to the host React instance so
-// all hooks share the same dispatcher (prevents "Invalid hook call").
-// ---------------------------------------------------------------------------
-
-let _reactProxy: string | null = null;
-let _reactDomProxy: string | null = null;
-let _jsxProxy: string | null = null;
-
-async function ensureReactProxies(hostApi: PluginApi): Promise<void> {
-  if (_reactProxy) return;
-
-  const jsxRuntime = await import('react/jsx-runtime') as Record<string, unknown>;
-  (globalThis as Record<string, unknown>).__quipuReact    = hostApi.React;
-  (globalThis as Record<string, unknown>).__quipuReactDOM = hostApi.ReactDOM;
-  (globalThis as Record<string, unknown>).__quipuJsx      = jsxRuntime;
-
-  _reactProxy = URL.createObjectURL(new Blob([
-    `const R=globalThis.__quipuReact;export default R;
-export const{useState,useEffect,useCallback,useMemo,useRef,useContext,
-createContext,createElement,forwardRef,memo,lazy,Suspense,Fragment,
-Component,PureComponent,Children,cloneElement,isValidElement,createRef,
-startTransition,useTransition,useDeferredValue,useId,useInsertionEffect,
-useLayoutEffect,useImperativeHandle,useReducer,useSyncExternalStore,
-useDebugValue,Profiler,StrictMode,version,use}=R;`,
-  ], { type: 'application/javascript' }));
-
-  _reactDomProxy = URL.createObjectURL(new Blob([
-    `const RD=globalThis.__quipuReactDOM;export default RD;
-export const{createPortal,flushSync,unstable_batchedUpdates,version,
-findDOMNode,render,hydrate,unmountComponentAtNode,
-preconnect,prefetchDNS,preinit,preinitModule,preload,preloadModule,
-requestFormReset,useFormState,useFormStatus}=RD;`,
-  ], { type: 'application/javascript' }));
-
-  _jsxProxy = URL.createObjectURL(new Blob([
-    `const J=globalThis.__quipuJsx;
-export const jsx=J.jsx,jsxs=J.jsxs,Fragment=J.Fragment;`,
-  ], { type: 'application/javascript' }));
+// Expose the host's React to `quipu-runtime://` proxy modules. The main-process
+// protocol handler generates the proxy code; it reads from these globals at
+// import time so every plugin shares the host's single React instance and
+// hook dispatcher.
+let _reactGlobalsInstalled = false;
+async function ensureReactGlobals(hostApi: PluginApi): Promise<void> {
+  if (_reactGlobalsInstalled) return;
+  const jsxRuntime = (await import('react/jsx-runtime')) as Record<string, unknown>;
+  const g = globalThis as Record<string, unknown>;
+  g.__quipuReact = hostApi.React;
+  g.__quipuReactDOM = hostApi.ReactDOM;
+  g.__quipuJsx = jsxRuntime;
+  _reactGlobalsInstalled = true;
 }
-
-/**
- * Loads a plugin from its ESM source string.
- *
- * For plugins built with react/react-dom externalized (v0.1.1+), rewrites
- * their import specifiers to proxy blob URLs that forward to the host React
- * instance, preventing the two-React-instances hook failure.
- *
- * Legacy plugins that bundle their own React load as-is via blob URL.
- */
-export async function importFromBlobUrl(source: string, hostApi?: PluginApi): Promise<unknown> {
-  // Polyfill `process` for libraries like Excalidraw that reference it.
-  if (typeof (globalThis as Record<string, unknown>).process === 'undefined') {
-    (globalThis as Record<string, unknown>).process = {
-      env: { NODE_ENV: 'production' }, browser: true, version: '',
-    };
-  }
-
-  let patchedSource = source;
-
-  // Polyfill CJS `exports` for plugins whose bundled dependencies reference it.
-  // Rollup sometimes emits `exports.xxx = ...` helpers inside ESM bundles when
-  // inlining CJS packages; injecting a local var keeps the module from throwing.
-  if (/\bexports\b/.test(patchedSource)) {
-    patchedSource = 'var exports = {};\n' + patchedSource;
-  }
-
-  // If plugin imports react externally, redirect to host React proxies.
-  if (hostApi && /from\s*['"]react['"]|from\s*['"]react\//.test(source)) {
-    await ensureReactProxies(hostApi);
-    patchedSource = patchedSource
-      .replace(/(['"])react\/jsx-runtime\1/g, `'${_jsxProxy}'`)
-      .replace(/(['"])react-dom\/client\1/g,  `'${_reactDomProxy}'`)
-      .replace(/(['"])react-dom\1/g,          `'${_reactDomProxy}'`)
-      .replace(/(['"])react\1/g,              `'${_reactProxy}'`);
-  }
-
-  const blob = new Blob([patchedSource], { type: 'application/javascript' });
-  const url  = URL.createObjectURL(blob);
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval
-    return await import(/* @vite-ignore */ url);
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// isElectron detection
-// ---------------------------------------------------------------------------
 
 export function isElectron(): boolean {
   return !!(window.electronAPI && window.electronAPI.readPluginsConfig);
 }
 
-// ---------------------------------------------------------------------------
-// Electron adapter
-// ---------------------------------------------------------------------------
+function pluginEntryUrl(pluginId: string, entry: string): string {
+  const cleaned = entry.replace(/^\/+/, '');
+  return `quipu-plugin://${pluginId}/${cleaned}`;
+}
 
 const electronPluginLoader: PluginLoaderService = {
   async loadAll(api: PluginApi, options: PluginLoaderOptions = {}): Promise<PluginLoadResult> {
     const loaded: PluginLoadResult['loaded'] = [];
     const errors: PluginLoadResult['errors'] = [];
-    const doImport = options._importFromBlobUrl ?? ((src: string) => importFromBlobUrl(src, api));
+    const doImport = options._importPlugin ?? ((url: string) => import(/* @vite-ignore */ url));
 
-    // 1. Read plugins config
     let configJson: string | null;
     try {
       configJson = await window.electronAPI!.readPluginsConfig();
@@ -283,7 +180,6 @@ const electronPluginLoader: PluginLoaderService = {
     }
 
     if (configJson === null) {
-      // No plugins.json — first-run wizard handles this; nothing to load yet.
       return { loaded, errors, firstRun: true };
     }
 
@@ -297,15 +193,15 @@ const electronPluginLoader: PluginLoaderService = {
       return { loaded, errors, firstRun: false };
     }
 
-    // 2. Load each enabled plugin
     const quipuDir = await window.electronAPI!.getQuipuDir();
+
+    await ensureReactGlobals(api);
 
     for (const entry of config.plugins) {
       const { id, enabled } = entry;
       if (!enabled) continue;
 
       try {
-        // 2a. Read and validate manifest
         const manifestPath = `${quipuDir}/plugins/${id}/manifest.json`;
         const manifestRaw = await window.electronAPI!.readFile(manifestPath);
         if (manifestRaw === null) {
@@ -328,18 +224,18 @@ const electronPluginLoader: PluginLoaderService = {
         }
         const { manifest } = validation;
 
-        // 2b. Read plugin source
+        // Pre-flight existence check so "entry not found" fails cleanly before
+        // dynamic-import surfaces a generic fetch error.
         const entryPath = `${quipuDir}/plugins/${id}/${manifest.entry}`;
-        const source = await window.electronAPI!.readFile(entryPath);
-        if (source === null) {
+        const entryExists = await window.electronAPI!.pathExists(entryPath);
+        if (!entryExists) {
           errors.push({ id, reason: `plugin entry not found: ${entryPath}` });
           continue;
         }
 
-        // 2c. Import via Blob URL and call init(api)
         let mod: unknown;
         try {
-          mod = await doImport(source);
+          mod = await doImport(pluginEntryUrl(id, manifest.entry));
         } catch (err) {
           errors.push({
             id,
@@ -363,18 +259,16 @@ const electronPluginLoader: PluginLoaderService = {
           continue;
         }
 
-        // 2d. Register keybindings from manifest contributes
         const keybindings = manifest.contributes?.keybindings ?? [];
         if (options.registerKeybinding) {
           for (const kb of keybindings) {
-            if (!kb.command || !kb.key) continue; // skip malformed entries silently
+            if (!kb.command || !kb.key) continue;
             options.registerKeybinding({ key: kb.key, mac: kb.mac, commandId: kb.command });
           }
         }
 
         loaded.push({ id, name: manifest.name });
       } catch (err) {
-        // Catch-all: isolate unexpected errors so one broken plugin can't crash the loop
         errors.push({
           id,
           reason: `unexpected error loading plugin: ${err instanceof Error ? err.message : String(err)}`,
@@ -386,19 +280,11 @@ const electronPluginLoader: PluginLoaderService = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// Browser stub (no-op — browser mode plugin support is deferred)
-// ---------------------------------------------------------------------------
-
 const browserPluginLoader: PluginLoaderService = {
   loadAll(): Promise<PluginLoadResult> {
     return Promise.resolve({ loaded: [], errors: [], firstRun: false });
   },
 };
-
-// ---------------------------------------------------------------------------
-// Export
-// ---------------------------------------------------------------------------
 
 const pluginLoader: PluginLoaderService = isElectron() ? electronPluginLoader : browserPluginLoader;
 export default pluginLoader;

@@ -51,11 +51,78 @@ try {
     // electron-squirrel-startup not available outside of Squirrel installer context
 }
 
-// Register custom protocol scheme before app is ready
-protocol.registerSchemesAsPrivileged([{
-    scheme: 'quipu-file',
-    privileges: { bypassCSP: true, stream: true, supportFetchAPI: true },
-}]);
+// Register custom protocol schemes before app is ready.
+// `quipu-plugin` is declared `standard` so relative URL resolution
+// (e.g. `new URL('./fonts/x.woff2', import.meta.url)`) and module
+// Worker construction (which require a valid absolute origin) work
+// the same way as http(s). Plugins loaded under this scheme can
+// reference sibling assets by relative path from their entry file.
+protocol.registerSchemesAsPrivileged([
+    {
+        scheme: 'quipu-file',
+        privileges: { bypassCSP: true, stream: true, supportFetchAPI: true },
+    },
+    {
+        scheme: 'quipu-plugin',
+        privileges: {
+            standard: true,
+            secure: true,
+            bypassCSP: true,
+            stream: true,
+            supportFetchAPI: true,
+            corsEnabled: true,
+        },
+    },
+    {
+        scheme: 'quipu-runtime',
+        privileges: {
+            standard: true,
+            secure: true,
+            bypassCSP: true,
+            stream: true,
+            supportFetchAPI: true,
+            corsEnabled: true,
+        },
+    },
+]);
+
+// Proxy modules served under quipu-runtime://. Plugin source that imports
+// 'react' / 'react-dom' / 'react/jsx-runtime' is rewritten to import these
+// instead, so every plugin shares the host's single React instance.
+const RUNTIME_MODULES = {
+    'react.js':
+        "const R=globalThis.__quipuReact;export default R;" +
+        "export const{useState,useEffect,useCallback,useMemo,useRef,useContext," +
+        "createContext,createElement,forwardRef,memo,lazy,Suspense,Fragment," +
+        "Component,PureComponent,Children,cloneElement,isValidElement,createRef," +
+        "startTransition,useTransition,useDeferredValue,useId,useInsertionEffect," +
+        "useLayoutEffect,useImperativeHandle,useReducer,useSyncExternalStore," +
+        "useDebugValue,Profiler,StrictMode,version,use}=R;",
+    'react-dom.js':
+        "const RD=globalThis.__quipuReactDOM;export default RD;" +
+        "export const{createPortal,flushSync,unstable_batchedUpdates,version," +
+        "findDOMNode,render,hydrate,unmountComponentAtNode," +
+        "preconnect,prefetchDNS,preinit,preinitModule,preload,preloadModule," +
+        "requestFormReset,useFormState,useFormStatus}=RD;",
+    'jsx-runtime.js':
+        "const J=globalThis.__quipuJsx;" +
+        "export const jsx=J.jsx,jsxs=J.jsxs,Fragment=J.Fragment;",
+};
+
+function rewritePluginSource(source) {
+    let patched = source;
+    // Polyfill CJS `exports` for plugins whose bundled deps reference it.
+    if (/\bexports\b/.test(patched)) {
+        patched = 'var exports = {};\n' + patched;
+    }
+    // Redirect bare React imports to runtime proxies.
+    patched = patched
+        .replace(/(['"])react\/jsx-runtime\1/g, '"quipu-runtime://react/jsx-runtime.js"')
+        .replace(/(['"])react-dom\/client\1/g, '"quipu-runtime://react/react-dom.js"')
+        .replace(/(['"])react-dom\1/g, '"quipu-runtime://react/react-dom.js"')
+        .replace(/(['"])react\1/g, '"quipu-runtime://react/react.js"');
+    return patched;
+}
 
 const HIDDEN_DIRS = new Set(['.git']);
 
@@ -299,6 +366,58 @@ app.whenReady().then(() => {
     protocol.handle('quipu-file', (request) => {
         const filePath = decodeURIComponent(request.url.replace('quipu-file://', ''));
         return net.fetch('file://' + filePath);
+    });
+
+    // Serve plugin files from ~/.quipu/plugins/<id>/.
+    // The plugin's entry is delivered under a real URL so ES module Workers
+    // (which require a fetchable import.meta.url) and relative-URL asset
+    // resolution (`new URL('./fonts/x', import.meta.url)`) work the same way
+    // they do on the web. JS files are rewritten on the fly to redirect
+    // `react` imports to the host's React instance via quipu-runtime://.
+    protocol.handle('quipu-plugin', async (request) => {
+        try {
+            const url = new URL(request.url);
+            const pluginId = url.hostname;
+            if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(pluginId)) {
+                return new Response('invalid plugin id', { status: 400 });
+            }
+            const relPath = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+            const pluginRoot = path.join(PLUGINS_DIR, pluginId);
+            const resolvedRoot = path.resolve(pluginRoot);
+            const resolved = path.resolve(pluginRoot, relPath);
+            if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + path.sep)) {
+                return new Response('path escapes plugin dir', { status: 403 });
+            }
+            const ext = path.extname(resolved).toLowerCase();
+            if (ext === '.js' || ext === '.mjs') {
+                const source = await fs.promises.readFile(resolved, 'utf-8');
+                return new Response(rewritePluginSource(source), {
+                    headers: { 'Content-Type': 'application/javascript; charset=utf-8' },
+                });
+            }
+            return net.fetch('file://' + resolved);
+        } catch (err) {
+            if (err.code === 'ENOENT') return new Response('not found', { status: 404 });
+            return new Response(`error: ${err.message || err}`, { status: 500 });
+        }
+    });
+
+    // Serve runtime proxy modules that forward to the host's React instance
+    // via globalThis. The renderer sets the globals before it imports any
+    // plugin; each plugin shares the host dispatcher, which prevents the
+    // two-React-instances hook failure.
+    protocol.handle('quipu-runtime', async (request) => {
+        try {
+            const url = new URL(request.url);
+            const file = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+            const code = RUNTIME_MODULES[file];
+            if (!code) return new Response('not found', { status: 404 });
+            return new Response(code, {
+                headers: { 'Content-Type': 'application/javascript; charset=utf-8' },
+            });
+        } catch (err) {
+            return new Response(`error: ${err.message || err}`, { status: 500 });
+        }
     });
 
     // Enable spellcheck for both English and Portuguese
