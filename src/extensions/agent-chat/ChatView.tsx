@@ -13,7 +13,7 @@ import {
   ShieldIcon,
 } from '@phosphor-icons/react';
 import type { Tab } from '@/types/tab';
-import type { AgentMessage, AgentImageAttachment, AgentToolCall, AgentPermissionRequest } from '@/types/agent';
+import type { AgentMessage, AgentImageAttachment, AgentToolCall, AgentPermissionRequest, Agent } from '@/types/agent';
 
 function extFromMime(mime: string): string {
   const m = mime.split('/')[1] ?? 'png';
@@ -33,8 +33,87 @@ function blobToBase64(blob: Blob): Promise<string> {
     reader.readAsDataURL(blob);
   });
 }
+
+function openableFilePath(input: Record<string, unknown> | undefined): string | null {
+  if (!input) return null;
+  const fp = input.file_path;
+  return typeof fp === 'string' && fp.length > 0 ? fp : null;
+}
+
+/**
+ * Resolve a tool's `file_path` to an absolute on-disk path. Claude Code usually
+ * emits absolute paths, but if it's relative we resolve it against the agent's
+ * primary working context — its first repo-binding clone if any, otherwise the
+ * workspace root. This matches the cwd/--add-dir layout the agent runs under.
+ */
+function resolveAgentFilePath(
+  filePath: string,
+  agent: Agent | undefined,
+  workspacePath: string | null,
+  repos: Array<{ id: string; name: string }>,
+): string | null {
+  if (!filePath) return null;
+  if (filePath.startsWith('/')) return filePath;
+  if (!workspacePath) return null;
+  const base = workspacePath.replace(/\/+$/, '');
+  if (agent) {
+    for (const b of agent.bindings ?? []) {
+      if (b.source === 'repo' && b.repoId) {
+        const repo = repos.find(r => r.id === b.repoId);
+        if (!repo) continue;
+        const cloneRoot = `${base}/tmp/${agent.id}/repos/${repo.name}`;
+        const rooted = b.subpath ? `${cloneRoot}/${b.subpath.replace(/^\/+|\/+$/g, '')}` : cloneRoot;
+        return `${rooted}/${filePath}`;
+      }
+    }
+  }
+  return `${base}/${filePath}`;
+}
+
+function basename(p: string): string {
+  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+  return i >= 0 ? p.slice(i + 1) : p;
+}
+
+function FilePathLink({
+  display,
+  absolutePath,
+  className,
+}: {
+  display: string;
+  absolutePath: string | null;
+  className?: string;
+}) {
+  const { openFile } = useTab();
+  if (!absolutePath) {
+    return <span className={className}>{display}</span>;
+  }
+  return (
+    <span
+      role="link"
+      tabIndex={0}
+      title={`Open ${absolutePath}`}
+      className={`${className ?? ''} hover:underline hover:text-accent cursor-pointer`}
+      onClick={(e) => {
+        e.stopPropagation();
+        void openFile(absolutePath, basename(absolutePath));
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          void openFile(absolutePath, basename(absolutePath));
+        }
+      }}
+    >
+      {display}
+    </span>
+  );
+}
 import { useTab } from '../../context/TabContext';
 import { useAgent } from '../../context/AgentContext';
+import { useFileSystem } from '../../context/FileSystemContext';
+import { useRepo } from '../../context/RepoContext';
 import ThinkingIndicator from './ThinkingIndicator';
 import MessageMarkdown from './MessageMarkdown';
 import SlashPopover, { filterSlashCommands, type SlashCommand } from './SlashPopover';
@@ -47,6 +126,8 @@ interface ChatViewProps {
 
 export default function ChatView({ tab }: ChatViewProps) {
   const { openAgentEditorTab } = useTab();
+  const { workspacePath } = useFileSystem();
+  const { repos } = useRepo();
   const {
     getAgent,
     getSession,
@@ -276,6 +357,9 @@ export default function ChatView({ tab }: ChatViewProps) {
                     && !messages.slice(idx + 1).some((n) => n.role === 'assistant')
                   }
                   onRespondPermission={(decision) => agent && respondToPermission(agent.id, m.id, decision)}
+                  agent={agent}
+                  workspacePath={workspacePath}
+                  repos={repos}
                 />
               ))}
             </ul>
@@ -398,9 +482,12 @@ interface MessageItemProps {
   isFirst: boolean;
   isLastAssistant: boolean;
   onRespondPermission: (decision: 'allow' | 'deny') => void;
+  agent: Agent | undefined;
+  workspacePath: string | null;
+  repos: Array<{ id: string; name: string }>;
 }
 
-function MessageItem({ message, isFirst, onRespondPermission }: MessageItemProps) {
+function MessageItem({ message, isFirst, onRespondPermission, agent, workspacePath, repos }: MessageItemProps) {
   if (message.role === 'permission-request' && message.permissionRequest) {
     const req = message.permissionRequest;
     const pending = req.status === 'pending';
@@ -426,7 +513,13 @@ function MessageItem({ message, isFirst, onRespondPermission }: MessageItemProps
               <>
                 <div className="text-sm break-words mb-2">
                   <span className="font-semibold">{req.action}</span>
-                  {req.path && <span className="ml-2 font-mono text-text-secondary">{req.path}</span>}
+                  {req.path && (
+                    <FilePathLink
+                      display={req.path}
+                      absolutePath={resolveAgentFilePath(openableFilePath(req.input) ?? '', agent, workspacePath, repos)}
+                      className="ml-2 font-mono text-text-secondary"
+                    />
+                  )}
                   {req.detail && <span className="ml-2 font-mono text-text-secondary">{req.detail}</span>}
                 </div>
                 <ToolDetail action={req.action} input={req.input} />
@@ -495,7 +588,13 @@ function MessageItem({ message, isFirst, onRespondPermission }: MessageItemProps
       {message.toolCalls && message.toolCalls.length > 0 && (
         <ul className="flex flex-col gap-1 mb-2">
           {message.toolCalls.map((call) => (
-            <ToolChip key={call.id} call={call} />
+            <ToolChip
+              key={call.id}
+              call={call}
+              agent={agent}
+              workspacePath={workspacePath}
+              repos={repos}
+            />
           ))}
         </ul>
       )}
@@ -513,22 +612,46 @@ function MessageItem({ message, isFirst, onRespondPermission }: MessageItemProps
 
 // ---- Tool chip + detail renderers ----
 
-function ToolChip({ call }: { call: AgentToolCall }) {
+function ToolChip({
+  call,
+  agent,
+  workspacePath,
+  repos,
+}: {
+  call: AgentToolCall;
+  agent: Agent | undefined;
+  workspacePath: string | null;
+  repos: Array<{ id: string; name: string }>;
+}) {
   const [expanded, setExpanded] = useState(false);
   const canExpand = call.action === 'Edit' || call.action === 'MultiEdit' || !!call.detail;
+  const absolutePath = resolveAgentFilePath(openableFilePath(call.input) ?? '', agent, workspacePath, repos);
   return (
     <li className="flex flex-col self-start max-w-full">
-      <button
-        type="button"
-        className="inline-flex items-center gap-1.5 self-start max-w-full px-2 py-1 rounded-full bg-bg-elevated text-[11px] text-text-secondary hover:bg-bg-surface transition-colors"
+      <div
+        role="button"
+        tabIndex={canExpand ? 0 : -1}
+        className="inline-flex items-center gap-1.5 self-start max-w-full px-2 py-1 rounded-full bg-bg-elevated text-[11px] text-text-secondary hover:bg-bg-surface transition-colors cursor-pointer"
         onClick={() => canExpand && setExpanded(v => !v)}
+        onKeyDown={(e) => {
+          if (canExpand && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            setExpanded(v => !v);
+          }
+        }}
         title={canExpand ? (expanded ? 'Collapse' : 'Show details') : call.name}
       >
         <WrenchIcon size={11} className="text-text-tertiary shrink-0" />
         <span className="font-semibold text-text-primary">{call.action}</span>
-        {call.path && <span className="font-mono truncate">{call.path}</span>}
+        {call.path && (
+          <FilePathLink
+            display={call.path}
+            absolutePath={absolutePath}
+            className="font-mono truncate"
+          />
+        )}
         {call.detail && !call.path && <span className="font-mono truncate">{call.detail}</span>}
-      </button>
+      </div>
       {expanded && (
         <div className="mt-1 ml-2">
           <ToolDetail action={call.action} input={call.input} />
