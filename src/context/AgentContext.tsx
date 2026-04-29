@@ -53,6 +53,11 @@ interface AgentContextValue {
   cancelTurn: (agentId: string) => Promise<void>;
   isTurnActive: (agentId: string) => boolean;
   respondToPermission: (agentId: string, messageId: string, decision: 'allow' | 'deny') => void;
+  /** Eagerly start (or resume) the Claude subprocess for the given agent so a
+   *  reopened chat tab is ready before the user types. Idempotent — bails out
+   *  if a session handle already exists; surfaces spawn errors as an
+   *  error-role message in the agent's session rather than throwing. */
+  resumeSession: (agentId: string) => Promise<void>;
   runtimeAvailable: boolean;
 
   // Per-chat composer drafts (in-memory only, transient — not persisted).
@@ -791,6 +796,28 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     return handle;
   }, [runtimeAvailable, workspacePath, cloneRepoForAgent, repos, handleEvent, setTurnActive, appendMessage, updateMessage]);
 
+  // Public wrapper around `ensureSession`. ChatView calls this on mount so the
+  // Claude subprocess is ready before the user types — without this, reopening
+  // a chat with stored history would leave the agent disconnected until the
+  // first send. Errors surface as in-session messages instead of throwing
+  // because a failed auto-resume must not crash the chat tab.
+  const resumeSession = useCallback(async (agentId: string): Promise<void> => {
+    if (!runtimeAvailable) return;
+    const agent = agentsRef.current.find(a => a.id === agentId);
+    if (!agent) return;
+    try {
+      await ensureSession(agent);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      appendMessage(agentId, {
+        id: crypto.randomUUID(),
+        role: 'error',
+        body: message,
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }, [runtimeAvailable, ensureSession, appendMessage]);
+
   const sendMessage = useCallback(async (agentId: string, body: string, attachments?: AgentImageAttachment[]) => {
     const agent = agentsRef.current.find(a => a.id === agentId);
     if (!agent) throw new Error('Unknown agent');
@@ -929,6 +956,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     cancelTurn,
     isTurnActive,
     respondToPermission,
+    resumeSession,
     runtimeAvailable,
     getDraft,
     setDraft,

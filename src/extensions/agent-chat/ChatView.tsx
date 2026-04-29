@@ -138,6 +138,7 @@ export default function ChatView({ tab }: ChatViewProps) {
     respondToPermission,
     upsertAgent,
     ensureAgentClones,
+    resumeSession,
     runtimeAvailable,
     getDraft,
     setDraft,
@@ -150,6 +151,22 @@ export default function ChatView({ tab }: ChatViewProps) {
     void ensureAgentClones(agentId);
   }, [agentId, ensureAgentClones]);
   const agent = getAgent(agentId);
+
+  // Auto-resume the Claude subprocess when ChatView mounts. Without this,
+  // reopening a chat tab leaves the agent disconnected until the user sends
+  // a new message; users expect the session to come back automatically.
+  // `resumeSession` short-circuits when a handle already exists, so rapid
+  // tab switches do not spawn duplicate subprocesses. We exclude `agent`
+  // from deps on purpose — the agent object's identity changes on every
+  // unrelated edit (name, prompt, etc.), and we only want this effect to
+  // fire on (agentId, runtimeAvailable) transitions. The `!agent` guard
+  // avoids racing the AgentProvider's load when the user opens a chat tab
+  // before the workspace's agents have finished hydrating.
+  useEffect(() => {
+    if (!agentId || !agent || !runtimeAvailable) return;
+    void resumeSession(agentId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: see comment above
+  }, [agentId, runtimeAvailable, resumeSession]);
   const session = getSession(agentId);
   const active = isTurnActive(agentId);
   const displayName = agent?.name ?? tab.name;
