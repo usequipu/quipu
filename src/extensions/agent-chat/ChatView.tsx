@@ -146,12 +146,41 @@ export default function ChatView({ tab }: ChatViewProps) {
   } = useAgent();
   const agentId = tab.path.replace(/^agent:\/\//, '');
 
+  // === State (per CLAUDE.md hook ordering: state first, effects last) ===
+
+  // Seed composer state from the per-chat draft on first mount. The draft
+  // lives in AgentContext so switching tabs (which would otherwise reset
+  // local state because we share one ChatView instance per viewer slot)
+  // preserves the previous chat's text and restores it when we return.
+  const initialDraft = useMemo(() => getDraft(agentId), [agentId, getDraft]);
+  const [input, setInput] = useState(initialDraft.input);
+  const [attachments, setAttachments] = useState<AgentImageAttachment[]>(initialDraft.attachments);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // === Custom hooks ===
+
+  const allSlashCommands = useClaudeCommands();
+
+  // === Derived (non-hook) values ===
+
+  const agent = getAgent(agentId);
+  const session = getSession(agentId);
+  const active = isTurnActive(agentId);
+  const displayName = agent?.name ?? tab.name;
+  const isSlashQuery = input.startsWith('/') && !input.includes('\n') && !input.includes(' ');
+  const slashResults = isSlashQuery ? filterSlashCommands(input, allSlashCommands) : [];
+  const showSlashPopover = isSlashQuery;
+  const messages = session?.messages ?? [];
+
+  // === Effects (last) ===
+
   // Kick off clones eagerly when the chat opens so the first message doesn't wait.
   useEffect(() => {
     if (!agentId) return;
     void ensureAgentClones(agentId);
   }, [agentId, ensureAgentClones]);
-  const agent = getAgent(agentId);
 
   // Auto-resume the Claude subprocess when ChatView mounts. Without this,
   // reopening a chat tab leaves the agent disconnected until the user sends
@@ -168,17 +197,6 @@ export default function ChatView({ tab }: ChatViewProps) {
     void resumeSession(agentId);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: see comment above
   }, [agentId, runtimeAvailable, resumeSession]);
-  const session = getSession(agentId);
-  const active = isTurnActive(agentId);
-  const displayName = agent?.name ?? tab.name;
-
-  // Seed composer state from the per-chat draft on first mount. The draft
-  // lives in AgentContext so switching tabs (which would otherwise reset
-  // local state because we share one ChatView instance per viewer slot)
-  // preserves the previous chat's text and restores it when we return.
-  const initialDraft = useMemo(() => getDraft(agentId), [agentId, getDraft]);
-  const [input, setInput] = useState(initialDraft.input);
-  const [attachments, setAttachments] = useState<AgentImageAttachment[]>(initialDraft.attachments);
 
   // When the active agent changes (tab switch in the same ChatView slot),
   // reset local state to the new agent's stored draft. We intentionally exclude
@@ -191,14 +209,6 @@ export default function ChatView({ tab }: ChatViewProps) {
     setAttachments(d.attachments);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: re-seed only when agentId flips
   }, [agentId]);
-  const [slashIndex, setSlashIndex] = useState(0);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-
-  const allSlashCommands = useClaudeCommands();
-  const isSlashQuery = input.startsWith('/') && !input.includes('\n') && !input.includes(' ');
-  const slashResults = isSlashQuery ? filterSlashCommands(input, allSlashCommands) : [];
-  const showSlashPopover = isSlashQuery;
 
   // Keep the slash selection in range when filtering.
   useEffect(() => {
@@ -219,8 +229,6 @@ export default function ChatView({ tab }: ChatViewProps) {
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [input]);
-
-  const messages = session?.messages ?? [];
 
   const handleSend = async () => {
     const trimmed = input.trim();

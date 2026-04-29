@@ -196,7 +196,7 @@ sequenceDiagram
 
 ## Implementation Units
 
-- \[ \] **Unit 1: Workspace-scoped key helpers + migration**
+- \[x\] **Unit 1: Workspace-scoped key helpers + migration**
 
 **Goal:** Centralize the key naming convention and provide a one-shot migration utility.
 
@@ -236,7 +236,7 @@ sequenceDiagram
 
 ---
 
-- \[ \] **Unit 2: AgentContext — workspace-scoped storage**
+- \[x\] **Unit 2: AgentContext — workspace-scoped storage**
 
 **Goal:** Load/save `agents`, `agent-sessions`, `agent-folders` under workspace-scoped keys, deferring load until `workspacePath` is known. Trigger migration on first workspace open.
 
@@ -278,7 +278,7 @@ sequenceDiagram
 
 ---
 
-- \[ \] **Unit 3: RepoContext — workspace-scoped storage**
+- \[x\] **Unit 3: RepoContext — workspace-scoped storage**
 
 **Goal:** Same change as Unit 2, applied to `repos` plus its `cloneStates` and folder mutations. Reuse the migration utility.
 
@@ -316,7 +316,7 @@ sequenceDiagram
 
 ---
 
-- \[ \] **Unit 4: FileSystemContext — per-window recentWorkspaces**
+- \[x\] **Unit 4: FileSystemContext — per-window recentWorkspaces**
 
 **Goal:** Make `recentWorkspaces` per-window. Each window reads once on mount, never again, and writes only its own in-memory state.
 
@@ -353,7 +353,7 @@ sequenceDiagram
 
 ---
 
-- \[ \] **Unit 5: ChatView — per-chat drafts**
+- \[x\] **Unit 5: ChatView — per-chat drafts**
 
 **Goal:** Move the composer's `input` and `attachments` state from `ChatView`-local `useState` into `AgentContext` keyed by agent id. Drafts persist across tab switches; switching to another chat shows that chat's draft.
 
@@ -394,7 +394,7 @@ sequenceDiagram
 
 ---
 
-- \[ \] **Unit 6: ChatView — auto-resume on reopen**
+- \[x\] **Unit 6: ChatView — auto-resume on reopen**
 
 **Goal:** When `ChatView` mounts and the agent's session has a `claudeSessionId` (or the agent is fully configured for a fresh start), call `ensureSession` so the Claude subprocess is ready before the user types.
 
@@ -432,7 +432,7 @@ sequenceDiagram
 
 ---
 
-- \[ \] **Unit 7: ChatView — AskUserQuestion buttons**
+- \[x\] **Unit 7: ChatView — AskUserQuestion buttons**
 
 **Goal:** Render each AskUserQuestion option as a clickable button. Clicking submits that option as the answer through `respondToPermission`.
 
