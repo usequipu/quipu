@@ -2,9 +2,10 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import storage from '../services/storageService';
 import fs from '../services/fileSystem';
 import { useFileSystem } from './FileSystemContext';
+import { reposKey } from '../services/workspaceKeys';
+import { migrateGlobalKeysIfNeeded } from '../services/workspaceKeysMigration';
 import type { Repo } from '@/types/agent';
 
-const STORAGE_KEY = 'repos';
 const GITIGNORE_LINE = 'tmp/';
 
 export type CloneStatus =
@@ -68,21 +69,87 @@ export function RepoProvider({ children }: { children: React.ReactNode }) {
   const reposRef = useRef<Repo[]>(repos);
   useEffect(() => { reposRef.current = repos; }, [repos]);
 
+  // Tracks which workspacePath the in-memory `repos` belongs to. Synchronously
+  // cleared at the top of the load effect (before the setStates that reset
+  // state) and synchronously set when a load completes — both done via this
+  // ref rather than a state value because the save effect needs a same-render
+  // barrier. Without this, the save effect would fire during the workspace
+  // transition (when its `workspacePath` dep changed but `repos` still holds
+  // the previous workspace's data), writing the previous workspace's data
+  // into the new workspace's storage key — a silent corruption of the new
+  // workspace. (Mirrors the pattern in AgentContext.)
+  const loadedWorkspaceRef = useRef<string | null>(null);
+
+  // Load (and reload on workspace switch). Storage keys are scoped to the
+  // current workspace; while `workspacePath` is null we present empty state
+  // and never write, so a no-workspace window cannot accidentally clobber
+  // data. The `cancelled` flag protects against rapid workspace switches: a
+  // stale load that resolves after the user has already moved to a different
+  // workspace must not overwrite the new workspace's just-loaded state.
   useEffect(() => {
-    storage.get(STORAGE_KEY).then((saved) => {
+    let cancelled = false;
+
+    // Synchronously invalidate the loaded-workspace barrier so the save
+    // effect that fires later in this same effect cycle (because its
+    // `workspacePath` dep just changed) bails out instead of writing the
+    // previous workspace's in-memory data into the new workspace's storage
+    // key.
+    loadedWorkspaceRef.current = null;
+
+    // Reset on every workspace change. `cloneStates` is in-memory only — a
+    // clone-in-progress that belongs to the previous workspace must not
+    // bleed into the new one. The clone may still complete on disk (the
+    // promise in cloneRepoForAgent keeps running), but the in-memory
+    // cloning indicator is gone — that's an acceptable trade since the
+    // clone target path is workspace-relative anyway.
+    setIsLoaded(false);
+    setRepos([]);
+    setCloneStates({});
+
+    if (!workspacePath) {
+      return () => { cancelled = true; };
+    }
+
+    const key = reposKey(workspacePath);
+
+    (async () => {
+      try {
+        await migrateGlobalKeysIfNeeded(workspacePath);
+      } catch (err) {
+        // Migration failure must not block workspace open. The corresponding
+        // scoped key will simply be empty on first read; the user can re-key
+        // by hand if needed.
+        console.warn('[repos] migrateGlobalKeysIfNeeded failed', err);
+      }
+      if (cancelled) return;
+
+      const saved = await storage.get(key).catch(() => null);
+      if (cancelled) return;
+
       if (Array.isArray(saved)) {
         setRepos(saved as Repo[]);
       }
+      // Mark this workspace as the source-of-truth BEFORE flipping isLoaded
+      // so the save effect (which fires on the resulting render) sees the
+      // matching ref and writes back to the correct key.
+      loadedWorkspaceRef.current = workspacePath;
       setIsLoaded(true);
-    }).catch(() => {
-      setIsLoaded(true);
-    });
-  }, []);
+    })();
 
+    return () => { cancelled = true; };
+  }, [workspacePath]);
+
+  // Save effect guards on `isLoaded && workspacePath` AND on the
+  // `loadedWorkspaceRef` matching the current workspacePath. The ref check is
+  // what prevents cross-workspace data corruption: if the workspacePath dep
+  // changed but the new workspace's load hasn't completed (or is in flight),
+  // the ref is null and the save is skipped, so the previous workspace's
+  // `repos` value never gets written into the new workspace's storage key.
   useEffect(() => {
-    if (!isLoaded) return;
-    storage.set(STORAGE_KEY, repos).catch(() => {});
-  }, [repos, isLoaded]);
+    if (!isLoaded || !workspacePath) return;
+    if (loadedWorkspaceRef.current !== workspacePath) return;
+    storage.set(reposKey(workspacePath), repos).catch(() => {});
+  }, [repos, isLoaded, workspacePath]);
 
   const getRepo = useCallback((id: string) => repos.find(r => r.id === id), [repos]);
   const getCloneStatus = useCallback((id: string) => cloneStates[id] ?? { state: 'idle' as const }, [cloneStates]);

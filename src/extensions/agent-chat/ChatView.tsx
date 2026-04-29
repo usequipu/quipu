@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   RobotIcon,
   PencilSimpleIcon,
@@ -119,6 +119,7 @@ import MessageMarkdown from './MessageMarkdown';
 import SlashPopover, { filterSlashCommands, type SlashCommand } from './SlashPopover';
 import { useClaudeCommands } from './useClaudeCommands';
 import ModelPicker from './ModelPicker';
+import { Button } from '@/components/ui/button';
 
 interface ChatViewProps {
   tab: Tab;
@@ -138,30 +139,76 @@ export default function ChatView({ tab }: ChatViewProps) {
     respondToPermission,
     upsertAgent,
     ensureAgentClones,
+    resumeSession,
     runtimeAvailable,
+    getDraft,
+    setDraft,
   } = useAgent();
   const agentId = tab.path.replace(/^agent:\/\//, '');
+
+  // === State (per CLAUDE.md hook ordering: state first, effects last) ===
+
+  // Seed composer state from the per-chat draft on first mount. The draft
+  // lives in AgentContext so switching tabs (which would otherwise reset
+  // local state because we share one ChatView instance per viewer slot)
+  // preserves the previous chat's text and restores it when we return.
+  const initialDraft = useMemo(() => getDraft(agentId), [agentId, getDraft]);
+  const [input, setInput] = useState(initialDraft.input);
+  const [attachments, setAttachments] = useState<AgentImageAttachment[]>(initialDraft.attachments);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // === Custom hooks ===
+
+  const allSlashCommands = useClaudeCommands();
+
+  // === Derived (non-hook) values ===
+
+  const agent = getAgent(agentId);
+  const session = getSession(agentId);
+  const active = isTurnActive(agentId);
+  const displayName = agent?.name ?? tab.name;
+  const isSlashQuery = input.startsWith('/') && !input.includes('\n') && !input.includes(' ');
+  const slashResults = isSlashQuery ? filterSlashCommands(input, allSlashCommands) : [];
+  const showSlashPopover = isSlashQuery;
+  const messages = session?.messages ?? [];
+
+  // === Effects (last) ===
 
   // Kick off clones eagerly when the chat opens so the first message doesn't wait.
   useEffect(() => {
     if (!agentId) return;
     void ensureAgentClones(agentId);
   }, [agentId, ensureAgentClones]);
-  const agent = getAgent(agentId);
-  const session = getSession(agentId);
-  const active = isTurnActive(agentId);
-  const displayName = agent?.name ?? tab.name;
 
-  const [input, setInput] = useState('');
-  const [attachments, setAttachments] = useState<AgentImageAttachment[]>([]);
-  const [slashIndex, setSlashIndex] = useState(0);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  // Auto-resume the Claude subprocess when ChatView mounts. Without this,
+  // reopening a chat tab leaves the agent disconnected until the user sends
+  // a new message; users expect the session to come back automatically.
+  // `resumeSession` short-circuits when a handle already exists, so rapid
+  // tab switches do not spawn duplicate subprocesses. We exclude `agent`
+  // from deps on purpose — the agent object's identity changes on every
+  // unrelated edit (name, prompt, etc.), and we only want this effect to
+  // fire on (agentId, runtimeAvailable) transitions. The `!agent` guard
+  // avoids racing the AgentProvider's load when the user opens a chat tab
+  // before the workspace's agents have finished hydrating.
+  useEffect(() => {
+    if (!agentId || !agent || !runtimeAvailable) return;
+    void resumeSession(agentId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: see comment above
+  }, [agentId, runtimeAvailable, resumeSession]);
 
-  const allSlashCommands = useClaudeCommands();
-  const isSlashQuery = input.startsWith('/') && !input.includes('\n') && !input.includes(' ');
-  const slashResults = isSlashQuery ? filterSlashCommands(input, allSlashCommands) : [];
-  const showSlashPopover = isSlashQuery;
+  // When the active agent changes (tab switch in the same ChatView slot),
+  // reset local state to the new agent's stored draft. We intentionally exclude
+  // `getDraft` from the dep array because it's a stable useCallback — adding it
+  // would not change behavior, but linting against unstable callbacks is what
+  // the eslint-disable below acknowledges.
+  useEffect(() => {
+    const d = getDraft(agentId);
+    setInput(d.input);
+    setAttachments(d.attachments);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: re-seed only when agentId flips
+  }, [agentId]);
 
   // Keep the slash selection in range when filtering.
   useEffect(() => {
@@ -183,14 +230,15 @@ export default function ChatView({ tab }: ChatViewProps) {
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [input]);
 
-  const messages = session?.messages ?? [];
-
   const handleSend = async () => {
     const trimmed = input.trim();
     if ((!trimmed && attachments.length === 0) || !agent || active) return;
     const pendingAttachments = attachments;
     setInput('');
     setAttachments([]);
+    // Mirror the local clear into the per-chat draft store — passing empty
+    // values causes setDraft to drop the entry entirely.
+    setDraft(agent.id, { input: '', attachments: [] });
     try {
       await sendMessage(agent.id, trimmed, pendingAttachments.length > 0 ? pendingAttachments : undefined);
     } catch {
@@ -222,21 +270,31 @@ export default function ChatView({ tab }: ChatViewProps) {
       }
     }
     if (additions.length > 0) {
-      setAttachments(prev => [...prev, ...additions]);
+      setAttachments(prev => {
+        const next = [...prev, ...additions];
+        setDraft(agentId, { attachments: next });
+        return next;
+      });
     }
   };
 
   const removeAttachment = (id: string) => {
-    setAttachments(prev => prev.filter(a => a.id !== id));
+    setAttachments(prev => {
+      const next = prev.filter(a => a.id !== id);
+      setDraft(agentId, { attachments: next });
+      return next;
+    });
   };
 
   const applySlashCommand = (cmd: SlashCommand) => {
     if (cmd.id === 'clear') {
       setInput('');
+      setDraft(agentId, { input: '' });
       handleClear();
       return;
     }
     setInput(cmd.template);
+    setDraft(agentId, { input: cmd.template });
     requestAnimationFrame(() => {
       const el = textareaRef.current;
       if (el) {
@@ -267,6 +325,7 @@ export default function ChatView({ tab }: ChatViewProps) {
       if (e.key === 'Escape') {
         e.preventDefault();
         setInput('');
+        setDraft(agentId, { input: '' });
         return;
       }
     }
@@ -356,7 +415,7 @@ export default function ChatView({ tab }: ChatViewProps) {
                     m.role === 'assistant'
                     && !messages.slice(idx + 1).some((n) => n.role === 'assistant')
                   }
-                  onRespondPermission={(decision) => agent && respondToPermission(agent.id, m.id, decision)}
+                  onRespondPermission={(decision, opts) => agent && respondToPermission(agent.id, m.id, decision, opts)}
                   agent={agent}
                   workspacePath={workspacePath}
                   repos={repos}
@@ -406,7 +465,14 @@ export default function ChatView({ tab }: ChatViewProps) {
             className="w-full px-4 pt-3 pb-1 bg-transparent text-sm resize-none focus:outline-none placeholder:text-text-tertiary"
             style={{ minHeight: '44px', maxHeight: '200px' }}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              setInput(v);
+              // Eager push-back to the per-chat draft store. One Map write per
+              // keystroke is fine; the ref-based store does not trigger
+              // consumer re-renders.
+              setDraft(agentId, { input: v });
+            }}
             onKeyDown={handleKey}
             onPaste={handlePaste}
             placeholder={active ? 'Agent is responding…' : `Reply to ${displayName}…`}
@@ -481,7 +547,10 @@ interface MessageItemProps {
   message: AgentMessage;
   isFirst: boolean;
   isLastAssistant: boolean;
-  onRespondPermission: (decision: 'allow' | 'deny') => void;
+  onRespondPermission: (
+    decision: 'allow' | 'deny',
+    opts?: { message?: string; updatedInput?: Record<string, unknown> },
+  ) => void;
   agent: Agent | undefined;
   workspacePath: string | null;
   repos: Array<{ id: string; name: string }>;
@@ -489,63 +558,15 @@ interface MessageItemProps {
 
 function MessageItem({ message, isFirst, onRespondPermission, agent, workspacePath, repos }: MessageItemProps) {
   if (message.role === 'permission-request' && message.permissionRequest) {
-    const req = message.permissionRequest;
-    const pending = req.status === 'pending';
-    const isQuestion = req.toolName === 'AskUserQuestion';
-    const headerLabel = isQuestion ? 'Question' : 'Permission requested';
-    const HeaderIcon = ShieldIcon;
     return (
-      <li className={`${isFirst ? '' : 'mt-6'}`}>
-        <div className="rounded-xl border border-warning/50 bg-warning/10 px-4 py-3">
-          <div className="flex items-center gap-2 mb-2">
-            <HeaderIcon size={14} className="text-warning shrink-0" weight="fill" />
-            <span className="text-xs font-semibold text-warning uppercase tracking-wider">{headerLabel}</span>
-            {!pending && (
-              <span className={`text-[11px] px-2 py-0.5 rounded ${req.status === 'allowed' ? 'bg-success/20 text-success' : 'bg-error/20 text-error'}`}>
-                {req.status}
-              </span>
-            )}
-          </div>
-
-          {isQuestion
-            ? <AskQuestionBody input={req.input} />
-            : (
-              <>
-                <div className="text-sm break-words mb-2">
-                  <span className="font-semibold">{req.action}</span>
-                  {req.path && (
-                    <FilePathLink
-                      display={req.path}
-                      absolutePath={resolveAgentFilePath(openableFilePath(req.input) ?? '', agent, workspacePath, repos)}
-                      className="ml-2 font-mono text-text-secondary"
-                    />
-                  )}
-                  {req.detail && <span className="ml-2 font-mono text-text-secondary">{req.detail}</span>}
-                </div>
-                <ToolDetail action={req.action} input={req.input} />
-              </>
-            )}
-
-          {pending && (
-            <div className="flex items-center gap-2 mt-3">
-              <button
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-success text-white hover:opacity-90 transition-opacity"
-                onClick={() => onRespondPermission('allow')}
-              >
-                <CheckIcon size={12} weight="bold" />
-                {isQuestion ? 'Let agent answer' : 'Allow once'}
-              </button>
-              <button
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-border text-text-secondary hover:text-error hover:border-error transition-colors"
-                onClick={() => onRespondPermission('deny')}
-              >
-                <XIcon size={12} weight="bold" />
-                {isQuestion ? 'Cancel' : 'Deny'}
-              </button>
-            </div>
-          )}
-        </div>
-      </li>
+      <PermissionRequestItem
+        req={message.permissionRequest}
+        isFirst={isFirst}
+        onRespondPermission={onRespondPermission}
+        agent={agent}
+        workspacePath={workspacePath}
+        repos={repos}
+      />
     );
   }
   if (message.role === 'user') {
@@ -729,29 +750,247 @@ interface AskQuestion {
   multiSelect?: boolean;
 }
 
-function AskQuestionBody({ input }: { input?: AgentPermissionRequest['input'] }) {
+/**
+ * Parse `input.questions` defensively. AskUserQuestion's payload is supposed
+ * to carry an array of `{ question, options[] }` records, but malformed or
+ * stale tool inputs should not crash the chat — return null and let the
+ * caller fall back to the generic Allow/Deny renderer.
+ */
+export function parseAskQuestions(input?: AgentPermissionRequest['input']): AskQuestion[] | null {
   if (!input || !Array.isArray(input.questions)) return null;
-  const qs = input.questions as AskQuestion[];
+  const out: AskQuestion[] = [];
+  for (const q of input.questions) {
+    if (!q || typeof q !== 'object') continue;
+    const obj = q as Record<string, unknown>;
+    if (typeof obj.question !== 'string') continue;
+    const opts: AskQuestion['options'] = Array.isArray(obj.options)
+      ? (obj.options as unknown[]).flatMap((opt) => {
+          if (!opt || typeof opt !== 'object') return [];
+          const o = opt as Record<string, unknown>;
+          if (typeof o.label !== 'string') return [];
+          return [{ label: o.label, description: typeof o.description === 'string' ? o.description : undefined }];
+        })
+      : undefined;
+    out.push({
+      question: obj.question,
+      header: typeof obj.header === 'string' ? obj.header : undefined,
+      options: opts,
+      multiSelect: typeof obj.multiSelect === 'boolean' ? obj.multiSelect : undefined,
+    });
+  }
+  return out;
+}
+
+/**
+ * Renders an AskUserQuestion permission request as a row of clickable option
+ * buttons per question. Calls `onAnswer` with the array of `{question, answer}`
+ * pairs once every question has a selection (single-question: auto-submits on
+ * first click; multi-question: enables a "Send answers" button after all are
+ * picked). The parent translates the returned answers into a `deny`-channel
+ * `respondToPermission` call so the AskUserQuestion tool stops re-asking.
+ */
+export function AskQuestionBody({
+  questions,
+  disabled,
+  onAnswer,
+}: {
+  questions: AskQuestion[];
+  disabled: boolean;
+  onAnswer: (answers: Array<{ question: string; answer: string }>) => void;
+}) {
+  // Map<questionIndex, optionLabel>. Local to this component — submission
+  // hands the snapshot up via onAnswer and the parent flips the request to
+  // disabled, so we never need to read this back.
+  const [selected, setSelected] = useState<Map<number, string>>(new Map());
+
+  const isSingle = questions.length === 1;
+  const allAnswered = questions.every((_q, i) => selected.has(i));
+
+  const submit = (overrides?: Map<number, string>) => {
+    const source = overrides ?? selected;
+    const answers: Array<{ question: string; answer: string }> = [];
+    for (let i = 0; i < questions.length; i++) {
+      const ans = source.get(i);
+      if (ans === undefined) return; // shouldn't happen; guard anyway
+      answers.push({ question: questions[i].question, answer: ans });
+    }
+    onAnswer(answers);
+  };
+
+  const pickOption = (qIdx: number, label: string) => {
+    if (disabled) return;
+    // Single-question: skip the staging map and auto-submit immediately for
+    // snappier UX — the user clearly only has one decision to make.
+    if (isSingle) {
+      submit(new Map([[qIdx, label]]));
+      return;
+    }
+    setSelected(prev => {
+      const next = new Map(prev);
+      next.set(qIdx, label);
+      return next;
+    });
+  };
+
   return (
     <div className="flex flex-col gap-3">
-      {qs.map((q, i) => (
+      {questions.map((q, i) => (
         <div key={i} className="bg-bg-surface rounded-lg border border-border p-3">
           {q.header && (
             <div className="text-[9px] font-semibold uppercase tracking-wider text-text-tertiary mb-1">{q.header}</div>
           )}
           <div className="text-sm text-text-primary mb-2">{q.question}</div>
           {q.options && q.options.length > 0 && (
-            <ul className="flex flex-col gap-1">
-              {q.options.map((opt, j) => (
-                <li key={j} className="flex items-baseline gap-2 text-xs">
-                  <span className="font-semibold text-accent shrink-0">{opt.label}</span>
-                  {opt.description && <span className="text-text-secondary">{opt.description}</span>}
-                </li>
-              ))}
-            </ul>
+            <div className="flex flex-wrap gap-2">
+              {q.options.map((opt, j) => {
+                const isSelected = selected.get(i) === opt.label;
+                return (
+                  <Button
+                    key={j}
+                    type="button"
+                    size="sm"
+                    variant={isSelected ? 'default' : 'outline'}
+                    disabled={disabled}
+                    onClick={() => pickOption(i, opt.label)}
+                    title={opt.description ?? undefined}
+                  >
+                    {opt.label}
+                  </Button>
+                );
+              })}
+            </div>
           )}
         </div>
       ))}
+      {!isSingle && questions.some(q => q.options && q.options.length > 0) && (
+        <div className="flex">
+          <Button
+            type="button"
+            size="sm"
+            variant="default"
+            disabled={disabled || !allAnswered}
+            onClick={() => submit()}
+          >
+            Send answers
+          </Button>
+        </div>
+      )}
     </div>
+  );
+}
+
+interface PermissionRequestItemProps {
+  req: AgentPermissionRequest;
+  isFirst: boolean;
+  onRespondPermission: (
+    decision: 'allow' | 'deny',
+    opts?: { message?: string; updatedInput?: Record<string, unknown> },
+  ) => void;
+  agent: Agent | undefined;
+  workspacePath: string | null;
+  repos: Array<{ id: string; name: string }>;
+}
+
+export function PermissionRequestItem({
+  req,
+  isFirst,
+  onRespondPermission,
+  agent,
+  workspacePath,
+  repos,
+}: PermissionRequestItemProps) {
+  const pending = req.status === 'pending';
+  const isQuestion = req.toolName === 'AskUserQuestion';
+  // Track whether the user submitted an AskUserQuestion answer (vs. cancelled
+  // or "let agent answer"). The wire status flips to `denied` either way
+  // because we use the deny channel to pass the answer through; this local
+  // flag lets us show "answered" instead of "denied" in the header.
+  const [answered, setAnswered] = useState(false);
+  const parsedQuestions = isQuestion ? parseAskQuestions(req.input) : null;
+
+  const headerLabel = isQuestion ? 'Question' : 'Permission requested';
+  const HeaderIcon = ShieldIcon;
+
+  const handleAnswers = (answers: Array<{ question: string; answer: string }>) => {
+    // Format the response as JSON matching AskUserQuestion's documented
+    // output shape so the agent can read the answer transparently. We use
+    // the `deny` channel because allowing the tool would let it run and
+    // re-prompt the user via its own UI mechanism — denying with a
+    // structured "denial reason" stops the tool while still surfacing the
+    // user's choice to the agent's next turn.
+    const payload = JSON.stringify({ answers });
+    setAnswered(true);
+    onRespondPermission('deny', { message: payload });
+  };
+
+  // Status pill label: for AskUserQuestion answered via buttons, show
+  // "answered" rather than the literal `denied` wire status.
+  const statusLabel = !pending
+    ? (isQuestion && answered ? 'answered' : req.status)
+    : null;
+  const statusClass = !pending
+    ? (req.status === 'allowed' || (isQuestion && answered)
+        ? 'bg-success/20 text-success'
+        : 'bg-error/20 text-error')
+    : '';
+
+  return (
+    <li className={`${isFirst ? '' : 'mt-6'}`}>
+      <div className="rounded-xl border border-warning/50 bg-warning/10 px-4 py-3">
+        <div className="flex items-center gap-2 mb-2">
+          <HeaderIcon size={14} className="text-warning shrink-0" weight="fill" />
+          <span className="text-xs font-semibold text-warning uppercase tracking-wider">{headerLabel}</span>
+          {statusLabel && (
+            <span className={`text-[11px] px-2 py-0.5 rounded ${statusClass}`}>
+              {statusLabel}
+            </span>
+          )}
+        </div>
+
+        {isQuestion && parsedQuestions
+          ? (
+            <AskQuestionBody
+              questions={parsedQuestions}
+              disabled={!pending}
+              onAnswer={handleAnswers}
+            />
+          )
+          : (
+            <>
+              <div className="text-sm break-words mb-2">
+                <span className="font-semibold">{req.action}</span>
+                {req.path && (
+                  <FilePathLink
+                    display={req.path}
+                    absolutePath={resolveAgentFilePath(openableFilePath(req.input) ?? '', agent, workspacePath, repos)}
+                    className="ml-2 font-mono text-text-secondary"
+                  />
+                )}
+                {req.detail && <span className="ml-2 font-mono text-text-secondary">{req.detail}</span>}
+              </div>
+              <ToolDetail action={req.action} input={req.input} />
+            </>
+          )}
+
+        {pending && (
+          <div className="flex items-center gap-2 mt-3">
+            <button
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-success text-white hover:opacity-90 transition-opacity"
+              onClick={() => onRespondPermission('allow')}
+            >
+              <CheckIcon size={12} weight="bold" />
+              {isQuestion ? 'Let agent answer' : 'Allow once'}
+            </button>
+            <button
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded border border-border text-text-secondary hover:text-error hover:border-error transition-colors"
+              onClick={() => onRespondPermission('deny')}
+            >
+              <XIcon size={12} weight="bold" />
+              {isQuestion ? 'Cancel' : 'Deny'}
+            </button>
+          </div>
+        )}
+      </div>
+    </li>
   );
 }

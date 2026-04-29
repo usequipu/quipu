@@ -132,31 +132,55 @@ export function FileSystemProvider({ children }: FileSystemProviderProps) {
   }, [showToast]);
 
   // --- Recent workspace management ---
+  //
+  // Per-window contract: the `recentWorkspaces` storage key is shared across
+  // windows, but each window only READS from it once on mount (see the load
+  // effect below). After mount, mutations operate on the in-memory React
+  // state via the functional setState pattern and write the new array back
+  // to storage. They never re-read from storage to merge other windows'
+  // changes. This means each window's recent list reflects only what THAT
+  // window has opened since launch (plus whatever was in storage at startup).
+  //
+  // Why: cross-window read-merge reintroduces the last-writer-wins race we
+  // fixed for agents/repos. The user explicitly chose "per-window" over
+  // "global with synchronization", so do NOT reintroduce a storage read in
+  // these mutation callbacks.
 
   const updateRecentWorkspaces = useCallback(async (folderPath: string) => {
     const name = folderPath.split(/[\\/]/).filter(Boolean).pop() || folderPath;
     const entry: RecentWorkspace = { path: folderPath, name, lastOpened: new Date().toISOString() };
-    const recent = (await storage.get('recentWorkspaces') as RecentWorkspace[] | null) || [];
-    const deduped = recent.filter(r => r.path !== folderPath);
-    const updated = [entry, ...deduped].slice(0, 10);
-    await storage.set('recentWorkspaces', updated);
-    setRecentWorkspaces(updated);
+    setRecentWorkspaces(prev => {
+      const deduped = prev.filter(r => r.path !== folderPath);
+      const next = [entry, ...deduped].slice(0, 10);
+      storage.set('recentWorkspaces', next).catch(() => {});
+      return next;
+    });
   }, []);
 
+  // Per-window: clears only this window's local view + storage. Other
+  // windows retain their own in-memory list until they remount.
   const clearRecentWorkspaces = useCallback(async () => {
-    await storage.set('recentWorkspaces', []);
-    setRecentWorkspaces([]);
+    setRecentWorkspaces(() => {
+      storage.set('recentWorkspaces', []).catch(() => {});
+      return [];
+    });
   }, []);
 
+  // Per-window: operates on the local state only. No-op if the path isn't
+  // present locally (avoids spurious storage writes).
   const removeFromRecentWorkspaces = useCallback(async (folderPath: string) => {
-    const recent = (await storage.get('recentWorkspaces') as RecentWorkspace[] | null) || [];
-    const filtered = recent.filter(r => r.path !== folderPath);
-    if (filtered.length < recent.length) {
-      await storage.set('recentWorkspaces', filtered);
-      setRecentWorkspaces(filtered);
-    }
+    setRecentWorkspaces(prev => {
+      const filtered = prev.filter(r => r.path !== folderPath);
+      if (filtered.length === prev.length) return prev;
+      storage.set('recentWorkspaces', filtered).catch(() => {});
+      return filtered;
+    });
   }, []);
 
+  // Called once from the mount effect with the just-loaded recents. Prunes
+  // entries whose paths no longer exist on disk and writes the cleaned list
+  // back to storage (a one-time-per-window-mount cleanup). Does NOT re-read
+  // from storage internally — operates on the argument array.
   const validateAndPruneWorkspaces = useCallback(async (workspaces: RecentWorkspace[]): Promise<RecentWorkspace[]> => {
     if (!workspaces || workspaces.length === 0) return workspaces;
 

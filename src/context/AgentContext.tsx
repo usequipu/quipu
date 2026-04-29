@@ -6,11 +6,9 @@ import { useFileSystem } from './FileSystemContext';
 import { useRepo } from './RepoContext';
 import { useTab } from './TabContext';
 import { useToast } from '../components/ui/Toast';
+import { agentsKey, agentSessionsKey, agentFoldersKey } from '../services/workspaceKeys';
+import { migrateGlobalKeysIfNeeded } from '../services/workspaceKeysMigration';
 import type { Agent, AgentMessage, AgentSession, AgentToolCall, AgentPermissionRequest, AgentImageAttachment } from '@/types/agent';
-
-const AGENTS_KEY = 'agents';
-const SESSIONS_KEY = 'agent-sessions';
-const FOLDERS_KEY = 'agent-folders';
 
 type SessionMap = Record<string, AgentSession>;
 
@@ -21,6 +19,12 @@ export interface AgentFolders {
 }
 
 const EMPTY_FOLDERS: AgentFolders = { chats: [], agents: [] };
+
+/** Composer draft state carried per-agent across tab switches. */
+export interface AgentDraft {
+  input: string;
+  attachments: AgentImageAttachment[];
+}
 
 interface AgentContextValue {
   agents: Agent[];
@@ -48,9 +52,41 @@ interface AgentContextValue {
   sendMessage: (agentId: string, body: string, attachments?: AgentImageAttachment[]) => Promise<void>;
   cancelTurn: (agentId: string) => Promise<void>;
   isTurnActive: (agentId: string) => boolean;
-  respondToPermission: (agentId: string, messageId: string, decision: 'allow' | 'deny') => void;
+  /**
+   * Respond to a pending permission request. The optional `opts` plumbs through
+   * to the runtime's `respondToPermission` helper:
+   *   - `decision: 'allow'` with `opts.updatedInput` becomes
+   *     `{ behavior: 'allow', updatedInput }` on the wire.
+   *   - `decision: 'deny'` with `opts.message` becomes
+   *     `{ behavior: 'deny', message }` — used by the AskUserQuestion flow to
+   *     surface the user's chosen answer to the agent as the "denial reason"
+   *     so the tool stops re-asking and the agent reads the answer in its
+   *     next turn.
+   */
+  respondToPermission: (
+    agentId: string,
+    messageId: string,
+    decision: 'allow' | 'deny',
+    opts?: { message?: string; updatedInput?: Record<string, unknown> },
+  ) => void;
+  /** Eagerly start (or resume) the Claude subprocess for the given agent so a
+   *  reopened chat tab is ready before the user types. Idempotent — bails out
+   *  if a session handle already exists; surfaces spawn errors as an
+   *  error-role message in the agent's session rather than throwing. */
+  resumeSession: (agentId: string) => Promise<void>;
   runtimeAvailable: boolean;
+
+  // Per-chat composer drafts (in-memory only, transient — not persisted).
+  /** Read the agent's draft. Returns a stable empty default if none is stored —
+   *  callers that compare references frame-to-frame can rely on that stability. */
+  getDraft: (agentId: string) => AgentDraft;
+  /** Merge a patch into the agent's draft. If the resulting draft is empty
+   *  (no input AND no attachments), the entry is removed from the Map. */
+  setDraft: (agentId: string, patch: Partial<AgentDraft>) => void;
 }
+
+/** Stable empty draft default — returned by `getDraft` when no entry exists. */
+const EMPTY_DRAFT: AgentDraft = Object.freeze({ input: '', attachments: [] as AgentImageAttachment[] }) as AgentDraft;
 
 const AgentContext = createContext<AgentContextValue | null>(null);
 
@@ -264,6 +300,11 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   const sessionHandlesRef = useRef<Map<string, AgentSessionHandle>>(new Map());
   // Assistant message currently being streamed per agent.
   const streamingMessageRef = useRef<Map<string, { messageId: string; accumulated: string; anthropicMessageId: string | null }>>(new Map());
+  // Per-chat composer drafts. Refs (not state) so a keystroke does not re-render
+  // every consumer; ChatView holds its own local React state for the live
+  // textarea value and pushes back here on each change. Lives only for the
+  // lifetime of the AgentProvider — drafts are intentionally NOT persisted.
+  const draftsRef = useRef<Map<string, AgentDraft>>(new Map());
 
   const sessionsRef = useRef<SessionMap>(sessions);
   useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
@@ -271,14 +312,76 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
   const agentsRef = useRef<Agent[]>(agents);
   useEffect(() => { agentsRef.current = agents; }, [agents]);
 
+  // Tracks which workspacePath the in-memory `agents`/`sessions`/`folders`
+  // belong to. Synchronously cleared at the top of the load effect (before the
+  // setStates that reset state) and synchronously set when a load completes —
+  // both done via this ref rather than a state value because save effects need
+  // a same-render barrier. Without this, the save effects would fire during
+  // the workspace transition (when their `workspacePath` dep changed but
+  // `agents`/`sessions`/`folders` still hold the previous workspace's data),
+  // writing the previous workspace's data into the new workspace's storage
+  // key — a silent corruption of the new workspace.
+  const loadedWorkspaceRef = useRef<string | null>(null);
+
+  // Load (and reload on workspace switch). Storage keys are scoped to the
+  // current workspace; while `workspacePath` is null we present empty state and
+  // never write, so a no-workspace window cannot accidentally clobber data.
+  // The `cancelled` flag protects against rapid workspace switches: a stale
+  // load that resolves after the user has already moved to a different
+  // workspace must not overwrite the new workspace's just-loaded state.
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      storage.get(AGENTS_KEY).catch(() => null),
-      storage.get(SESSIONS_KEY).catch(() => null),
-      storage.get(FOLDERS_KEY).catch(() => null),
-    ]).then(([savedAgents, savedSessions, savedFolders]) => {
+
+    // Synchronously invalidate the loaded-workspace barrier so save effects
+    // that fire later in this same effect cycle (because their `workspacePath`
+    // dep just changed) bail out instead of writing the previous workspace's
+    // in-memory data into the new workspace's storage key.
+    loadedWorkspaceRef.current = null;
+
+    // Reset on every workspace change. Sessions are killed because their
+    // handles point at the previous workspace's `cwd` and would mutate the
+    // wrong tree if the user resumed them.
+    setIsLoaded(false);
+    setAgents([]);
+    setFolders(EMPTY_FOLDERS);
+    setSessions({});
+    setActiveTurns({});
+    streamingMessageRef.current.clear();
+    // Per-chat drafts belong to the previous workspace's agents; drop them so
+    // the new workspace's chats start with empty composers.
+    draftsRef.current.clear();
+    const handles = sessionHandlesRef.current;
+    sessionHandlesRef.current = new Map();
+    for (const handle of handles.values()) {
+      try { void handle.stop(); } catch { /* ignore */ }
+    }
+
+    if (!workspacePath) {
+      return () => { cancelled = true; };
+    }
+
+    const aKey = agentsKey(workspacePath);
+    const sKey = agentSessionsKey(workspacePath);
+    const fKey = agentFoldersKey(workspacePath);
+
+    (async () => {
+      try {
+        await migrateGlobalKeysIfNeeded(workspacePath);
+      } catch (err) {
+        // Migration failure must not block workspace open. The corresponding
+        // scoped keys will simply be empty on first read; the user can re-key
+        // by hand if needed.
+        console.warn('[agent] migrateGlobalKeysIfNeeded failed', err);
+      }
       if (cancelled) return;
+
+      const [savedAgents, savedSessions, savedFolders] = await Promise.all([
+        storage.get(aKey).catch(() => null),
+        storage.get(sKey).catch(() => null),
+        storage.get(fKey).catch(() => null),
+      ]);
+      if (cancelled) return;
+
       if (savedFolders && typeof savedFolders === 'object') {
         const f = savedFolders as Partial<AgentFolders>;
         setFolders({
@@ -299,25 +402,40 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       if (savedSessions && typeof savedSessions === 'object') {
         setSessions(savedSessions as SessionMap);
       }
+      // Mark this workspace as the source-of-truth BEFORE flipping isLoaded so
+      // the save effects (which fire on the resulting render) see the matching
+      // ref and write back to the correct key.
+      loadedWorkspaceRef.current = workspacePath;
       setIsLoaded(true);
-    });
+    })();
+
     return () => { cancelled = true; };
-  }, []);
+  }, [workspacePath]);
+
+  // Save effects guard on `isLoaded && workspacePath` AND on the
+  // `loadedWorkspaceRef` matching the current workspacePath. The ref check is
+  // what prevents the cross-workspace data corruption described above: if the
+  // workspacePath dep changed but the new workspace's load hasn't completed
+  // (or is in flight), the ref is null and the save is skipped, so the
+  // previous workspace's `agents` value never gets written into the new
+  // workspace's storage key.
+  useEffect(() => {
+    if (!isLoaded || !workspacePath) return;
+    if (loadedWorkspaceRef.current !== workspacePath) return;
+    storage.set(agentsKey(workspacePath), agents).catch(() => {});
+  }, [agents, isLoaded, workspacePath]);
 
   useEffect(() => {
-    if (!isLoaded) return;
-    storage.set(AGENTS_KEY, agents).catch(() => {});
-  }, [agents, isLoaded]);
+    if (!isLoaded || !workspacePath) return;
+    if (loadedWorkspaceRef.current !== workspacePath) return;
+    storage.set(agentSessionsKey(workspacePath), sessions).catch(() => {});
+  }, [sessions, isLoaded, workspacePath]);
 
   useEffect(() => {
-    if (!isLoaded) return;
-    storage.set(SESSIONS_KEY, sessions).catch(() => {});
-  }, [sessions, isLoaded]);
-
-  useEffect(() => {
-    if (!isLoaded) return;
-    storage.set(FOLDERS_KEY, folders).catch(() => {});
-  }, [folders, isLoaded]);
+    if (!isLoaded || !workspacePath) return;
+    if (loadedWorkspaceRef.current !== workspacePath) return;
+    storage.set(agentFoldersKey(workspacePath), folders).catch(() => {});
+  }, [folders, isLoaded, workspacePath]);
 
   const getAgent = useCallback((id: string) => agents.find(a => a.id === id), [agents]);
 
@@ -422,6 +540,9 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
 
   const deleteAgent = useCallback((id: string) => {
     void killSession(id);
+    // Drop any in-memory composer draft for this agent so a future agent that
+    // somehow reuses the id (or just to free the entry) doesn't see stale text.
+    draftsRef.current.delete(id);
     setAgents(prev => prev.filter(a => a.id !== id));
     setSessions(prev => {
       if (!prev[id]) return prev;
@@ -691,6 +812,28 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     return handle;
   }, [runtimeAvailable, workspacePath, cloneRepoForAgent, repos, handleEvent, setTurnActive, appendMessage, updateMessage]);
 
+  // Public wrapper around `ensureSession`. ChatView calls this on mount so the
+  // Claude subprocess is ready before the user types — without this, reopening
+  // a chat with stored history would leave the agent disconnected until the
+  // first send. Errors surface as in-session messages instead of throwing
+  // because a failed auto-resume must not crash the chat tab.
+  const resumeSession = useCallback(async (agentId: string): Promise<void> => {
+    if (!runtimeAvailable) return;
+    const agent = agentsRef.current.find(a => a.id === agentId);
+    if (!agent) return;
+    try {
+      await ensureSession(agent);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      appendMessage(agentId, {
+        id: crypto.randomUUID(),
+        role: 'error',
+        body: message,
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }, [runtimeAvailable, ensureSession, appendMessage]);
+
   const sendMessage = useCallback(async (agentId: string, body: string, attachments?: AgentImageAttachment[]) => {
     const agent = agentsRef.current.find(a => a.id === agentId);
     if (!agent) throw new Error('Unknown agent');
@@ -771,7 +914,34 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     setTurnActive(agentId, false);
   }, [killSession, setTurnActive]);
 
-  const respondToPermission = useCallback((agentId: string, messageId: string, decision: 'allow' | 'deny') => {
+  const getDraft = useCallback((agentId: string): AgentDraft => {
+    // Return the stable empty default when no entry exists. Allocating a fresh
+    // object here would break referential equality across renders and defeat
+    // memoization in any consumer that uses the draft as an effect dep.
+    return draftsRef.current.get(agentId) ?? EMPTY_DRAFT;
+  }, []);
+
+  const setDraft = useCallback((agentId: string, patch: Partial<AgentDraft>) => {
+    const current = draftsRef.current.get(agentId) ?? EMPTY_DRAFT;
+    const next: AgentDraft = {
+      input: patch.input !== undefined ? patch.input : current.input,
+      attachments: patch.attachments !== undefined ? patch.attachments : current.attachments,
+    };
+    if (next.input === '' && next.attachments.length === 0) {
+      // Empty drafts don't need a Map entry — saves memory and prevents key
+      // accumulation for sent-and-cleared chats.
+      draftsRef.current.delete(agentId);
+      return;
+    }
+    draftsRef.current.set(agentId, next);
+  }, []);
+
+  const respondToPermission = useCallback((
+    agentId: string,
+    messageId: string,
+    decision: 'allow' | 'deny',
+    opts?: { message?: string; updatedInput?: Record<string, unknown> },
+  ) => {
     const session = sessionsRef.current[agentId];
     const message = session?.messages.find(m => m.id === messageId);
     const req = message?.permissionRequest;
@@ -782,7 +952,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
       showToast('No active session — restart the agent and try again.', 'warning');
       return;
     }
-    handle.respondToPermission(req.toolUseId, decision);
+    handle.respondToPermission(req.toolUseId, decision, opts);
     updateMessage(agentId, messageId, {
       permissionRequest: { ...req, status: decision === 'allow' ? 'allowed' : 'denied', decidedAt: new Date().toISOString() },
     });
@@ -807,7 +977,10 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     cancelTurn,
     isTurnActive,
     respondToPermission,
+    resumeSession,
     runtimeAvailable,
+    getDraft,
+    setDraft,
   };
 
   return <AgentContext.Provider value={value}>{children}</AgentContext.Provider>;
