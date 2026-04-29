@@ -47,7 +47,18 @@ export default function AgentsPanel() {
   const closeMenu = () => setMenu(null);
 
   // Group agents by kind, then by folder (merging declared-empty folders).
+  // Items inside each folder (and the uncategorized list) are sorted by
+  // `updatedAt` descending so the most-recently-modified row floats to the
+  // top. The folder list itself stays alphabetical.
+  //
+  // The `?? ''` guard hardens against any pre-MVP persisted record that might
+  // be missing `updatedAt` — the load normalizer in AgentContext defaults
+  // other fields but not the timestamps.
   const sections = useMemo(() => {
+    const byRecency = (a: Agent, b: Agent) => {
+      const cmp = (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '');
+      return cmp !== 0 ? cmp : a.name.localeCompare(b.name);
+    };
     const buildSection = (kind: AgentKind) => {
       const items = agents.filter(a => a.kind === kind);
       const folderNames = new Set<string>();
@@ -58,15 +69,9 @@ export default function AgentsPanel() {
       const folderList = Array.from(folderNames).sort((a, b) => a.localeCompare(b));
       const grouped = folderList.map((folder) => ({
         folder,
-        items: items
-          .filter(i => i.folder === folder)
-          .slice()
-          .sort((a, b) => a.name.localeCompare(b.name)),
+        items: items.filter(i => i.folder === folder).slice().sort(byRecency),
       }));
-      const uncategorized = items
-        .filter(i => !i.folder)
-        .slice()
-        .sort((a, b) => a.name.localeCompare(b.name));
+      const uncategorized = items.filter(i => !i.folder).slice().sort(byRecency);
       return { kind, grouped, uncategorized };
     };
     return {
@@ -459,6 +464,10 @@ interface AgentRowProps {
 function AgentRow({ agent, indentPx, running, onOpen, onEdit, onContextMenu, onDragStart }: AgentRowProps) {
   const bindingCount = agent.bindings?.length ?? 0;
   const Icon = agent.kind === 'chat' ? ChatCircleDotsIcon : RobotIcon;
+  // Display in the user's local timezone. The Swedish locale yields ISO
+  // `yyyy-mm-dd` natively. Using `agent.updatedAt.slice(0, 10)` would show
+  // the UTC date and shift the row by one day for users east/west of UTC.
+  const dateLabel = new Date(agent.updatedAt).toLocaleDateString('sv-SE');
   return (
     <div
       className="group flex items-center gap-1 h-8 pr-2 mx-1 rounded hover:bg-bg-elevated"
@@ -470,19 +479,24 @@ function AgentRow({ agent, indentPx, running, onOpen, onEdit, onContextMenu, onD
       <button
         className="flex items-center gap-2 flex-1 min-w-0 text-left text-sm"
         onClick={onOpen}
-        title={agent.name}
       >
         <Icon size={13} className={agent.kind === 'chat' ? 'text-text-tertiary shrink-0' : 'text-accent shrink-0'} />
         <span className="truncate">{agent.name}</span>
         {running && <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" title="Session running" />}
         {bindingCount > 0 && (
           <span
-            className="ml-auto text-[10px] text-text-tertiary shrink-0"
-            title={`${bindingCount} context binding${bindingCount === 1 ? '' : 's'}`}
+            className="ml-auto text-[10px] text-text-tertiary shrink-0 px-1 rounded bg-bg-elevated"
+            aria-label={`${bindingCount} context binding${bindingCount === 1 ? '' : 's'}`}
           >
             {bindingCount}
           </span>
         )}
+        <time
+          dateTime={agent.updatedAt}
+          className={`${bindingCount > 0 ? '' : 'ml-auto'} text-[10px] text-text-secondary shrink-0 tabular-nums`}
+        >
+          {dateLabel}
+        </time>
       </button>
       <button
         className="w-6 h-6 flex items-center justify-center rounded text-text-tertiary opacity-0 group-hover:opacity-100 hover:text-text-primary hover:bg-bg-elevated transition-opacity"
