@@ -32,6 +32,7 @@ export interface ElectronAPI {
   deletePath: (targetPath: string) => Promise<{ success: boolean }>;
   openFolderDialog: () => Promise<string | null>;
   openFileDialog: (options?: { filters?: Array<{ name: string; extensions: string[] }> }) => Promise<string | null>;
+  openNewWindow: () => Promise<{ success: boolean }>;
   getHomeDir: () => Promise<string>;
   uploadImage: (filePath: string, base64Data: string) => Promise<{ success: boolean; url?: string }>;
 

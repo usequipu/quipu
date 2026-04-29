@@ -649,6 +649,14 @@ function AppContent() {
       case 'file.openFolder':
         openFolder();
         break;
+      case 'file.newWindow':
+        // Spawn an additional Quipu window in the same Electron process.
+        // Browser mode silently no-ops because there's no host-side window
+        // factory (and the tab/window distinction doesn't apply there).
+        if (window.electronAPI?.openNewWindow) {
+          window.electronAPI.openNewWindow().catch(() => {});
+        }
+        break;
       case 'edit.undo':
         editorInstance?.commands.undo();
         break;

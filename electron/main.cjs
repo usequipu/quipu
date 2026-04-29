@@ -51,6 +51,30 @@ try {
     // electron-squirrel-startup not available outside of Squirrel installer context
 }
 
+// Single-instance lock: ensure only one Electron process owns the app.
+// A second launch of the binary calls `requestSingleInstanceLock`, which
+// fails because the first process already holds the lock — the second
+// process exits immediately, and the first process receives a
+// `second-instance` event with the second launch's argv. We respond by
+// opening a new BrowserWindow in the existing process. Without this,
+// two processes both wrote to the same `quipu-state.json`, racing each
+// other on every storage update and intermittently zeroing the recent
+// workspaces list (and clobbering workspace-scoped agent/repo data).
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+    app.quit();
+}
+app.on('second-instance', () => {
+    // The user launched the binary again. Open a new window in this
+    // process and surface it. Focus the most recently created one if
+    // creation succeeds.
+    const win = createWindow();
+    if (win) {
+        if (win.isMinimized()) win.restore();
+        win.focus();
+    }
+});
+
 // Register custom protocol scheme before app is ready
 protocol.registerSchemesAsPrivileged([{
     scheme: 'quipu-file',
@@ -82,7 +106,36 @@ function writeStorage(data) {
     fs.writeFileSync(getStorageFile(), JSON.stringify(data, null, 2), 'utf-8');
 }
 
-let mainWindow;
+// Multi-window support: every BrowserWindow created by `createWindow` lives
+// in this Set so broadcasts and dialogs can reach all (or the right) window.
+//
+// Why a Set + helpers instead of a single `mainWindow` global: launching
+// the app twice used to spawn two separate Electron processes that both
+// wrote to the same `quipu-state.json`, racing each other and silently
+// corrupting workspace-scoped data and the recent-workspaces list. With
+// `requestSingleInstanceLock` (below), the second launch hands its
+// arguments to the first process via the `second-instance` event, and
+// the first process opens a new BrowserWindow in itself. One process,
+// one storage owner, no inter-process file races.
+const windows = new Set();
+
+// Send an IPC payload to every live window. Subprocess events (terminal
+// output, agent events, file-watcher notifications, ...) are global
+// today — every window's renderer subscribes and ignores ids it doesn't
+// know about. If we ever scope subprocess ownership to a specific window,
+// flip these callsites to target `BrowserWindow.fromId(ownerId)`.
+function broadcast(channel, payload) {
+    for (const win of windows) {
+        if (!win.isDestroyed()) win.webContents.send(channel, payload);
+    }
+}
+
+// Resolve the window that initiated an IPC call. Used as the parent for
+// modal dialogs so they appear over the right window in multi-window mode.
+function senderWindow(event) {
+    return BrowserWindow.fromWebContents(event.sender);
+}
+
 const ptyProcesses = new Map(); // terminalId -> ptyProcess
 const MAX_TERMINALS = 10;
 
@@ -96,7 +149,7 @@ const agentSessions = new Map(); // sessionKey -> { proc, agentId, buffer }
 
 const createWindow = () => {
     // Create the browser window.
-    mainWindow = new BrowserWindow({
+    const win = new BrowserWindow({
         width: 1200,
         height: 800,
         icon: path.join(__dirname, '..', 'build', 'icon.png'),
@@ -109,21 +162,24 @@ const createWindow = () => {
         backgroundColor: '#ffffff', // Start white, can change
     });
 
+    windows.add(win);
+    win.on('closed', () => { windows.delete(win); });
+
     // Zoom keybindings: Ctrl+= zoom in, Ctrl+- zoom out, Ctrl+0 reset
-    mainWindow.webContents.on('before-input-event', (event, input) => {
+    win.webContents.on('before-input-event', (event, input) => {
         if (input.control || input.meta) {
             if (input.key === '=' || input.key === '+') {
-                const current = mainWindow.webContents.getZoomFactor();
-                mainWindow.webContents.setZoomFactor(Math.min(current + 0.1, 2.0));
+                const current = win.webContents.getZoomFactor();
+                win.webContents.setZoomFactor(Math.min(current + 0.1, 2.0));
                 event.preventDefault();
             }
             if (input.key === '-') {
-                const current = mainWindow.webContents.getZoomFactor();
-                mainWindow.webContents.setZoomFactor(Math.max(current - 0.1, 0.5));
+                const current = win.webContents.getZoomFactor();
+                win.webContents.setZoomFactor(Math.max(current - 0.1, 0.5));
                 event.preventDefault();
             }
             if (input.key === '0') {
-                mainWindow.webContents.setZoomFactor(1.0);
+                win.webContents.setZoomFactor(1.0);
                 event.preventDefault();
             }
         }
@@ -131,22 +187,22 @@ const createWindow = () => {
 
     // Load the index.html of the app.
     if (process.env.VITE_DEV_SERVER_URL) {
-        mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+        win.loadURL(process.env.VITE_DEV_SERVER_URL);
         // Open the DevTools.
-        mainWindow.webContents.openDevTools();
+        win.webContents.openDevTools();
     } else {
-        mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+        win.loadFile(path.join(__dirname, '../dist/index.html'));
     }
 
     // Open external links in system browser instead of navigating the app
-    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    win.webContents.setWindowOpenHandler(({ url }) => {
         if (url.startsWith('http://') || url.startsWith('https://')) {
             shell.openExternal(url);
         }
         return { action: 'deny' };
     });
 
-    mainWindow.webContents.on('will-navigate', (event, url) => {
+    win.webContents.on('will-navigate', (event, url) => {
         const appOrigin = process.env.VITE_DEV_SERVER_URL || 'file://';
         if (!url.startsWith(appOrigin)) {
             event.preventDefault();
@@ -155,6 +211,8 @@ const createWindow = () => {
             }
         }
     });
+
+    return win;
 };
 
 // ---------------------------------------------------------------------------
@@ -307,10 +365,10 @@ app.whenReady().then(() => {
     createWindow();
 
     // Setup File System IPC
-    ipcMain.handle('open-folder-dialog', async () => {
+    ipcMain.handle('open-folder-dialog', async (event) => {
         // Try native dialog first
         try {
-            const result = await dialog.showOpenDialog(mainWindow, {
+            const result = await dialog.showOpenDialog(senderWindow(event), {
                 properties: ['openDirectory'],
             });
             if (!result.canceled && result.filePaths.length > 0) {
@@ -327,7 +385,7 @@ app.whenReady().then(() => {
     ipcMain.handle('open-file-dialog', async (event, options) => {
         try {
             const filters = options?.filters || [];
-            const result = await dialog.showOpenDialog(mainWindow, {
+            const result = await dialog.showOpenDialog(senderWindow(event), {
                 properties: ['openFile'],
                 filters,
             });
@@ -338,6 +396,15 @@ app.whenReady().then(() => {
         } catch (e) {
             return null;
         }
+    });
+
+    // Open a new window in this same process. Renderer triggers this via
+    // the File menu so users can spawn additional windows without launching
+    // the binary again — kept consistent with `second-instance` so all
+    // window creation flows through `createWindow`.
+    ipcMain.handle('open-new-window', async () => {
+        createWindow();
+        return { success: true };
     });
 
     ipcMain.handle('storage-get', (event, key) => {
@@ -857,17 +924,13 @@ app.whenReady().then(() => {
             for (const [file, mtime] of Object.entries(next)) {
                 if (snapshot[file] === undefined || snapshot[file] !== mtime) {
                     const filename = path.relative(dirPath, file).replace(/\\/g, '/');
-                    if (mainWindow && !mainWindow.isDestroyed()) {
-                        mainWindow.webContents.send('directory-changed', { eventType: 'change', filename });
-                    }
+                    broadcast('directory-changed', { eventType: 'change', filename });
                 }
             }
             for (const file of Object.keys(snapshot)) {
                 if (next[file] === undefined) {
                     const filename = path.relative(dirPath, file).replace(/\\/g, '/');
-                    if (mainWindow && !mainWindow.isDestroyed()) {
-                        mainWindow.webContents.send('directory-changed', { eventType: 'rename', filename });
-                    }
+                    broadcast('directory-changed', { eventType: 'rename', filename });
                 }
             }
             snapshot = next;
@@ -890,9 +953,7 @@ app.whenReady().then(() => {
             await fs.promises.mkdir(metaDir, { recursive: true });
             frameWatcher = fs.watch(metaDir, { recursive: true }, (eventType, filename) => {
                 if (!filename || !filename.endsWith('.frame.json')) return;
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                    mainWindow.webContents.send('frame-changed', { eventType, filename });
-                }
+                broadcast('frame-changed', { eventType, filename });
             });
         } catch (err) {
             console.warn('FRAME directory watch failed:', err.message);
@@ -1043,9 +1104,7 @@ app.whenReady().then(() => {
         ptyProcesses.set(terminalId, ptyProc);
 
         ptyProc.on('data', function (data) {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('terminal-incoming', { terminalId, data });
-            }
+            broadcast('terminal-incoming', { terminalId, data });
         });
 
         ptyProc.on('exit', function () {
@@ -1129,9 +1188,7 @@ app.whenReady().then(() => {
         agentProcesses.set(spawnId, { proc, agentId, buffer: '' });
 
         const emit = (event) => {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('agent-event', { spawnId, agentId, event });
-            }
+            broadcast('agent-event', { spawnId, agentId, event });
         };
 
         proc.on('error', (err) => {
@@ -1171,9 +1228,7 @@ app.whenReady().then(() => {
                 }
             }
             agentProcesses.delete(spawnId);
-            if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('agent-exit', { spawnId, agentId, code, signal });
-            }
+            broadcast('agent-exit', { spawnId, agentId, code, signal });
         });
 
         return { spawnId };
@@ -1193,9 +1248,7 @@ app.whenReady().then(() => {
     // permission prompts via can_use_tool events.
 
     function emitSessionEvent(agentId, sessionKey, event) {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('agent-session-event', { sessionKey, agentId, event });
-        }
+        broadcast('agent-session-event', { sessionKey, agentId, event });
     }
 
     ipcMain.handle('agent-session-start', async (event, { agentId, options }) => {
@@ -1299,9 +1352,7 @@ app.whenReady().then(() => {
                 catch { emitSessionEvent(agentId, sessionKey, { type: 'stdout_raw', text: s.buffer.trim() }); }
             }
             agentSessions.delete(sessionKey);
-            if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('agent-session-exit', { sessionKey, agentId, code, signal });
-            }
+            broadcast('agent-session-exit', { sessionKey, agentId, code, signal });
         });
 
         return { sessionKey, reused: false };

@@ -24,6 +24,7 @@ export interface Menu {
 export const commands: Command[] = [
   // File
   { label: 'New File', shortcut: 'Ctrl+N', action: 'file.new', category: 'File' },
+  { label: 'New Window', shortcut: 'Ctrl+Shift+N', action: 'file.newWindow', category: 'File' },
   { label: 'Open Folder', action: 'file.openFolder', category: 'File' },
   { label: 'Save', shortcut: 'Ctrl+S', action: 'file.save', category: 'File' },
   { label: 'Close Tab', shortcut: 'Ctrl+W', action: 'file.closeTab', category: 'File' },
@@ -67,6 +68,7 @@ export const menus: Menu[] = [
     label: 'File',
     items: [
       commands.find(c => c.action === 'file.new'),
+      commands.find(c => c.action === 'file.newWindow'),
       commands.find(c => c.action === 'file.openFolder'),
       { type: 'openRecent' },
       sep,

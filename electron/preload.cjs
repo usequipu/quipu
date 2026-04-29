@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // File system
     openFolderDialog: () => ipcRenderer.invoke('open-folder-dialog'),
     openFileDialog: (options) => ipcRenderer.invoke('open-file-dialog', options),
+    openNewWindow: () => ipcRenderer.invoke('open-new-window'),
     getHomeDir: () => ipcRenderer.invoke('get-home-dir'),
     readDirectory: (dirPath) => ipcRenderer.invoke('read-directory', dirPath),
     pathExists: (targetPath) => ipcRenderer.invoke('path-exists', targetPath),
