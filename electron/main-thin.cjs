@@ -6,7 +6,7 @@
  * connects to the Go server via HTTP/WebSocket. A minimal preload
  * (preload-thin.cjs) injects the server URL via contextBridge.
  */
-const { app, BrowserWindow, ipcMain, net: electronNet } = require('electron');
+const { app, BrowserWindow, ipcMain, net: electronNet, protocol } = require('electron');
 const { spawn, execFile } = require('child_process');
 const crypto = require('crypto');
 const path = require('path');
@@ -20,6 +20,86 @@ const AdmZip = require('adm-zip');
 const QUIPU_HOME_DIR = path.join(os.homedir(), '.quipu');
 const PLUGINS_CONFIG_PATH = path.join(QUIPU_HOME_DIR, 'plugins.json');
 const PLUGINS_DIR = path.join(QUIPU_HOME_DIR, 'plugins');
+
+// Register custom protocol schemes before app is ready. Mirror of main.cjs:
+// `quipu-plugin` is `standard` so plugins loaded under it get a fetchable
+// `import.meta.url` and can resolve sibling assets (fonts, css) by relative
+// path; `quipu-runtime` serves React proxy modules so plugins share the
+// host's React instance via globalThis.
+protocol.registerSchemesAsPrivileged([
+    {
+        scheme: 'quipu-plugin',
+        privileges: {
+            standard: true,
+            secure: true,
+            bypassCSP: true,
+            stream: true,
+            supportFetchAPI: true,
+            corsEnabled: true,
+        },
+    },
+    {
+        scheme: 'quipu-runtime',
+        privileges: {
+            standard: true,
+            secure: true,
+            bypassCSP: true,
+            stream: true,
+            supportFetchAPI: true,
+            corsEnabled: true,
+        },
+    },
+]);
+
+const RUNTIME_MODULES = {
+    'react.js':
+        "const R=globalThis.__quipuReact;export default R;" +
+        "export const{useState,useEffect,useCallback,useMemo,useRef,useContext," +
+        "createContext,createElement,forwardRef,memo,lazy,Suspense,Fragment," +
+        "Component,PureComponent,Children,cloneElement,isValidElement,createRef," +
+        "startTransition,useTransition,useDeferredValue,useId,useInsertionEffect," +
+        "useLayoutEffect,useImperativeHandle,useReducer,useSyncExternalStore," +
+        "useDebugValue,Profiler,StrictMode,version,use}=R;",
+    'react-dom.js':
+        "const RD=globalThis.__quipuReactDOM;export default RD;" +
+        "export const{createPortal,flushSync,unstable_batchedUpdates,version," +
+        "findDOMNode,render,hydrate,unmountComponentAtNode," +
+        "preconnect,prefetchDNS,preinit,preinitModule,preload,preloadModule," +
+        "requestFormReset,useFormState,useFormStatus}=RD;",
+    'jsx-runtime.js':
+        "const J=globalThis.__quipuJsx;" +
+        "export const jsx=J.jsx,jsxs=J.jsxs,Fragment=J.Fragment;",
+};
+
+function rewritePluginSource(source) {
+    let patched = source;
+    if (/\bexports\b/.test(patched)) {
+        patched = 'var exports = {};\n' + patched;
+    }
+    patched = patched
+        .replace(/(['"])react\/jsx-runtime\1/g, '"quipu-runtime://react/jsx-runtime.js"')
+        .replace(/(['"])react-dom\/client\1/g, '"quipu-runtime://react/react-dom.js"')
+        .replace(/(['"])react-dom\1/g, '"quipu-runtime://react/react-dom.js"')
+        .replace(/(['"])react\1/g, '"quipu-runtime://react/react.js"');
+    return patched;
+}
+
+const PLUGIN_ASSET_MIME = {
+    '.woff2': 'font/woff2',
+    '.woff': 'font/woff',
+    '.ttf': 'font/ttf',
+    '.otf': 'font/otf',
+    '.css': 'text/css; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.wasm': 'application/wasm',
+    '.map': 'application/json; charset=utf-8',
+};
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 try {
@@ -499,6 +579,60 @@ ipcMain.handle('read-file-abs', async (event, filePath) => {
 });
 
 app.whenReady().then(async () => {
+    // Serve plugin files from ~/.quipu/plugins/<id>/. Plugin entries get
+    // delivered under a real URL so module Workers and relative-URL asset
+    // resolution work the same way as on the web. JS files have their bare
+    // React imports rewritten to quipu-runtime:// at serve time so plugins
+    // share the host's React instance.
+    protocol.handle('quipu-plugin', async (request) => {
+        try {
+            const url = new URL(request.url);
+            const pluginId = url.hostname;
+            if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(pluginId)) {
+                return new Response('invalid plugin id', { status: 400 });
+            }
+            const relPath = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+            const pluginRoot = path.join(PLUGINS_DIR, pluginId);
+            const resolvedRoot = path.resolve(pluginRoot);
+            const resolved = path.resolve(pluginRoot, relPath);
+            if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + path.sep)) {
+                return new Response('path escapes plugin dir', { status: 403 });
+            }
+            const ext = path.extname(resolved).toLowerCase();
+            if (ext === '.js' || ext === '.mjs') {
+                const source = await fs.promises.readFile(resolved, 'utf-8');
+                return new Response(rewritePluginSource(source), {
+                    headers: { 'Content-Type': 'application/javascript; charset=utf-8' },
+                });
+            }
+            const contentType = PLUGIN_ASSET_MIME[ext] || 'application/octet-stream';
+            const buffer = await fs.promises.readFile(resolved);
+            return new Response(buffer, {
+                headers: {
+                    'Content-Type': contentType,
+                    'Cache-Control': 'public, max-age=3600',
+                },
+            });
+        } catch (err) {
+            if (err.code === 'ENOENT') return new Response('not found', { status: 404 });
+            return new Response(`error: ${err.message || err}`, { status: 500 });
+        }
+    });
+
+    protocol.handle('quipu-runtime', async (request) => {
+        try {
+            const url = new URL(request.url);
+            const file = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+            const code = RUNTIME_MODULES[file];
+            if (!code) return new Response('not found', { status: 404 });
+            return new Response(code, {
+                headers: { 'Content-Type': 'application/javascript; charset=utf-8' },
+            });
+        } catch (err) {
+            return new Response(`error: ${err.message || err}`, { status: 500 });
+        }
+    });
+
     try {
         const port = await findFreePort(3000);
         await startServer(port);
