@@ -19,7 +19,7 @@ import ActivityBar from './components/ui/ActivityBar';
 import QuickOpen from './components/ui/QuickOpen';
 import WorkspaceFilePicker from './components/ui/WorkspaceFilePicker';
 import TitleBar from './components/ui/TitleBar';
-import { buildWindowTitle } from './lib/windowTitle';
+import { buildWindowTitle } from '@/lib/windowTitle';
 import ContextMenu from './components/ui/ContextMenu';
 import FolderPicker from './components/ui/FolderPicker';
 import { WorkspaceProvider } from './context/WorkspaceContext';

@@ -104,19 +104,13 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
 
   const isFocusTarget = focusSignal?.path === entry.path;
 
-  // Lazy-mount-friendly scroll: ref callback fires whenever the row's DOM
-  // node is attached. Two scrolls cover the two cases:
-  //  (a) Row mounts after focusSignal already fired (deeply nested file in a
-  //      collapsed subtree — common path) → scroll inside the ref callback.
-  //  (b) Row stays mounted and the user re-focuses the same file (nonce
-  //      bump) → useLayoutEffect below.
-  const setRowRef = useCallback((el: HTMLDivElement | null) => {
-    rowRef.current = el;
-    if (el && focusSignal && focusSignal.path === entry.path) {
-      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    }
-  }, [focusSignal, entry.path]);
-
+  // Single scroll mechanism. useLayoutEffect runs after first mount (covering
+  // the lazy-mount case where the active row mounts after focusSignal already
+  // fired — the deps array doesn't need to "change" for the first run) AND
+  // on every focusSignal.nonce bump (covering re-focus of an already-mounted
+  // row). The earlier dual ref-callback + useLayoutEffect design caused two
+  // scrolls per focus because the ref callback also fired on every signal
+  // change (its useCallback deps included focusSignal).
   useLayoutEffect(() => {
     if (!isFocusTarget || !rowRef.current) return;
     rowRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -347,7 +341,7 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
   return (
     <div className="relative" data-context="file-tree-item">
       <div
-        ref={setRowRef}
+        ref={rowRef}
         draggable={!isRenaming}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
@@ -663,13 +657,13 @@ export default function FileExplorer() {
   // expand every ancestor folder (non-toggling) and fire a focus signal so
   // the matching row scrolls into view and pulses. Fires for every activeFile
   // change — open, tab switch, quick-open, wiki-link, session restore — since
-  // they all funnel through TabContext.activeFile.
+  // they all funnel through TabContext.activeFile. revealPath itself strips
+  // the file segment to derive ancestors; the caller passes the full path.
   useEffect(() => {
     const path = activeFile?.path;
     if (!path || !workspacePath) return;
     if (!path.startsWith(workspacePath + '/')) return;
-    const parent = path.slice(0, path.lastIndexOf('/'));
-    if (parent) revealPath(parent);
+    revealPath(path);
     focusPath(path);
   }, [activeFile?.path, workspacePath, revealPath, focusPath]);
 

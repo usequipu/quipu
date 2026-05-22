@@ -1,4 +1,4 @@
-import type { ActiveFile } from '../types/tab';
+import type { ActiveFile } from '@/types/tab';
 
 export function buildWindowTitle(
   activeFile: ActiveFile | null,
