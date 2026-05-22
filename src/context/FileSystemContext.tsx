@@ -43,6 +43,12 @@ export interface FileSystemContextValue {
   loadSubDirectory: (dirPath: string) => Promise<FileTreeEntry[]>;
   toggleFolder: (folderPath: string) => void;
   revealFolder: (folderPath: string) => void;
+  revealPath: (path: string) => void;
+
+  // Active-file focus signal (auto-reveal pulse trigger). Bumping nonce
+  // restarts the explorer's row-pulse animation even when path is unchanged.
+  focusSignal: { path: string; nonce: number } | null;
+  focusPath: (path: string) => void;
 
   // Expanded folders (bulk restore for session recovery)
   restoreExpandedFolders: (folders: string[]) => void;
@@ -71,6 +77,7 @@ export function FileSystemProvider({ children }: FileSystemProviderProps) {
   const [recentWorkspaces, setRecentWorkspaces] = useState<RecentWorkspace[]>([]);
   const [gitChangeCount, setGitChangeCount] = useState<number>(0);
   const [directoryVersion, setDirectoryVersion] = useState<number>(0);
+  const [focusSignal, setFocusSignal] = useState<{ path: string; nonce: number } | null>(null);
 
   // --- Leaf callbacks (no dependencies on other callbacks) ---
 
@@ -113,6 +120,36 @@ export function FileSystemProvider({ children }: FileSystemProviderProps) {
       return next;
     });
   }, [workspacePath]);
+
+  // Non-toggling variant of revealFolder: expands every ancestor folder of
+  // `path` (which may be a file or a folder) without ever closing one. Used
+  // by the explorer's auto-reveal effect so opening a file always opens its
+  // containing folder chain. revealFolder's toggle semantics are preserved
+  // for the right-click "reveal" menu code path.
+  const revealPath = useCallback((path: string) => {
+    if (!workspacePath || !path) return;
+    if (!path.startsWith(workspacePath + '/')) return;
+    setExpandedFolders(prev => {
+      const relative = path.substring(workspacePath.length + 1);
+      const segments = relative.split('/');
+      // Drop the last segment so we only expand ancestor folders, not the
+      // path itself (which may be a file).
+      const ancestors = segments.slice(0, -1);
+      if (ancestors.length === 0) return prev;
+      const next = new Set(prev);
+      let current = workspacePath;
+      for (const seg of ancestors) {
+        current += '/' + seg;
+        next.add(current);
+      }
+      return next;
+    });
+  }, [workspacePath]);
+
+  const focusPath = useCallback((path: string) => {
+    if (!path) return;
+    setFocusSignal(prev => ({ path, nonce: (prev?.nonce ?? 0) + 1 }));
+  }, []);
 
   const restoreExpandedFolders = useCallback((folders: string[]) => {
     setExpandedFolders(new Set(folders));
@@ -401,6 +438,9 @@ export function FileSystemProvider({ children }: FileSystemProviderProps) {
     loadSubDirectory,
     toggleFolder,
     revealFolder,
+    revealPath,
+    focusSignal,
+    focusPath,
     restoreExpandedFolders,
     updateRecentWorkspaces,
     clearRecentWorkspaces,

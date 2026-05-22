@@ -19,6 +19,7 @@ import ActivityBar from './components/ui/ActivityBar';
 import QuickOpen from './components/ui/QuickOpen';
 import WorkspaceFilePicker from './components/ui/WorkspaceFilePicker';
 import TitleBar from './components/ui/TitleBar';
+import { buildWindowTitle } from './lib/windowTitle';
 import ContextMenu from './components/ui/ContextMenu';
 import FolderPicker from './components/ui/FolderPicker';
 import { WorkspaceProvider } from './context/WorkspaceContext';
@@ -1098,11 +1099,7 @@ function AppContent() {
     };
   }, [workspacePath, activeFile, openFile]);
 
-  // Build title
-  let title = 'Quipu';
-  if (activeFile) {
-    title = activeFile.name;
-  }
+  const title = buildWindowTitle(activeFile, workspacePath);
 
   return (
     <div className="flex flex-col h-screen w-screen" data-workspace-path={workspacePath ?? ''}>

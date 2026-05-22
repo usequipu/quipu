@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import {
   CaretRightIcon, CaretDownIcon, FileIcon as PhFileIcon, FolderIcon, FolderOpenIcon,
   NotebookIcon, FileJsIcon, FileJsxIcon, FileCssIcon, FileHtmlIcon,
@@ -80,6 +80,7 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
     deleteEntry,
     renameEntry,
     directoryVersion,
+    focusSignal,
   } = useFileSystem();
   const {
     activeFile,
@@ -99,6 +100,27 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
   const [showPublishDialog, setShowPublishDialog] = useState(false);
   const renameRef = useRef<HTMLInputElement | null>(null);
   const createRef = useRef<HTMLInputElement | null>(null);
+  const rowRef = useRef<HTMLDivElement | null>(null);
+
+  const isFocusTarget = focusSignal?.path === entry.path;
+
+  // Lazy-mount-friendly scroll: ref callback fires whenever the row's DOM
+  // node is attached. Two scrolls cover the two cases:
+  //  (a) Row mounts after focusSignal already fired (deeply nested file in a
+  //      collapsed subtree — common path) → scroll inside the ref callback.
+  //  (b) Row stays mounted and the user re-focuses the same file (nonce
+  //      bump) → useLayoutEffect below.
+  const setRowRef = useCallback((el: HTMLDivElement | null) => {
+    rowRef.current = el;
+    if (el && focusSignal && focusSignal.path === entry.path) {
+      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [focusSignal, entry.path]);
+
+  useLayoutEffect(() => {
+    if (!isFocusTarget || !rowRef.current) return;
+    rowRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [focusSignal?.nonce, isFocusTarget]);
 
   // Listen for drag-end cleanup event to clear stuck highlights
   useEffect(() => {
@@ -325,6 +347,7 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
   return (
     <div className="relative" data-context="file-tree-item">
       <div
+        ref={setRowRef}
         draggable={!isRenaming}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
@@ -332,7 +355,7 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={cn(
-          "flex items-center h-[26px] mx-1 rounded-md cursor-pointer gap-1 whitespace-nowrap overflow-hidden",
+          "relative flex items-center h-[26px] mx-1 rounded-md cursor-pointer gap-1 whitespace-nowrap overflow-hidden",
           "hover:bg-bg-elevated",
           isActive && "bg-bg-overlay",
           isDragOver && "bg-accent/20 outline outline-1 outline-accent/50",
@@ -341,6 +364,13 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
         onClick={handleClick}
         onContextMenu={handleContextMenu}
       >
+        {isFocusTarget && (
+          <span
+            key={focusSignal?.nonce}
+            aria-hidden
+            className="animate-row-pulse pointer-events-none absolute inset-0 rounded-md"
+          />
+        )}
         {entry.isDirectory ? (
           isExpanded
             ? <CaretDownIcon size={14} className="shrink-0 text-text-tertiary" />
@@ -624,10 +654,24 @@ function extFromMime(mime: string): string {
 }
 
 export default function FileExplorer() {
-  const { workspacePath, fileTree, openFolder, refreshDirectory, renameEntry, createNewFile, createNewFolder } = useFileSystem();
-  const { openFile } = useTab();
+  const { workspacePath, fileTree, openFolder, refreshDirectory, renameEntry, createNewFile, createNewFolder, revealPath, focusPath } = useFileSystem();
+  const { openFile, activeFile } = useTab();
   const { status: kamaluStatus } = useKamalu();
   const { showToast } = useToast();
+
+  // Auto-reveal: when the active file changes to a path inside the workspace,
+  // expand every ancestor folder (non-toggling) and fire a focus signal so
+  // the matching row scrolls into view and pulses. Fires for every activeFile
+  // change — open, tab switch, quick-open, wiki-link, session restore — since
+  // they all funnel through TabContext.activeFile.
+  useEffect(() => {
+    const path = activeFile?.path;
+    if (!path || !workspacePath) return;
+    if (!path.startsWith(workspacePath + '/')) return;
+    const parent = path.slice(0, path.lastIndexOf('/'));
+    if (parent) revealPath(parent);
+    focusPath(path);
+  }, [activeFile?.path, workspacePath, revealPath, focusPath]);
 
   // Paste images from clipboard into the workspace root.
   const pasteImagesFromClipboard = useCallback(async () => {
