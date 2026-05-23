@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import {
   CaretRightIcon, CaretDownIcon, FileIcon as PhFileIcon, FolderIcon, FolderOpenIcon,
   NotebookIcon, FileJsIcon, FileJsxIcon, FileCssIcon, FileHtmlIcon,
@@ -80,6 +80,7 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
     deleteEntry,
     renameEntry,
     directoryVersion,
+    focusSignal,
   } = useFileSystem();
   const {
     activeFile,
@@ -99,6 +100,21 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
   const [showPublishDialog, setShowPublishDialog] = useState(false);
   const renameRef = useRef<HTMLInputElement | null>(null);
   const createRef = useRef<HTMLInputElement | null>(null);
+  const rowRef = useRef<HTMLDivElement | null>(null);
+
+  const isFocusTarget = focusSignal?.path === entry.path;
+
+  // Single scroll mechanism. useLayoutEffect runs after first mount (covering
+  // the lazy-mount case where the active row mounts after focusSignal already
+  // fired — the deps array doesn't need to "change" for the first run) AND
+  // on every focusSignal.nonce bump (covering re-focus of an already-mounted
+  // row). The earlier dual ref-callback + useLayoutEffect design caused two
+  // scrolls per focus because the ref callback also fired on every signal
+  // change (its useCallback deps included focusSignal).
+  useLayoutEffect(() => {
+    if (!isFocusTarget || !rowRef.current) return;
+    rowRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [focusSignal?.nonce, isFocusTarget]);
 
   // Listen for drag-end cleanup event to clear stuck highlights
   useEffect(() => {
@@ -325,6 +341,7 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
   return (
     <div className="relative" data-context="file-tree-item">
       <div
+        ref={rowRef}
         draggable={!isRenaming}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
@@ -332,7 +349,7 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={cn(
-          "flex items-center h-[26px] mx-1 rounded-md cursor-pointer gap-1 whitespace-nowrap overflow-hidden",
+          "relative flex items-center h-[26px] mx-1 rounded-md cursor-pointer gap-1 whitespace-nowrap overflow-hidden",
           "hover:bg-bg-elevated",
           isActive && "bg-bg-overlay",
           isDragOver && "bg-accent/20 outline outline-1 outline-accent/50",
@@ -341,6 +358,13 @@ function FileTreeItem({ entry, depth = 0 }: FileTreeItemProps) {
         onClick={handleClick}
         onContextMenu={handleContextMenu}
       >
+        {isFocusTarget && (
+          <span
+            key={focusSignal?.nonce}
+            aria-hidden
+            className="animate-row-pulse pointer-events-none absolute inset-0 rounded-md"
+          />
+        )}
         {entry.isDirectory ? (
           isExpanded
             ? <CaretDownIcon size={14} className="shrink-0 text-text-tertiary" />
@@ -624,10 +648,24 @@ function extFromMime(mime: string): string {
 }
 
 export default function FileExplorer() {
-  const { workspacePath, fileTree, openFolder, refreshDirectory, renameEntry, createNewFile, createNewFolder } = useFileSystem();
-  const { openFile } = useTab();
+  const { workspacePath, fileTree, openFolder, refreshDirectory, renameEntry, createNewFile, createNewFolder, revealPath, focusPath } = useFileSystem();
+  const { openFile, activeFile } = useTab();
   const { status: kamaluStatus } = useKamalu();
   const { showToast } = useToast();
+
+  // Auto-reveal: when the active file changes to a path inside the workspace,
+  // expand every ancestor folder (non-toggling) and fire a focus signal so
+  // the matching row scrolls into view and pulses. Fires for every activeFile
+  // change — open, tab switch, quick-open, wiki-link, session restore — since
+  // they all funnel through TabContext.activeFile. revealPath itself strips
+  // the file segment to derive ancestors; the caller passes the full path.
+  useEffect(() => {
+    const path = activeFile?.path;
+    if (!path || !workspacePath) return;
+    if (!path.startsWith(workspacePath + '/')) return;
+    revealPath(path);
+    focusPath(path);
+  }, [activeFile?.path, workspacePath, revealPath, focusPath]);
 
   // Paste images from clipboard into the workspace root.
   const pasteImagesFromClipboard = useCallback(async () => {

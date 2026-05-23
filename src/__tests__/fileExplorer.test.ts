@@ -98,3 +98,106 @@ describe('revealFolder logic', () => {
     expect(result.size).toBe(0);
   });
 });
+
+describe('revealPath logic (non-toggling)', () => {
+  // Simulates the new revealPath function from FileSystemContext.
+  // Expands every ancestor folder of `path` (which may be a file path)
+  // without ever toggling/closing.
+  const revealPath = (path: string, workspacePath: string | null, expandedFolders: Set<string>) => {
+    if (!workspacePath || !path) return new Set(expandedFolders);
+    if (!path.startsWith(workspacePath + '/')) return new Set(expandedFolders);
+    const relative = path.substring(workspacePath.length + 1);
+    const segments = relative.split('/');
+    const ancestors = segments.slice(0, -1);
+    if (ancestors.length === 0) return new Set(expandedFolders);
+    const next = new Set(expandedFolders);
+    let current = workspacePath;
+    for (const seg of ancestors) {
+      current += '/' + seg;
+      next.add(current);
+    }
+    return next;
+  };
+
+  const ws = '/home/user/project';
+
+  it('expands ancestor folders of a file path, not the file itself', () => {
+    const result = revealPath(`${ws}/src/components/Button.tsx`, ws, new Set());
+    expect(result.has(`${ws}/src`)).toBe(true);
+    expect(result.has(`${ws}/src/components`)).toBe(true);
+    expect(result.has(`${ws}/src/components/Button.tsx`)).toBe(false);
+  });
+
+  it('preserves already-expanded folders (never closes)', () => {
+    const initial = new Set([`${ws}/src`, `${ws}/src/components`, `${ws}/src/components/ui`]);
+    const result = revealPath(`${ws}/src/components/Button.tsx`, ws, initial);
+    expect(result.has(`${ws}/src`)).toBe(true);
+    expect(result.has(`${ws}/src/components`)).toBe(true);
+    expect(result.has(`${ws}/src/components/ui`)).toBe(true);
+  });
+
+  it('is idempotent', () => {
+    const empty = new Set<string>();
+    const once = revealPath(`${ws}/a/b/c.ts`, ws, empty);
+    const twice = revealPath(`${ws}/a/b/c.ts`, ws, once);
+    expect(Array.from(twice).sort()).toEqual(Array.from(once).sort());
+  });
+
+  it('top-level file has no ancestors to expand', () => {
+    const result = revealPath(`${ws}/README.md`, ws, new Set());
+    expect(result.size).toBe(0);
+  });
+
+  it('ignores paths outside workspace', () => {
+    const result = revealPath('/other/path/file.ts', ws, new Set());
+    expect(result.size).toBe(0);
+  });
+
+  it('rejects a prefix-only match without the trailing slash boundary', () => {
+    // /home/user/project-other/x.ts must NOT match workspace /home/user/project
+    const result = revealPath('/home/user/project-other/file.ts', ws, new Set());
+    expect(result.size).toBe(0);
+  });
+
+  it('no-ops when workspace is null', () => {
+    const result = revealPath(`${ws}/src/a.ts`, null, new Set());
+    expect(result.size).toBe(0);
+  });
+
+  it('no-ops on empty path', () => {
+    const result = revealPath('', ws, new Set());
+    expect(result.size).toBe(0);
+  });
+});
+
+describe('focusPath / focusSignal logic', () => {
+  // Mirrors the focusPath reducer in FileSystemContext: each call bumps the
+  // nonce so the explorer's row-pulse animation restarts even when the path
+  // is unchanged.
+  const focusPath = (path: string, prev: { path: string; nonce: number } | null) => {
+    if (!path) return prev;
+    return { path, nonce: (prev?.nonce ?? 0) + 1 };
+  };
+
+  it('produces a new nonce on every call for the same path', () => {
+    const a = focusPath('/ws/x.ts', null);
+    const b = focusPath('/ws/x.ts', a);
+    const c = focusPath('/ws/x.ts', b);
+    expect(a?.nonce).toBe(1);
+    expect(b?.nonce).toBe(2);
+    expect(c?.nonce).toBe(3);
+  });
+
+  it('keeps incrementing nonce across path changes', () => {
+    const a = focusPath('/ws/a.ts', null);
+    const b = focusPath('/ws/b.ts', a);
+    expect(b?.path).toBe('/ws/b.ts');
+    expect(b?.nonce).toBe(2);
+  });
+
+  it('is a no-op on empty path', () => {
+    const a = focusPath('/ws/a.ts', null);
+    const b = focusPath('', a);
+    expect(b).toBe(a);
+  });
+});

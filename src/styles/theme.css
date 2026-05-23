@@ -66,6 +66,7 @@
   --animate-menu-fade-in: menu-fade-in 0.1s ease;
   --animate-search-highlight: search-highlight-fade 2s
     cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
+  --animate-row-pulse: search-highlight-fade 1.2s ease-out forwards;
   --animate-thinking-dot: thinking-dot 1.2s ease-in-out infinite;
   --animate-thinking-phrase: thinking-phrase 1.8s ease-out;
 
@@ -370,6 +371,10 @@
 .search-highlight-line {
   animation: var(--animate-search-highlight);
   border-radius: 2px;
+}
+
+.animate-row-pulse {
+  animation: var(--animate-row-pulse);
 }
 
 /* RevealMarkdown decoration styles.
