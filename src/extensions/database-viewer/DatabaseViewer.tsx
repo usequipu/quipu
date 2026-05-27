@@ -216,6 +216,8 @@ const DatabaseViewer: React.FC<DatabaseViewerProps> = ({
             workspacePath={workspacePath}
             readOnly={isChat}
             outerPaddingInline={innerPadding}
+            view={activeView}
+            updateViewConfig={isChat ? undefined : updateViewConfig}
           />
         )}
       </div>

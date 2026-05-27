@@ -1,16 +1,17 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useState, useEffect } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
   flexRender,
 } from '@tanstack/react-table';
+import type { ColumnSizingState, Updater } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { PlusIcon } from '@phosphor-icons/react';
 import { cn } from '@/lib/utils';
 import { useColumnDefs } from '../hooks/useColumnDefs';
 import { ColumnHeaderMenu } from './ColumnManager';
 import ColumnTypeIcon from './ColumnTypeIcon';
-import type { DatabaseSchema, DatabaseRow, ColumnDef, ColumnType, SelectOption } from '../types';
+import type { DatabaseSchema, DatabaseRow, ColumnDef, ColumnType, SelectOption, ViewConfig } from '../types';
 
 interface TableViewProps {
   schema: DatabaseSchema;
@@ -37,6 +38,14 @@ interface TableViewProps {
   /** Horizontal padding for the scroll container — keep the standalone
    * viewer's --db-h-pad indent but flush the inline / chat modes. */
   outerPaddingInline?: string;
+  /**
+   * Active view config. Provides persisted `columnWidths` (seeds TanStack's
+   * column-sizing state) and the view id used to persist new widths via
+   * `updateViewConfig`. Both are optional so chat / preview surfaces that
+   * don't own a view can still render the table with per-type defaults.
+   */
+  view?: ViewConfig;
+  updateViewConfig?: (viewId: string, updates: Partial<ViewConfig>) => void;
 }
 
 const ROW_HEIGHT = 36;
@@ -56,9 +65,41 @@ const TableView: React.FC<TableViewProps> = ({
   workspacePath = null,
   readOnly = false,
   outerPaddingInline = 'var(--db-h-pad)',
+  view,
+  updateViewConfig,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const columns = useColumnDefs(schema);
+  const columns = useColumnDefs(schema, view?.columnWidths);
+
+  // Controlled column-sizing state. Seeded from the active view's saved
+  // widths so resize-then-reload shows the persisted size; updates flow
+  // back to disk via `updateViewConfig` (which the database hook already
+  // debounces — see `emitViewChange` in `useDatabase.ts`).
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(
+    () => view?.columnWidths ?? {},
+  );
+
+  // Resync local state when the active view changes (view switcher) or the
+  // file is reloaded externally (file watcher). Without this, switching
+  // views would keep stale sizing applied to the new view's columns.
+  const viewId = view?.id;
+  const viewColumnWidths = view?.columnWidths;
+  useEffect(() => {
+    setColumnSizing(viewColumnWidths ?? {});
+  }, [viewId, viewColumnWidths]);
+
+  const handleColumnSizingChange = useCallback(
+    (updater: Updater<ColumnSizingState>) => {
+      setColumnSizing(prev => {
+        const next = typeof updater === 'function' ? updater(prev) : updater;
+        if (view && updateViewConfig) {
+          updateViewConfig(view.id, { columnWidths: next });
+        }
+        return next;
+      });
+    },
+    [view, updateViewConfig],
+  );
 
   const table = useReactTable({
     data: rows,
@@ -68,6 +109,10 @@ const TableView: React.FC<TableViewProps> = ({
     enableColumnResizing: true,
     enableSorting: false,
     getRowId: (row) => row._id,
+    state: {
+      columnSizing,
+    },
+    onColumnSizingChange: handleColumnSizingChange,
     meta: {
       updateCell,
       updateColumnOptions,
