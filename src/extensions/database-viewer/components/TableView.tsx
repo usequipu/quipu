@@ -4,7 +4,11 @@ import {
   getCoreRowModel,
   flexRender,
 } from '@tanstack/react-table';
-import type { ColumnSizingState, Updater } from '@tanstack/react-table';
+import type {
+  ColumnSizingState,
+  ColumnSizingInfoState,
+  Updater,
+} from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { PlusIcon } from '@phosphor-icons/react';
 import { cn } from '@/lib/utils';
@@ -69,7 +73,12 @@ const TableView: React.FC<TableViewProps> = ({
   updateViewConfig,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const columns = useColumnDefs(schema, view?.columnWidths);
+  // Per-type defaults seed the initial `size` on each column def. We do NOT
+  // forward `view.columnWidths` here — the controlled `columnSizing` state
+  // below is the runtime source of truth, and re-memoizing the columns array
+  // mid-drag (every `updateViewConfig` produces a new `columnWidths` ref)
+  // makes TanStack rebuild the table and drop in-flight resize tracking.
+  const columns = useColumnDefs(schema);
 
   // Controlled column-sizing state. Seeded from the active view's saved
   // widths so resize-then-reload shows the persisted size; updates flow
@@ -79,22 +88,60 @@ const TableView: React.FC<TableViewProps> = ({
     () => view?.columnWidths ?? {},
   );
 
-  // Resync local state when the active view changes (view switcher) or the
-  // file is reloaded externally (file watcher). Without this, switching
-  // views would keep stale sizing applied to the new view's columns.
+  // Resync local state only when the *view itself* changes (view switcher
+  // or initial mount after a different file is opened). We deliberately
+  // depend on `viewId` alone — depending on `view.columnWidths` would
+  // re-fire mid-drag (because each `updateViewConfig` call produces a new
+  // schema with a new `columnWidths` object reference), overwriting the
+  // in-progress drag state and making the handle feel unresponsive.
   const viewId = view?.id;
-  const viewColumnWidths = view?.columnWidths;
+  // Hold the latest widths in a ref so the effect can read them without
+  // listing them as a dependency.
+  const latestPersistedWidthsRef = useRef(view?.columnWidths);
+  latestPersistedWidthsRef.current = view?.columnWidths;
   useEffect(() => {
-    setColumnSizing(viewColumnWidths ?? {});
-  }, [viewId, viewColumnWidths]);
+    setColumnSizing(latestPersistedWidthsRef.current ?? {});
+  }, [viewId]);
 
+  // Persisting on every mousemove would re-enter via `setSchema` and could
+  // race with TanStack's resize tracking. We keep TanStack's local state
+  // hot for smooth drag feedback, then write the final width to disk via
+  // `onColumnSizingInfoChange` once `isResizingColumn` flips back to false.
+  // `useDatabase.emitViewChange` already debounces the disk write by 2s,
+  // so successive drags still batch naturally.
   const handleColumnSizingChange = useCallback(
     (updater: Updater<ColumnSizingState>) => {
-      setColumnSizing(prev => {
+      setColumnSizing(prev =>
+        typeof updater === 'function' ? updater(prev) : updater,
+      );
+    },
+    [],
+  );
+
+  // Track the previous resize info so we can detect the falling edge of
+  // `isResizingColumn` (drag-end) and commit the final widths to disk.
+  const [columnSizingInfo, setColumnSizingInfo] = useState<ColumnSizingInfoState>(() => ({
+    startOffset: null,
+    startSize: null,
+    deltaOffset: null,
+    deltaPercentage: null,
+    isResizingColumn: false,
+    columnSizingStart: [],
+  }));
+  const wasResizingRef = useRef(false);
+  const latestSizingRef = useRef<ColumnSizingState>(columnSizing);
+  latestSizingRef.current = columnSizing;
+  const handleColumnSizingInfoChange = useCallback(
+    (updater: Updater<ColumnSizingInfoState>) => {
+      setColumnSizingInfo(prev => {
         const next = typeof updater === 'function' ? updater(prev) : updater;
-        if (view && updateViewConfig) {
-          updateViewConfig(view.id, { columnWidths: next });
+        const wasResizing = wasResizingRef.current;
+        const isResizingNow = Boolean(next.isResizingColumn);
+        // Falling edge: drag just ended — commit the latest local widths.
+        if (wasResizing && !isResizingNow && view && updateViewConfig) {
+          updateViewConfig(view.id, { columnWidths: latestSizingRef.current });
         }
+        wasResizingRef.current = isResizingNow;
         return next;
       });
     },
@@ -111,8 +158,10 @@ const TableView: React.FC<TableViewProps> = ({
     getRowId: (row) => row._id,
     state: {
       columnSizing,
+      columnSizingInfo,
     },
     onColumnSizingChange: handleColumnSizingChange,
+    onColumnSizingInfoChange: handleColumnSizingInfoChange,
     meta: {
       updateCell,
       updateColumnOptions,
@@ -176,7 +225,10 @@ const TableView: React.FC<TableViewProps> = ({
                     key={header.id}
                     className={cn(
                       'relative text-left text-page-text/60 font-medium text-xs tracking-wide',
-                      'border-b border-border/30 select-none',
+                      // Subtle right border per column gives a permanent
+                      // visual cue for where the resize divider lives, so
+                      // users can find the drag handle without hunting.
+                      'border-b border-r border-border/30 border-r-border/20 select-none',
                     )}
                     // Inline padding overrides any prose-CSS padding the
                     // editor's `.ProseMirror th, td` rule would otherwise
@@ -202,16 +254,42 @@ const TableView: React.FC<TableViewProps> = ({
                         )
                       )}
                     </div>
-                    {/* Resize handle */}
+                    {/* Resize handle — 8px-wide grab area, shifted half-out
+                        so it straddles the column border. The visible
+                        2px-wide accent strip is centered inside the grab
+                        zone so the cursor target feels generous without
+                        looking heavy. */}
                     <div
                       onMouseDown={header.getResizeHandler()}
                       onTouchStart={header.getResizeHandler()}
+                      onDoubleClick={() => {
+                        header.column.resetSize();
+                        // resetSize() mutates local sizing but doesn't end
+                        // a drag, so commit the post-reset map explicitly.
+                        if (view && updateViewConfig) {
+                          const next = { ...latestSizingRef.current };
+                          delete next[header.column.id];
+                          updateViewConfig(view.id, { columnWidths: next });
+                        }
+                      }}
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label={`Resize column ${String(header.column.columnDef.header ?? header.column.id)}`}
+                      title="Drag to resize, double-click to reset"
                       className={cn(
-                        'absolute right-0 top-0 h-full w-1 cursor-col-resize select-none touch-none',
-                        'hover:bg-accent/50',
-                        header.column.getIsResizing() && 'bg-accent',
+                        'group absolute top-0 h-full w-2 -right-1 z-10',
+                        'cursor-col-resize select-none touch-none',
                       )}
-                    />
+                    >
+                      <div
+                        className={cn(
+                          'absolute left-1/2 -translate-x-1/2 top-0 h-full w-0.5',
+                          'transition-colors',
+                          'group-hover:bg-accent',
+                          header.column.getIsResizing() && 'bg-accent',
+                        )}
+                      />
+                    </div>
                   </th>
                 ))}
                 {onAddColumn && (
