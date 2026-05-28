@@ -400,7 +400,7 @@ export default function ChatView({ tab }: ChatViewProps) {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-page-bg text-text-primary">
-      <div className="flex items-center justify-between h-12 px-4 border-b border-border shrink-0">
+      <div className="flex items-center justify-between h-12 px-4 shrink-0">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-7 h-7 rounded bg-accent-muted flex items-center justify-center shrink-0">
             <RobotIcon size={16} className="text-accent" weight="regular" />

@@ -138,7 +138,7 @@ export default function AgentEditorView({ tab }: AgentEditorViewProps) {
 
   return (
     <div className="flex flex-col h-full bg-bg-base text-text-primary overflow-auto">
-      <div className="flex items-center justify-between h-12 px-4 border-b border-border shrink-0">
+      <div className="flex items-center justify-between h-12 px-4 shrink-0">
         <div className="flex items-center gap-3">
           <button
             className="w-7 h-7 flex items-center justify-center rounded text-text-tertiary hover:text-text-primary hover:bg-bg-elevated transition-colors"
