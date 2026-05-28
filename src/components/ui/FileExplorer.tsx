@@ -840,7 +840,7 @@ export default function FileExplorer() {
       className="bg-bg-surface text-text-primary flex flex-col select-none text-[13px] font-sans flex-1 overflow-hidden outline-none"
       tabIndex={0}
       onKeyDown={handleExplorerKeyDown}>
-      <div className="h-[35px] flex items-center gap-2 px-4 border-b border-border shrink-0">
+      <div className="h-[35px] flex items-center gap-2 px-4 shrink-0">
         <div
           className="w-5 h-5 rounded bg-accent/15 flex items-center justify-center shrink-0 cursor-pointer"
           onClick={openFolder}

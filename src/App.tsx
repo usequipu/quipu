@@ -1127,7 +1127,7 @@ function AppContent() {
   }, [activeFile, workspacePath]);
 
   return (
-    <div className="flex flex-col h-screen w-screen" data-workspace-path={workspacePath ?? ''}>
+    <div className="flex flex-col h-screen w-screen bg-bg-surface" data-workspace-path={workspacePath ?? ''}>
       {showWizard && <FirstRunWizard onComplete={() => setShowWizard(false)} />}
       {contextMenu && (
         <ContextMenu
@@ -1187,38 +1187,59 @@ function AppContent() {
         onAction={handleMenuAction}
         initialValue={quickOpenInitialValue}
       />
-      <div className="flex flex-row flex-1 overflow-hidden min-h-0">
-        <ActivityBar activePanel={activePanel} onPanelToggle={handlePanelToggle} />
+      {/*
+        Outer container — canvas and the sidebar card share `bg-bg-surface`
+        so all surfaces (editor, tab bar, sidebar card, canvas) use the same
+        color. The "floating" effect for the sidebar card comes purely from
+        its `rounded-lg border shadow-md` — not from background contrast.
+      */}
+      <div className="flex flex-row flex-1 overflow-hidden min-h-0 bg-bg-surface">
         {/*
-          Outer horizontal Group: sidebar Panel reaches the very top of the
-          window (no TitleBar above it), and the editor Panel hosts its own
-          slim top strip (TitleBar) above the editor/terminal vertical Group.
-          See docs/plans/2026-05-28-001-feat-visual-overhaul-plan.md (Phase 1).
+          Outer horizontal Group: sidebar Panel hosts a floating card that
+          contains both the ActivityBar (icon rail) and the active panel
+          (explorer / search / etc.) as one visual unit. Editor Panel is
+          flat — no card treatment — and hosts its own slim top strip.
+          See docs/plans/2026-05-28-001-feat-visual-overhaul-plan.md (Phase 3).
         */}
         <Group orientation="horizontal" style={{ flex: 1, overflow: 'hidden' }}>
         <Panel
           panelRef={sidePanelRef}
           collapsible
           collapsedSize={0}
-          minSize={200}
-          maxSize={400}
-          defaultSize={250}
+          minSize={248}
+          maxSize={448}
+          defaultSize={298}
         >
-          <div className="h-full overflow-hidden flex flex-col bg-bg-surface relative z-10" data-context="explorer">
-            {(() => {
-              if (!activePanel) return null;
-              const panel = getRegisteredPanels().find((p) => p.id === activePanel);
-              if (!panel) return null;
-              // Extra props for built-in panels that require them; plugin panels receive nothing.
-              const panelPropsMap: Record<string, Record<string, unknown>> = {
-                search: { activePanel },
-              };
-              const PanelComp = panel.component as React.ComponentType<Record<string, unknown>>;
-              return <PanelComp {...(panelPropsMap[activePanel] ?? {})} />;
-            })()}
+          {/*
+            Floating-card wrapper. `m-2` creates the gap between the card and
+            the window edges; `rounded-lg`, `border`, and `shadow-md` give the
+            lift. `overflow-hidden` clips the inner ActivityBar + panel
+            content to the rounded corners.
+          */}
+          <div className="h-[calc(100%-1.5rem)] my-3 mx-2 rounded-lg border border-border bg-bg-surface shadow-md overflow-hidden flex flex-row" data-context="explorer">
+            <ActivityBar activePanel={activePanel} onPanelToggle={handlePanelToggle} />
+            <div className="flex-1 overflow-hidden flex flex-col relative z-10">
+              {(() => {
+                if (!activePanel) return null;
+                const panel = getRegisteredPanels().find((p) => p.id === activePanel);
+                if (!panel) return null;
+                // Extra props for built-in panels that require them; plugin panels receive nothing.
+                const panelPropsMap: Record<string, Record<string, unknown>> = {
+                  search: { activePanel },
+                };
+                const PanelComp = panel.component as React.ComponentType<Record<string, unknown>>;
+                return <PanelComp {...(panelPropsMap[activePanel] ?? {})} />;
+              })()}
+            </div>
           </div>
         </Panel>
-        <Separator className="shrink-0 w-px cursor-col-resize bg-border" style={{ WebkitAppRegion: 'no-drag', boxShadow: 'var(--sidebar-shadow)' } as React.CSSProperties} />
+        {/*
+          Sidebar / editor resize handle. Visually transparent — the card's
+          own shadow + the canvas gap provide the visual separation. The
+          handle is still draggable (cursor + width) and `no-drag` so the
+          OS doesn't treat the click as a window drag.
+        */}
+        <Separator className="shrink-0 w-1 cursor-col-resize bg-transparent" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} />
         <Panel>
           <div className="h-full flex flex-col overflow-hidden">
           <TitleBar />
@@ -1310,6 +1331,12 @@ function AppContent() {
         </Panel>
       </Group>
       </div>
+      {/*
+        Status bar sits BELOW the sidebar in normal vertical flow, so the
+        sidebar card's rounded bottom corners are visible above it. The
+        status bar uses the same `bg-bg-surface` token as the rest of the
+        shell so it reads as one continuous canvas.
+      */}
       <StatusBar />
     </div>
   );

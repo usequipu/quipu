@@ -41,7 +41,7 @@ export default function ActivityBar({
 
   return (
     <div
-      className="flex flex-col items-center w-12 shrink-0 bg-bg-surface relative z-20 shadow-[4px_0_12px_rgba(0,0,0,0.1)]"
+      className="flex flex-col items-center w-12 shrink-0 bg-bg-surface relative z-20"
       role="toolbar"
       aria-label="Activity Bar"
     >
@@ -50,7 +50,7 @@ export default function ActivityBar({
           reaches the very top of the window, so this area also acts as a
           window-drag region (the icon itself is non-interactive). */}
       <div
-        className="w-full h-9 flex items-center justify-center shrink-0 border-b border-border"
+        className="w-full h-9 flex items-center justify-center shrink-0"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
         <img

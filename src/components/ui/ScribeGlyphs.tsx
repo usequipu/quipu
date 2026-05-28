@@ -171,7 +171,7 @@ export function ScribeGlyphs() {
       // opacity dim, just the activity-bar foreground. Inheritance from
       // the parent <div> is set up by StatusBar but explicit color here
       // keeps the display robust against future container changes.
-      className="font-medium tracking-wider text-[12px] leading-none select-none text-[var(--color-activity-bar-text)]"
+      className="font-medium tracking-wider text-[12px] leading-none select-none text-text-tertiary"
       // Noto Sans Historical fonts loaded from Google Fonts (see
       // src/index.css). The fallback chain protects against any single
       // family failing to load — but with the @import in place the
