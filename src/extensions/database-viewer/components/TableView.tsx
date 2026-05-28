@@ -181,6 +181,44 @@ const TableView: React.FC<TableViewProps> = ({
     addRow();
   }, [addRow]);
 
+  // Drag-time visual guide. A vertical line at the cursor X, spanning the
+  // full table height. Updated via direct DOM (no React re-renders) so the
+  // drag stays as fast as the uncontrolled `columnSizingInfo` mode allows.
+  // The line is rendered once as a sibling of the scroll container and
+  // positioned with `transform: translateX(...)` for cheap compositing.
+  const ghostLineRef = useRef<HTMLDivElement>(null);
+  const outerRef = useRef<HTMLDivElement>(null);
+  const startResize = useCallback(
+    (e: React.MouseEvent | React.TouchEvent, resizeHandler: (ev: React.MouseEvent | React.TouchEvent) => void) => {
+      resizeHandler(e);
+      const outer = outerRef.current;
+      const ghost = ghostLineRef.current;
+      if (!outer || !ghost) return;
+      const outerRect = outer.getBoundingClientRect();
+      const moveX = (clientX: number) => {
+        const x = clientX - outerRect.left;
+        ghost.style.transform = `translateX(${x}px)`;
+      };
+      const initialX = 'clientX' in e ? e.clientX : e.touches[0]?.clientX ?? 0;
+      moveX(initialX);
+      ghost.style.opacity = '1';
+      const onMove = (ev: MouseEvent) => moveX(ev.clientX);
+      const onTouchMove = (ev: TouchEvent) => ev.touches[0] && moveX(ev.touches[0].clientX);
+      const onEnd = () => {
+        ghost.style.opacity = '0';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onEnd);
+        document.removeEventListener('touchmove', onTouchMove);
+        document.removeEventListener('touchend', onEnd);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onEnd);
+      document.addEventListener('touchmove', onTouchMove);
+      document.addEventListener('touchend', onEnd);
+    },
+    [],
+  );
+
   if (schema.columns.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 text-page-text/40 text-sm py-16">
@@ -198,7 +236,16 @@ const TableView: React.FC<TableViewProps> = ({
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div ref={outerRef} className="flex-1 flex flex-col overflow-hidden relative">
+      {/* Drag-time vertical guide. Hidden by default (opacity 0); shown
+          by `startResize` during a drag. Pointer-events: none so it
+          can't intercept clicks. */}
+      <div
+        ref={ghostLineRef}
+        aria-hidden="true"
+        className="absolute top-0 bottom-0 w-px bg-accent z-30 pointer-events-none opacity-0 transition-opacity duration-100"
+        style={{ left: 0, transform: 'translateX(0)' }}
+      />
       {/* Table scroll container — horizontal scroll is internal to the
           database, never bubbling to the document. Outer padding is the
           --db-h-pad token for standalone mode; inline / chat modes get
@@ -277,11 +324,11 @@ const TableView: React.FC<TableViewProps> = ({
                       <div
                         onMouseDown={(e) => {
                           e.stopPropagation();
-                          header.getResizeHandler()(e);
+                          startResize(e, header.getResizeHandler());
                         }}
                         onTouchStart={(e) => {
                           e.stopPropagation();
-                          header.getResizeHandler()(e);
+                          startResize(e, header.getResizeHandler());
                         }}
                         onDoubleClick={(e) => {
                           e.stopPropagation();

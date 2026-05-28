@@ -145,11 +145,15 @@ export function useDatabase({ content, onContentChange }: UseDatabaseOptions): U
   const emitViewChange = useCallback((newSchema: DatabaseSchema, currentRows: DatabaseRow[]) => {
     if (!isInitializedRef.current || !onContentChange) return;
     if (viewDebounceRef.current) clearTimeout(viewDebounceRef.current);
+    // 200ms — short enough that a Ctrl+S right after a view change (e.g.
+    // dragging a column then saving) doesn't leave a stale dirty
+    // indicator from a still-pending debounced write. The old 2s value
+    // routinely re-marked the tab dirty seconds after a save.
     viewDebounceRef.current = setTimeout(() => {
       const serialized = serializeQuipuDb(newSchema, currentRows);
       lastContentRef.current = serialized;
       onContentChange(serialized);
-    }, 2000);
+    }, 200);
   }, [onContentChange]);
 
   // Row operations
