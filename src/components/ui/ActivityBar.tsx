@@ -41,7 +41,7 @@ export default function ActivityBar({
 
   return (
     <div
-      className="flex flex-col items-center w-12 shrink-0 bg-bg-surface relative z-20"
+      className="flex flex-col items-center w-12 shrink-0 relative z-20"
       role="toolbar"
       aria-label="Activity Bar"
     >

@@ -1216,7 +1216,7 @@ function AppContent() {
             lift. `overflow-hidden` clips the inner ActivityBar + panel
             content to the rounded corners.
           */}
-          <div className="h-[calc(100%-1.5rem)] my-3 mx-2 rounded-lg border border-border bg-bg-surface shadow-md overflow-hidden flex flex-row" data-context="explorer">
+          <div className="h-[calc(100%-1.5rem)] mt-3 mb-0 mx-2 rounded-lg border border-border bg-bg-base shadow-md overflow-hidden flex flex-row" data-context="explorer">
             <ActivityBar activePanel={activePanel} onPanelToggle={handlePanelToggle} />
             <div className="flex-1 overflow-hidden flex flex-col relative z-10">
               {(() => {
@@ -1275,7 +1275,7 @@ function AppContent() {
                     </Panel>
                     {secondary !== null && (
                       <>
-                        <Separator className="shrink-0 w-px cursor-col-resize bg-border" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} />
+                        <Separator className="shrink-0 w-1 cursor-col-resize bg-transparent" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} />
                         <Panel minSize={20}>
                           <PaneView
                             pane={secondary}
@@ -1314,7 +1314,7 @@ function AppContent() {
                 </DndContext>
               )}
             </Panel>
-            <Separator className="shrink-0 h-px cursor-row-resize bg-border transition-colors hover:bg-accent/50 active:bg-accent" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} />
+            <Separator className="shrink-0 h-1 cursor-row-resize bg-transparent transition-colors hover:bg-accent/50 active:bg-accent" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} />
             <Panel
               panelRef={terminalPanelRef}
               collapsible

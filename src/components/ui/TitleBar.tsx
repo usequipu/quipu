@@ -43,7 +43,7 @@ const TitleBar: React.FC = () => {
 
   return (
     <div
-      className="h-9 flex items-center justify-end bg-bg-surface border-b border-border shrink-0 relative z-100"
+      className="h-9 flex items-center justify-end bg-bg-surface shrink-0 relative z-100"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
       {isElectron() && (
