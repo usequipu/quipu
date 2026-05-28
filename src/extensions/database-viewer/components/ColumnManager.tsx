@@ -244,10 +244,12 @@ interface ColumnHeaderMenuProps {
   onRename: (columnId: string, newName: string) => void;
   onDelete: (columnId: string) => void;
   onChangeType: (columnId: string, newType: ColumnType) => void;
+  onSetWrap?: (columnId: string, wrap: boolean) => void;
   currentType: ColumnType;
+  isWrapping: boolean;
 }
 
-export function ColumnHeaderMenu({ columnId, columnName, onRename, onDelete, onChangeType, currentType }: ColumnHeaderMenuProps) {
+export function ColumnHeaderMenu({ columnId, columnName, onRename, onDelete, onChangeType, onSetWrap, currentType, isWrapping }: ColumnHeaderMenuProps) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(columnName);
 
@@ -316,6 +318,20 @@ export function ColumnHeaderMenu({ columnId, columnName, onRename, onDelete, onC
               </button>
             ))}
           </div>
+          {onSetWrap && (
+            <>
+              <div className="h-px bg-border my-1" />
+              <button
+                className="w-full text-left px-3 py-1.5 text-sm text-text-primary hover:bg-bg-surface flex items-center justify-between gap-3"
+                onClick={() => onSetWrap(columnId, !isWrapping)}
+              >
+                <span>{isWrapping ? 'Clip text' : 'Wrap text'}</span>
+                <span className="text-xs text-text-tertiary">
+                  {isWrapping ? 'now: wrap' : 'now: clip'}
+                </span>
+              </button>
+            </>
+          )}
           <div className="h-px bg-border my-1" />
           <button
             className="w-full text-left px-3 py-1.5 text-sm text-error hover:bg-error/10"

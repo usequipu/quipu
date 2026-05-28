@@ -25,6 +25,8 @@ interface TableViewProps {
   renameColumn?: (columnId: string, newName: string) => void;
   removeColumn?: (columnId: string) => void;
   changeColumnType?: (columnId: string, newType: ColumnType) => void;
+  /** Toggle wrap-vs-clip per column. Omitted in chat / read-only mode. */
+  setColumnWrap?: (columnId: string, wrap: boolean) => void;
   /** Append a new option to a select / multi-select column on the fly. */
   updateColumnOptions?: (columnId: string, options: SelectOption[]) => void;
   onAddColumn?: () => void;
@@ -62,6 +64,7 @@ const TableView: React.FC<TableViewProps> = ({
   renameColumn,
   removeColumn,
   changeColumnType,
+  setColumnWrap,
   updateColumnOptions,
   onAddColumn,
   databaseFilePath = null,
@@ -167,10 +170,14 @@ const TableView: React.FC<TableViewProps> = ({
 
   const { rows: tableRows } = table.getRowModel();
 
+  // Dynamic row heights — `measureElement` lets the virtualizer record each
+  // row's actual measured height after layout. Required for "wrap text"
+  // columns where row height depends on word-wrapped content.
   const rowVirtualizer = useVirtualizer({
     count: tableRows.length,
     getScrollElement: () => containerRef.current,
     estimateSize: () => ROW_HEIGHT,
+    measureElement: (el) => el?.getBoundingClientRect().height ?? ROW_HEIGHT,
     overscan: 15,
   });
 
@@ -254,7 +261,9 @@ const TableView: React.FC<TableViewProps> = ({
                             onRename={renameColumn}
                             onDelete={removeColumn}
                             onChangeType={changeColumnType}
+                            onSetWrap={setColumnWrap}
                             currentType={(header.column.columnDef.meta as { columnDef?: ColumnDef })?.columnDef?.type ?? 'text'}
+                            isWrapping={(header.column.columnDef.meta as { columnDef?: ColumnDef })?.columnDef?.wrap !== false}
                           />
                         ) : (
                           flexRender(header.column.columnDef.header, header.getContext())
@@ -339,23 +348,33 @@ const TableView: React.FC<TableViewProps> = ({
               return (
                 <tr
                   key={row.id}
-                  className="border-b border-border/20 hover:bg-page-text/[0.03] transition-colors"
-                  style={{ height: ROW_HEIGHT }}
+                  // `data-index` + `ref` let the virtualizer record this
+                  // row's natural height after layout — required so wrapped
+                  // text rows don't get clipped to the 36px estimate.
+                  data-index={virtualRow.index}
+                  ref={rowVirtualizer.measureElement}
+                  className="border-b border-border/20 hover:bg-page-text/[0.03] transition-colors align-top"
                 >
-                  {row.getVisibleCells().map(cell => (
-                    <td
-                      key={cell.id}
-                      className={cn(
-                        'text-sm text-page-text',
-                        'overflow-hidden text-ellipsis whitespace-nowrap',
-                      )}
-                      // Inline padding overrides the editor's .ProseMirror
-                      // td rule that would otherwise bleed through.
-                      style={{ width: cell.column.getSize(), padding: '0.375rem 0.75rem' }}
-                    >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
+                  {row.getVisibleCells().map(cell => {
+                    const colDef = (cell.column.columnDef.meta as { columnDef?: ColumnDef })?.columnDef;
+                    const wrap = colDef?.wrap !== false;
+                    return (
+                      <td
+                        key={cell.id}
+                        className={cn(
+                          'text-sm text-page-text overflow-hidden',
+                          wrap
+                            ? 'whitespace-normal break-words'
+                            : 'text-ellipsis whitespace-nowrap',
+                        )}
+                        // Inline padding overrides the editor's .ProseMirror
+                        // td rule that would otherwise bleed through.
+                        style={{ width: cell.column.getSize(), padding: '0.375rem 0.75rem' }}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}

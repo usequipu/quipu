@@ -14,6 +14,13 @@ export type LinkMode = 'global' | 'relative';
 export interface BaseColumnDef {
   id: string;
   name: string;
+  /**
+   * Cell text overflow behavior. When `false`, content is clipped with
+   * ellipsis and rows stay one line tall (Excel-style "clip"). When
+   * absent or `true`, content wraps onto new lines and the row grows
+   * to fit. Default is wrap (omit the field).
+   */
+  wrap?: boolean;
 }
 
 export interface TextColumnDef extends BaseColumnDef {
