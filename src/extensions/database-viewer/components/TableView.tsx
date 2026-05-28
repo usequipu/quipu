@@ -4,10 +4,7 @@ import {
   getCoreRowModel,
   flexRender,
 } from '@tanstack/react-table';
-import type {
-  ColumnSizingState,
-  ColumnSizingInfoState,
-} from '@tanstack/react-table';
+import type { ColumnSizingState } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { PlusIcon } from '@phosphor-icons/react';
 import { cn } from '@/lib/utils';
@@ -105,14 +102,6 @@ const TableView: React.FC<TableViewProps> = ({
     },
     [clampSizing],
   );
-  const [columnSizingInfo, setColumnSizingInfo] = useState<ColumnSizingInfoState>(() => ({
-    startOffset: null,
-    startSize: null,
-    deltaOffset: null,
-    deltaPercentage: null,
-    isResizingColumn: false,
-    columnSizingStart: [],
-  }));
 
   // Resync local widths when the *view itself* changes (view switcher /
   // different file opened). Depend on `viewId` alone — depending on the
@@ -121,44 +110,51 @@ const TableView: React.FC<TableViewProps> = ({
   const viewId = view?.id;
   const seedWidthsRef = useRef(view?.columnWidths);
   seedWidthsRef.current = view?.columnWidths;
+  const isSeedingRef = useRef(false);
   useEffect(() => {
+    isSeedingRef.current = true;
     setColumnSizing(seedWidthsRef.current ?? {});
   }, [viewId, setColumnSizing]);
 
-  // Persist on the falling edge of `isResizingColumn`. We do this in a
-  // proper useEffect (not inside a setState updater) so the disk-write
-  // side effect runs after commit, not during render. `emitViewChange`
-  // in `useDatabase.ts` already debounces the actual file write.
-  const sizingRef = useRef(columnSizing);
-  sizingRef.current = columnSizing;
+  // Persist on every columnSizing change. With `columnResizeMode: 'onEnd'`
+  // and `columnSizingInfo` uncontrolled (managed by TanStack internally),
+  // columnSizing changes exactly once per drag (on mouseup), so this fires
+  // once per resize — no mousemove cost. `emitViewChange` in
+  // `useDatabase.ts` already debounces the actual file write.
+  // `isSeedingRef` suppresses the spurious write when the viewId effect
+  // re-seeds from disk (otherwise loading would round-trip the same data
+  // back to the file).
   const updateViewConfigRef = useRef(updateViewConfig);
   updateViewConfigRef.current = updateViewConfig;
-  const wasResizingRef = useRef(false);
-  const isResizingNow = Boolean(columnSizingInfo.isResizingColumn);
   useEffect(() => {
-    if (wasResizingRef.current && !isResizingNow) {
-      const uvc = updateViewConfigRef.current;
-      if (viewId && uvc) {
-        uvc(viewId, { columnWidths: sizingRef.current });
-      }
+    if (isSeedingRef.current) {
+      isSeedingRef.current = false;
+      return;
     }
-    wasResizingRef.current = isResizingNow;
-  }, [isResizingNow, viewId]);
+    const uvc = updateViewConfigRef.current;
+    if (viewId && uvc) {
+      uvc(viewId, { columnWidths: columnSizing });
+    }
+  }, [columnSizing, viewId]);
 
   const table = useReactTable({
     data: rows,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    columnResizeMode: 'onChange',
+    // `onEnd` resize mode + uncontrolled `columnSizingInfo` together avoid
+    // any re-renders during drag. TanStack tracks the in-flight resize in
+    // its internal state; React only re-renders once on mouseup when
+    // `columnSizing` (which is controlled) finally updates. The trade-off
+    // is no live visual feedback while dragging — the column snaps to its
+    // new width on release. Acceptable for performance.
+    columnResizeMode: 'onEnd',
     enableColumnResizing: true,
     enableSorting: false,
     getRowId: (row) => row._id,
     state: {
       columnSizing,
-      columnSizingInfo,
     },
     onColumnSizingChange: setColumnSizing,
-    onColumnSizingInfoChange: setColumnSizingInfo,
     meta: {
       updateCell,
       updateColumnOptions,
@@ -289,12 +285,15 @@ const TableView: React.FC<TableViewProps> = ({
                         }}
                         onDoubleClick={(e) => {
                           e.stopPropagation();
-                          header.column.resetSize();
-                          if (view && updateViewConfig) {
-                            const next = { ...sizingRef.current };
+                          // Drop this column from columnSizing so it falls
+                          // back to its per-type default; the persistence
+                          // useEffect picks up the change and writes it.
+                          setColumnSizing(prev => {
+                            if (!(header.column.id in prev)) return prev;
+                            const next = { ...prev };
                             delete next[header.column.id];
-                            updateViewConfig(view.id, { columnWidths: next });
-                          }
+                            return next;
+                          });
                         }}
                         role="separator"
                         aria-orientation="vertical"

@@ -252,6 +252,9 @@ interface ColumnHeaderMenuProps {
 export function ColumnHeaderMenu({ columnId, columnName, onRename, onDelete, onChangeType, onSetWrap, currentType, isWrapping }: ColumnHeaderMenuProps) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(columnName);
+  // Controlled popover state so both left-click (Radix's default trigger
+  // behavior) and right-click (custom onContextMenu) open the same menu.
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const handleRenameSubmit = useCallback(() => {
     if (renameValue.trim() && renameValue !== columnName) {
@@ -278,10 +281,14 @@ export function ColumnHeaderMenu({ columnId, columnName, onRename, onDelete, onC
   }
 
   return (
-    <Popover.Root>
+    <Popover.Root open={isMenuOpen} onOpenChange={setIsMenuOpen}>
       <Popover.Trigger asChild>
         <button
           className="text-left truncate flex-1"
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setIsMenuOpen(true);
+          }}
           onDoubleClick={(e) => {
             e.stopPropagation();
             setRenameValue(columnName);
