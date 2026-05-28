@@ -106,7 +106,9 @@
   --color-border: #383838;
   --color-border-focus: #c4835a;
 
-  --color-page-bg: #2b2926;
+  /* Unified background — page-bg matches bg-surface so the editor page,
+     tab strip, sidebar card, and canvas share one continuous color. */
+  --color-page-bg: #242424;
   --color-page-text: #e8e8e0;
   --color-page-border: #383838;
 
@@ -153,7 +155,9 @@
   --color-border: #e0d4b8;
   --color-border-focus: #c4835a;
 
-  --color-page-bg: #fffcf5;
+  /* Unified background — page-bg matches bg-surface so the editor page,
+     tab strip, sidebar card, and canvas share one continuous color. */
+  --color-page-bg: #f9f1d8;
   --color-page-text: #5a4e48;
   --color-page-border: #e8dcc0;
 
