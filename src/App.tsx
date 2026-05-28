@@ -277,6 +277,14 @@ function AppContent() {
     registerCommand('editor.find',         () => appActionsRef.current.find(),               { label: 'Find',             category: 'Editor' });
     registerCommand('view.splitRight',     () => appActionsRef.current.splitRight(),         { label: 'Split editor right', category: 'View' });
 
+    // --- Workspace switcher commands (relocated from the deleted MenuBar) ---
+    // These three actions used to live in the File menu's submenu; after the
+    // Phase 1 layout overhaul they are reachable only via the command palette
+    // (until Phase 2 introduces the proper workspace switcher dropdown).
+    registerCommand('workspace.openFolder', () => appActionsRef.current.openFolder(), { label: 'Workspace: Open Folder…', category: 'Workspace' });
+    registerCommand('workspace.openRecent', () => appActionsRef.current.openFolder(), { label: 'Workspace: Open Recent…',  category: 'Workspace' });
+    registerCommand('workspace.newWindow',  () => appActionsRef.current.newWindow(),  { label: 'Workspace: New Window',    category: 'Workspace' });
+
     // --- Built-in keybindings (registered before plugins so they always win conflicts) ---
     builtinKeybindings.forEach(registerKeybinding);
 
@@ -466,6 +474,8 @@ function AppContent() {
     reloadFromDisk: () => void;
     find: () => void;
     splitRight: () => void;
+    openFolder: () => void;
+    newWindow: () => void;
   }>(null!);
   appActionsRef.current = {
     save: () => {
@@ -524,6 +534,15 @@ function AppContent() {
         return;
       }
       splitToRight(activeTabId);
+    },
+    openFolder: () => { openFolder(); },
+    newWindow: () => {
+      // Spawn an additional Quipu window in the same Electron process.
+      // Browser mode silently no-ops because there's no host-side window
+      // factory (and the tab/window distinction doesn't apply there).
+      if (window.electronAPI?.openNewWindow) {
+        window.electronAPI.openNewWindow().catch(() => {});
+      }
     },
   };
 
@@ -1099,7 +1118,13 @@ function AppContent() {
     };
   }, [workspacePath, activeFile, openFile]);
 
-  const title = buildWindowTitle(activeFile, workspacePath);
+  // Keep the OS-level window title (taskbar / window manager) in sync with the
+  // active file. After Phase 1 of the visual overhaul the in-app titlebar no
+  // longer renders this text on screen, but Electron still uses document.title
+  // for the BrowserWindow title.
+  useEffect(() => {
+    document.title = buildWindowTitle(activeFile, workspacePath);
+  }, [activeFile, workspacePath]);
 
   return (
     <div className="flex flex-col h-screen w-screen" data-workspace-path={workspacePath ?? ''}>
@@ -1164,8 +1189,12 @@ function AppContent() {
       />
       <div className="flex flex-row flex-1 overflow-hidden min-h-0">
         <ActivityBar activePanel={activePanel} onPanelToggle={handlePanelToggle} />
-        <div className="flex flex-col flex-1 overflow-hidden">
-        <TitleBar title={title} onAction={handleMenuAction} />
+        {/*
+          Outer horizontal Group: sidebar Panel reaches the very top of the
+          window (no TitleBar above it), and the editor Panel hosts its own
+          slim top strip (TitleBar) above the editor/terminal vertical Group.
+          See docs/plans/2026-05-28-001-feat-visual-overhaul-plan.md (Phase 1).
+        */}
         <Group orientation="horizontal" style={{ flex: 1, overflow: 'hidden' }}>
         <Panel
           panelRef={sidePanelRef}
@@ -1191,7 +1220,9 @@ function AppContent() {
         </Panel>
         <Separator className="shrink-0 w-px cursor-col-resize bg-border" style={{ WebkitAppRegion: 'no-drag', boxShadow: 'var(--sidebar-shadow)' } as React.CSSProperties} />
         <Panel>
-          <Group orientation="vertical" style={{ height: '100%' }}>
+          <div className="h-full flex flex-col overflow-hidden">
+          <TitleBar />
+          <Group orientation="vertical" style={{ flex: 1, overflow: 'hidden' }}>
             <Panel minSize={100}>
               {activeDiff ? (
                 <div className="h-full flex flex-col overflow-hidden relative">
@@ -1275,9 +1306,9 @@ function AppContent() {
               </div>
             </Panel>
           </Group>
+          </div>
         </Panel>
       </Group>
-        </div>
       </div>
       <StatusBar />
     </div>

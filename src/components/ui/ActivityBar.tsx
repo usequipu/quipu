@@ -45,8 +45,14 @@ export default function ActivityBar({
       role="toolbar"
       aria-label="Activity Bar"
     >
-      {/* Quipu brand icon — aligns with TitleBar height */}
-      <div className="w-full h-9 flex items-center justify-center shrink-0 border-b border-border">
+      {/* Quipu brand icon — aligns with the TitleBar strip height on the
+          editor column. After Phase 1 of the visual overhaul the sidebar
+          reaches the very top of the window, so this area also acts as a
+          window-drag region (the icon itself is non-interactive). */}
+      <div
+        className="w-full h-9 flex items-center justify-center shrink-0 border-b border-border"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      >
         <img
           src={new URL('../../assets/quipu-icon.png', import.meta.url).href}
           alt="Quipu"
