@@ -28,6 +28,7 @@ interface UseDatabaseReturn {
   removeColumn: (columnId: string) => void;
   renameColumn: (columnId: string, newName: string) => void;
   changeColumnType: (columnId: string, newType: ColumnType) => void;
+  setColumnWrap: (columnId: string, wrap: boolean) => void;
   reorderColumns: (newOrder: string[]) => void;
   updateColumnOptions: (columnId: string, options: SelectOption[]) => void;
   // View operations
@@ -144,11 +145,15 @@ export function useDatabase({ content, onContentChange }: UseDatabaseOptions): U
   const emitViewChange = useCallback((newSchema: DatabaseSchema, currentRows: DatabaseRow[]) => {
     if (!isInitializedRef.current || !onContentChange) return;
     if (viewDebounceRef.current) clearTimeout(viewDebounceRef.current);
+    // 200ms — short enough that a Ctrl+S right after a view change (e.g.
+    // dragging a column then saving) doesn't leave a stale dirty
+    // indicator from a still-pending debounced write. The old 2s value
+    // routinely re-marked the tab dirty seconds after a save.
     viewDebounceRef.current = setTimeout(() => {
       const serialized = serializeQuipuDb(newSchema, currentRows);
       lastContentRef.current = serialized;
       onContentChange(serialized);
-    }, 2000);
+    }, 200);
   }, [onContentChange]);
 
   // Row operations
@@ -276,6 +281,26 @@ export function useDatabase({ content, onContentChange }: UseDatabaseOptions): U
     });
   }, [emitDataChange]);
 
+  const setColumnWrap = useCallback((columnId: string, wrap: boolean) => {
+    setSchema(prev => {
+      const next = {
+        ...prev,
+        columns: prev.columns.map(col => {
+          if (col.id !== columnId) return col;
+          // Omit the field entirely when the value matches the default
+          // (wrap = true). Keeps schemas terse and back-compat clean.
+          if (wrap) {
+            const { wrap: _omit, ...rest } = col as ColumnDef & { wrap?: boolean };
+            return rest as ColumnDef;
+          }
+          return { ...col, wrap: false } as ColumnDef;
+        }),
+      };
+      emitViewChange(next, rows);
+      return next;
+    });
+  }, [rows, emitViewChange]);
+
   const reorderColumns = useCallback((newOrder: string[]) => {
     setSchema(prev => {
       const colMap = new Map(prev.columns.map(col => [col.id, col]));
@@ -339,6 +364,7 @@ export function useDatabase({ content, onContentChange }: UseDatabaseOptions): U
     removeColumn,
     renameColumn,
     changeColumnType,
+    setColumnWrap,
     reorderColumns,
     updateColumnOptions,
     updateViewConfig,

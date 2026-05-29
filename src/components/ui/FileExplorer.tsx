@@ -14,6 +14,7 @@ import ContextMenu from './ContextMenu';
 import { useToast } from './Toast';
 import SyncKnowledgeBaseDialog from './SyncKnowledgeBaseDialog';
 import PublishKnowledgeBaseDialog from './PublishKnowledgeBaseDialog';
+import WorkspaceSwitcher from './WorkspaceSwitcher';
 import type { FileTreeEntry } from '../../types/workspace';
 import type { KamaluBase } from '../../services/kamaluFileSystem';
 
@@ -837,23 +838,14 @@ export default function FileExplorer() {
 
   return (
     <div
-      className="bg-bg-surface text-text-primary flex flex-col select-none text-[13px] font-sans flex-1 overflow-hidden outline-none"
+      className="text-text-primary flex flex-col select-none text-[13px] font-sans flex-1 overflow-hidden outline-none"
       tabIndex={0}
       onKeyDown={handleExplorerKeyDown}>
-      <div className="h-[35px] flex items-center gap-2 px-4 border-b border-border shrink-0">
-        <div
-          className="w-5 h-5 rounded bg-accent/15 flex items-center justify-center shrink-0 cursor-pointer"
-          onClick={openFolder}
-          title="Change workspace folder"
-        >
-          <FolderIcon size={12} className="text-accent" />
-        </div>
-        <span className="flex-1 text-[13px] font-medium text-text-primary truncate">
-          {workspacePath?.split('/').pop() ?? 'Files'}
-        </span>
+      <div className="h-[35px] flex items-center gap-1 px-3 shrink-0">
+        <WorkspaceSwitcher />
         {workspacePath && (
           <button
-            className="bg-transparent border-none text-text-tertiary cursor-pointer p-1 rounded-md hover:bg-bg-elevated hover:text-text-secondary transition-colors"
+            className="bg-transparent border-none text-text-tertiary cursor-pointer p-1 rounded-md hover:bg-bg-elevated hover:text-text-secondary transition-colors shrink-0"
             onClick={handleRefresh}
             aria-label="Refresh file explorer"
             title="Refresh"

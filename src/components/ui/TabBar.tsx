@@ -61,7 +61,7 @@ function SortableTab({ tab, paneId, isActive, onSwitch, onClose }: SortableTabPr
       data-tab-id={tab.id}
       className={cn(
         'group/tab flex items-center gap-1.5 px-4',
-        'cursor-pointer border-r border-border whitespace-nowrap',
+        'cursor-pointer whitespace-nowrap',
         'text-[13px] text-text-primary opacity-70',
         'min-w-[120px] shrink-0 relative select-none',
         'hover:opacity-100 hover:bg-white/[0.04]',
@@ -180,7 +180,7 @@ export default function TabBar({ pane }: TabBarProps = {}) {
   return (
     <div
       ref={setRefs}
-      className="flex h-[35px] bg-bg-surface border-b border-border overflow-x-auto overflow-y-hidden shrink-0 [&::-webkit-scrollbar]:h-[3px] [&::-webkit-scrollbar-thumb]:bg-border"
+      className="flex h-[35px] bg-bg-surface overflow-x-auto overflow-y-hidden shrink-0 [&::-webkit-scrollbar]:h-[3px] [&::-webkit-scrollbar-thumb]:bg-border"
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       onWheel={handleWheel}
       role="tablist"

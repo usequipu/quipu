@@ -1,16 +1,17 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useState, useEffect } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
   flexRender,
 } from '@tanstack/react-table';
+import type { ColumnSizingState } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { PlusIcon } from '@phosphor-icons/react';
 import { cn } from '@/lib/utils';
 import { useColumnDefs } from '../hooks/useColumnDefs';
 import { ColumnHeaderMenu } from './ColumnManager';
 import ColumnTypeIcon from './ColumnTypeIcon';
-import type { DatabaseSchema, DatabaseRow, ColumnDef, ColumnType, SelectOption } from '../types';
+import type { DatabaseSchema, DatabaseRow, ColumnDef, ColumnType, SelectOption, ViewConfig } from '../types';
 
 interface TableViewProps {
   schema: DatabaseSchema;
@@ -21,6 +22,8 @@ interface TableViewProps {
   renameColumn?: (columnId: string, newName: string) => void;
   removeColumn?: (columnId: string) => void;
   changeColumnType?: (columnId: string, newType: ColumnType) => void;
+  /** Toggle wrap-vs-clip per column. Omitted in chat / read-only mode. */
+  setColumnWrap?: (columnId: string, wrap: boolean) => void;
   /** Append a new option to a select / multi-select column on the fly. */
   updateColumnOptions?: (columnId: string, options: SelectOption[]) => void;
   onAddColumn?: () => void;
@@ -37,6 +40,14 @@ interface TableViewProps {
   /** Horizontal padding for the scroll container — keep the standalone
    * viewer's --db-h-pad indent but flush the inline / chat modes. */
   outerPaddingInline?: string;
+  /**
+   * Active view config. Provides persisted `columnWidths` (seeds TanStack's
+   * column-sizing state) and the view id used to persist new widths via
+   * `updateViewConfig`. Both are optional so chat / preview surfaces that
+   * don't own a view can still render the table with per-type defaults.
+   */
+  view?: ViewConfig;
+  updateViewConfig?: (viewId: string, updates: Partial<ViewConfig>) => void;
 }
 
 const ROW_HEIGHT = 36;
@@ -50,24 +61,100 @@ const TableView: React.FC<TableViewProps> = ({
   renameColumn,
   removeColumn,
   changeColumnType,
+  setColumnWrap,
   updateColumnOptions,
   onAddColumn,
   databaseFilePath = null,
   workspacePath = null,
   readOnly = false,
   outerPaddingInline = 'var(--db-h-pad)',
+  view,
+  updateViewConfig,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const columns = useColumnDefs(schema);
+
+  // Clamp every column width to its [minSize, maxSize] range. TanStack's
+  // resize math allows storing sub-minSize values during drag (it does
+  // `Math.max(headerSize + delta, 0)`, NOT `Math.max(..., minSize)`), then
+  // `getSize()` clamps when reading. That's fine for display but it means
+  // we'd persist invalid widths (e.g. 0) to disk, which then re-loads as
+  // a column stuck at minSize because every mousedown re-captures the
+  // clamped size and dragging left can only push it back to 0.
+  const clampSizing = useCallback((raw: ColumnSizingState): ColumnSizingState => {
+    const clamped: ColumnSizingState = {};
+    for (const [colId, size] of Object.entries(raw)) {
+      if (typeof size !== 'number' || Number.isNaN(size)) continue;
+      clamped[colId] = Math.min(Math.max(size, 80), 800);
+    }
+    return clamped;
+  }, []);
+
+  const [columnSizing, setRawColumnSizing] = useState<ColumnSizingState>(
+    () => clampSizing(view?.columnWidths ?? {}),
+  );
+  const setColumnSizing = useCallback(
+    (updater: ColumnSizingState | ((prev: ColumnSizingState) => ColumnSizingState)) => {
+      setRawColumnSizing(prev => {
+        const next = typeof updater === 'function' ? updater(prev) : updater;
+        return clampSizing(next);
+      });
+    },
+    [clampSizing],
+  );
+
+  // Resync local widths when the *view itself* changes (view switcher /
+  // different file opened). Depend on `viewId` alone — depending on the
+  // `columnWidths` object would re-fire mid-drag from the parent
+  // re-rendering, overwriting in-progress sizing.
+  const viewId = view?.id;
+  const seedWidthsRef = useRef(view?.columnWidths);
+  seedWidthsRef.current = view?.columnWidths;
+  const isSeedingRef = useRef(false);
+  useEffect(() => {
+    isSeedingRef.current = true;
+    setColumnSizing(seedWidthsRef.current ?? {});
+  }, [viewId, setColumnSizing]);
+
+  // Persist on every columnSizing change. With `columnResizeMode: 'onEnd'`
+  // and `columnSizingInfo` uncontrolled (managed by TanStack internally),
+  // columnSizing changes exactly once per drag (on mouseup), so this fires
+  // once per resize — no mousemove cost. `emitViewChange` in
+  // `useDatabase.ts` already debounces the actual file write.
+  // `isSeedingRef` suppresses the spurious write when the viewId effect
+  // re-seeds from disk (otherwise loading would round-trip the same data
+  // back to the file).
+  const updateViewConfigRef = useRef(updateViewConfig);
+  updateViewConfigRef.current = updateViewConfig;
+  useEffect(() => {
+    if (isSeedingRef.current) {
+      isSeedingRef.current = false;
+      return;
+    }
+    const uvc = updateViewConfigRef.current;
+    if (viewId && uvc) {
+      uvc(viewId, { columnWidths: columnSizing });
+    }
+  }, [columnSizing, viewId]);
 
   const table = useReactTable({
     data: rows,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    columnResizeMode: 'onChange',
+    // `onEnd` resize mode + uncontrolled `columnSizingInfo` together avoid
+    // any re-renders during drag. TanStack tracks the in-flight resize in
+    // its internal state; React only re-renders once on mouseup when
+    // `columnSizing` (which is controlled) finally updates. The trade-off
+    // is no live visual feedback while dragging — the column snaps to its
+    // new width on release. Acceptable for performance.
+    columnResizeMode: 'onEnd',
     enableColumnResizing: true,
     enableSorting: false,
     getRowId: (row) => row._id,
+    state: {
+      columnSizing,
+    },
+    onColumnSizingChange: setColumnSizing,
     meta: {
       updateCell,
       updateColumnOptions,
@@ -79,16 +166,58 @@ const TableView: React.FC<TableViewProps> = ({
 
   const { rows: tableRows } = table.getRowModel();
 
+  // Dynamic row heights — `measureElement` lets the virtualizer record each
+  // row's actual measured height after layout. Required for "wrap text"
+  // columns where row height depends on word-wrapped content.
   const rowVirtualizer = useVirtualizer({
     count: tableRows.length,
     getScrollElement: () => containerRef.current,
     estimateSize: () => ROW_HEIGHT,
+    measureElement: (el) => el?.getBoundingClientRect().height ?? ROW_HEIGHT,
     overscan: 15,
   });
 
   const handleAddRow = useCallback(() => {
     addRow();
   }, [addRow]);
+
+  // Drag-time visual guide. A vertical line at the cursor X, spanning the
+  // full table height. Updated via direct DOM (no React re-renders) so the
+  // drag stays as fast as the uncontrolled `columnSizingInfo` mode allows.
+  // The line is rendered once as a sibling of the scroll container and
+  // positioned with `transform: translateX(...)` for cheap compositing.
+  const ghostLineRef = useRef<HTMLDivElement>(null);
+  const outerRef = useRef<HTMLDivElement>(null);
+  const startResize = useCallback(
+    (e: React.MouseEvent | React.TouchEvent, resizeHandler: (ev: React.MouseEvent | React.TouchEvent) => void) => {
+      resizeHandler(e);
+      const outer = outerRef.current;
+      const ghost = ghostLineRef.current;
+      if (!outer || !ghost) return;
+      const outerRect = outer.getBoundingClientRect();
+      const moveX = (clientX: number) => {
+        const x = clientX - outerRect.left;
+        ghost.style.transform = `translateX(${x}px)`;
+      };
+      const initialX = 'clientX' in e ? e.clientX : e.touches[0]?.clientX ?? 0;
+      moveX(initialX);
+      ghost.style.opacity = '1';
+      const onMove = (ev: MouseEvent) => moveX(ev.clientX);
+      const onTouchMove = (ev: TouchEvent) => ev.touches[0] && moveX(ev.touches[0].clientX);
+      const onEnd = () => {
+        ghost.style.opacity = '0';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onEnd);
+        document.removeEventListener('touchmove', onTouchMove);
+        document.removeEventListener('touchend', onEnd);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onEnd);
+      document.addEventListener('touchmove', onTouchMove);
+      document.addEventListener('touchend', onEnd);
+    },
+    [],
+  );
 
   if (schema.columns.length === 0) {
     return (
@@ -107,7 +236,16 @@ const TableView: React.FC<TableViewProps> = ({
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div ref={outerRef} className="flex-1 flex flex-col overflow-hidden relative">
+      {/* Drag-time vertical guide. Hidden by default (opacity 0); shown
+          by `startResize` during a drag. Pointer-events: none so it
+          can't intercept clicks. */}
+      <div
+        ref={ghostLineRef}
+        aria-hidden="true"
+        className="absolute top-0 bottom-0 w-px bg-accent z-30 pointer-events-none opacity-0 transition-opacity duration-100"
+        style={{ left: 0, transform: 'translateX(0)' }}
+      />
       {/* Table scroll container — horizontal scroll is internal to the
           database, never bubbling to the document. Outer padding is the
           --db-h-pad token for standalone mode; inline / chat modes get
@@ -119,7 +257,14 @@ const TableView: React.FC<TableViewProps> = ({
       >
         <table
           className="border-collapse"
-          style={{ width: table.getCenterTotalSize() }}
+          // `table-layout: fixed` is required — the default `auto` layout
+          // ignores the `width` style on `<th>`/`<td>` when cell content
+          // would push the column wider. That's why text columns with long
+          // content (e.g. Name) appeared unresizable while badge-shaped
+          // columns (select, multi-select) resized fine. With `fixed`, the
+          // header widths are authoritative and `overflow: hidden` on cells
+          // clips long content with the existing ellipsis.
+          style={{ width: table.getCenterTotalSize(), tableLayout: 'fixed' }}
         >
           {/* Header */}
           <thead className="sticky top-0 z-10 bg-page-bg">
@@ -130,15 +275,24 @@ const TableView: React.FC<TableViewProps> = ({
                   <th
                     key={header.id}
                     className={cn(
-                      'relative text-left text-page-text/60 font-medium text-xs tracking-wide',
+                      'text-left text-page-text/60 font-medium text-xs tracking-wide',
                       'border-b border-border/30 select-none',
                     )}
-                    // Inline padding overrides any prose-CSS padding the
-                    // editor's `.ProseMirror th, td` rule would otherwise
-                    // apply to React-rendered tables nested inside it.
-                    style={{ width: header.getSize(), padding: '0.375rem 0.75rem' }}
+                    // padding 0 here — the inner wrapper owns padding +
+                    // positioning context. We can't rely on `position:
+                    // relative` directly on `<th>` because some browsers
+                    // ignore it under `border-collapse: collapse`, which
+                    // makes absolutely-positioned children resolve against
+                    // the table/thead instead of the cell.
+                    style={{ width: header.getSize(), padding: 0 }}
                   >
-                    <div className="flex items-center gap-1.5">
+                    <div
+                      className="relative flex items-center gap-1.5"
+                      // The wrapper is the positioning context for the
+                      // resize handle. Padding lives here so the handle
+                      // can extend the full height of the cell.
+                      style={{ padding: '0.375rem 0.75rem' }}
+                    >
                       {!header.isPlaceholder && (
                         <ColumnTypeIcon type={(header.column.columnDef.meta as { columnDef?: ColumnDef })?.columnDef?.type ?? 'text'} />
                       )}
@@ -150,23 +304,63 @@ const TableView: React.FC<TableViewProps> = ({
                             onRename={renameColumn}
                             onDelete={removeColumn}
                             onChangeType={changeColumnType}
+                            onSetWrap={setColumnWrap}
                             currentType={(header.column.columnDef.meta as { columnDef?: ColumnDef })?.columnDef?.type ?? 'text'}
+                            isWrapping={(header.column.columnDef.meta as { columnDef?: ColumnDef })?.columnDef?.wrap !== false}
                           />
                         ) : (
                           flexRender(header.column.columnDef.header, header.getContext())
                         )
                       )}
+                      {/* Resize handle. Lives inside a wrapper `<div>`
+                          (not directly on `<th>`) so the positioning
+                          context is reliable under `border-collapse:
+                          collapse`. 12px-wide grab zone fully inside the
+                          cell's right edge; a 1px visible divider sits
+                          flush with the cell border, thickening on
+                          hover. Stop propagation so a stray click on
+                          the handle never opens the column-header
+                          popover. */}
+                      <div
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          startResize(e, header.getResizeHandler());
+                        }}
+                        onTouchStart={(e) => {
+                          e.stopPropagation();
+                          startResize(e, header.getResizeHandler());
+                        }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          // Drop this column from columnSizing so it falls
+                          // back to its per-type default; the persistence
+                          // useEffect picks up the change and writes it.
+                          setColumnSizing(prev => {
+                            if (!(header.column.id in prev)) return prev;
+                            const next = { ...prev };
+                            delete next[header.column.id];
+                            return next;
+                          });
+                        }}
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label={`Resize column ${String(header.column.columnDef.header ?? header.column.id)}`}
+                        title="Drag to resize, double-click to reset"
+                        className={cn(
+                          'group absolute top-0 right-0 h-full w-3 z-20',
+                          'cursor-col-resize select-none touch-none',
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            'absolute right-0 top-0 h-full w-px',
+                            'bg-border/30 transition-all',
+                            'group-hover:bg-accent group-hover:w-0.5',
+                            header.column.getIsResizing() && 'bg-accent w-0.5',
+                          )}
+                        />
+                      </div>
                     </div>
-                    {/* Resize handle */}
-                    <div
-                      onMouseDown={header.getResizeHandler()}
-                      onTouchStart={header.getResizeHandler()}
-                      className={cn(
-                        'absolute right-0 top-0 h-full w-1 cursor-col-resize select-none touch-none',
-                        'hover:bg-accent/50',
-                        header.column.getIsResizing() && 'bg-accent',
-                      )}
-                    />
                   </th>
                 ))}
                 {onAddColumn && (
@@ -200,23 +394,33 @@ const TableView: React.FC<TableViewProps> = ({
               return (
                 <tr
                   key={row.id}
-                  className="border-b border-border/20 hover:bg-page-text/[0.03] transition-colors"
-                  style={{ height: ROW_HEIGHT }}
+                  // `data-index` + `ref` let the virtualizer record this
+                  // row's natural height after layout — required so wrapped
+                  // text rows don't get clipped to the 36px estimate.
+                  data-index={virtualRow.index}
+                  ref={rowVirtualizer.measureElement}
+                  className="border-b border-border/20 hover:bg-page-text/[0.03] transition-colors align-top"
                 >
-                  {row.getVisibleCells().map(cell => (
-                    <td
-                      key={cell.id}
-                      className={cn(
-                        'text-sm text-page-text',
-                        'overflow-hidden text-ellipsis whitespace-nowrap',
-                      )}
-                      // Inline padding overrides the editor's .ProseMirror
-                      // td rule that would otherwise bleed through.
-                      style={{ width: cell.column.getSize(), padding: '0.375rem 0.75rem' }}
-                    >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
+                  {row.getVisibleCells().map(cell => {
+                    const colDef = (cell.column.columnDef.meta as { columnDef?: ColumnDef })?.columnDef;
+                    const wrap = colDef?.wrap !== false;
+                    return (
+                      <td
+                        key={cell.id}
+                        className={cn(
+                          'text-sm text-page-text overflow-hidden',
+                          wrap
+                            ? 'whitespace-normal break-words'
+                            : 'text-ellipsis whitespace-nowrap',
+                        )}
+                        // Inline padding overrides the editor's .ProseMirror
+                        // td rule that would otherwise bleed through.
+                        style={{ width: cell.column.getSize(), padding: '0.375rem 0.75rem' }}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}

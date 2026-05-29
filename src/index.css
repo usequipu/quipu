@@ -71,13 +71,16 @@ body::after {
   opacity: var(--grain-opacity);
 }
 
-/* Grain — sidebar only (ActivityBar + Explorer/Search/Git panel) */
-[role="toolbar"],
+/* Grain — sidebar card only. The ActivityBar lives INSIDE the card
+   (data-context="explorer") and is covered by the card's grain layer
+   already, so we deliberately exclude `[role="toolbar"]` here to avoid
+   a double-grain stack on the activity-rail area (most visible in the
+   tinted theme where grain-sidebar-opacity is 0.15). */
 [data-context="explorer"] {
   position: relative;
 }
 
-[role="toolbar"]::after,
+
 [data-context="explorer"]::after {
   content: "";
   position: absolute;

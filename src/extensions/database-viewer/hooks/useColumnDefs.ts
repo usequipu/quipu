@@ -5,6 +5,7 @@ import type {
   DatabaseRow,
   DatabaseSchema,
   ColumnDef,
+  ColumnType,
   SelectColumnDef,
   MultiSelectColumnDef,
   LinkColumnDef,
@@ -101,25 +102,58 @@ function renderCell(info: CellContext<DatabaseRow, unknown>, col: ColumnDef): Re
 }
 
 /**
+ * Per-column-type default widths (px). Chosen to fit each editor's natural
+ * content density: checkboxes are narrow, free-text columns are wide.
+ * Saved widths in `view.columnWidths` always win over these defaults.
+ */
+export function defaultSizeForType(type: ColumnType): number {
+  switch (type) {
+    case 'checkbox':
+      return 60;
+    case 'number':
+      return 100;
+    case 'date':
+      return 140;
+    case 'select':
+      return 160;
+    case 'multi-select':
+      return 200;
+    case 'text':
+    case 'link':
+      return 240;
+    default:
+      return 180;
+  }
+}
+
+/**
  * Generate TanStack Table column definitions from the database schema.
  * Returns column defs with type-appropriate cell editors and sorting.
+ *
+ * `columnWidths` (from the active view) overrides per-type defaults so
+ * user-resized widths persist across reloads.
  */
-export function useColumnDefs(schema: DatabaseSchema): TanstackColumnDef<DatabaseRow, unknown>[] {
+export function useColumnDefs(
+  schema: DatabaseSchema,
+  columnWidths?: Record<string, number>,
+): TanstackColumnDef<DatabaseRow, unknown>[] {
   return useMemo(() => {
     return schema.columns.map((col) => {
+      const savedWidth = columnWidths?.[col.id];
+      const size = savedWidth ?? defaultSizeForType(col.type);
       return columnHelper.accessor(col.id, {
         id: col.id,
         header: col.name,
         cell: (info) => renderCell(info, col),
         sortingFn: col.type === 'number' ? 'basic' : 'alphanumeric',
-        size: 180,
+        size,
         minSize: 80,
-        maxSize: 500,
+        maxSize: 800,
         enableResizing: true,
         meta: {
           columnDef: col,
         },
       });
     });
-  }, [schema.columns]);
+  }, [schema.columns, columnWidths]);
 }

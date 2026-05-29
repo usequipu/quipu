@@ -1,24 +1,20 @@
+/**
+ * Static command definitions consumed by the command palette (QuickOpen).
+ *
+ * Historically this file also drove the MenuBar component (File / Edit / View
+ * / Terminal dropdowns) via the `menus` export and `MenuItem` union, but the
+ * MenuBar was removed in Phase 1 of the visual overhaul
+ * (docs/plans/2026-05-28-001-feat-visual-overhaul-plan.md). Only the flat
+ * `commands` list survives — QuickOpen merges it with plugin-registered
+ * commands from `commandRegistry`.
+ */
+
 export interface Command {
   type?: undefined;
   label: string;
   shortcut?: string;
   action: string;
   category: string;
-}
-
-interface MenuSeparator {
-  type: 'separator';
-}
-
-interface MenuOpenRecent {
-  type: 'openRecent';
-}
-
-export type MenuItem = Command | MenuSeparator | MenuOpenRecent | undefined;
-
-export interface Menu {
-  label: string;
-  items: MenuItem[];
 }
 
 export const commands: Command[] = [
@@ -59,57 +55,4 @@ export const commands: Command[] = [
   // Preferences
   { label: 'Cycle Theme (Light / Tinted / Dark)', action: 'theme.toggle', category: 'Preferences' },
   { label: 'Toggle Editor Mode (Rich Text / Obsidian)', action: 'editor.toggleMode', category: 'Preferences' },
-];
-
-const sep: MenuSeparator = { type: 'separator' };
-
-export const menus: Menu[] = [
-  {
-    label: 'File',
-    items: [
-      commands.find(c => c.action === 'file.new'),
-      commands.find(c => c.action === 'file.newWindow'),
-      commands.find(c => c.action === 'file.openFolder'),
-      { type: 'openRecent' },
-      sep,
-      commands.find(c => c.action === 'file.save'),
-      sep,
-      commands.find(c => c.action === 'file.closeTab'),
-    ],
-  },
-  {
-    label: 'Edit',
-    items: [
-      commands.find(c => c.action === 'edit.undo'),
-      commands.find(c => c.action === 'edit.redo'),
-      sep,
-      commands.find(c => c.action === 'edit.cut'),
-      commands.find(c => c.action === 'edit.copy'),
-      commands.find(c => c.action === 'edit.paste'),
-      sep,
-      commands.find(c => c.action === 'edit.findInFiles'),
-    ],
-  },
-  {
-    label: 'View',
-    items: [
-      commands.find(c => c.action === 'view.explorer'),
-      commands.find(c => c.action === 'view.search'),
-      commands.find(c => c.action === 'view.git'),
-      sep,
-      commands.find(c => c.action === 'view.toggleSidebar'),
-      commands.find(c => c.action === 'view.toggleTerminal'),
-      sep,
-      commands.find(c => c.action === 'view.quickOpen'),
-    ],
-  },
-  {
-    label: 'Terminal',
-    items: [
-      commands.find(c => c.action === 'terminal.toggle'),
-      commands.find(c => c.action === 'terminal.new'),
-      sep,
-      commands.find(c => c.action === 'terminal.send'),
-    ],
-  },
 ];

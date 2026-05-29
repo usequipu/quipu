@@ -41,19 +41,18 @@ export default function ActivityBar({
 
   return (
     <div
-      className="flex flex-col items-center w-12 shrink-0 bg-bg-surface relative z-20 shadow-[4px_0_12px_rgba(0,0,0,0.1)]"
+      className="flex flex-col items-center w-12 shrink-0 relative z-20 bg-activity-bar"
       role="toolbar"
       aria-label="Activity Bar"
     >
-      {/* Quipu brand icon — aligns with TitleBar height */}
-      <div className="w-full h-9 flex items-center justify-center shrink-0 border-b border-border">
-        <img
-          src={new URL('../../assets/quipu-icon.png', import.meta.url).href}
-          alt="Quipu"
-          className="w-5 h-5 select-none pointer-events-none"
-          draggable={false}
-        />
-      </div>
+      {/* Spacer row matching the TitleBar height. The actual brand logo
+          is rendered as a single, always-present, absolutely-positioned
+          element at the App root so it never moves with the sidebar
+          collapse animation. */}
+      <div
+        className="w-full h-9 shrink-0"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      />
 
       <div className="flex flex-col items-center pt-2 flex-1">
         {panels.map((panel) => {
@@ -65,7 +64,7 @@ export default function ActivityBar({
               key={panel.id}
               className={cn(
                 "w-9 h-9 mx-1.5 mt-0.5 flex items-center justify-center rounded-lg",
-                "bg-transparent cursor-pointer transition-colors",
+                " cursor-pointer transition-colors",
                 "text-text-tertiary hover:text-text-secondary hover:bg-bg-elevated",
                 isActive && "text-text-primary bg-bg-elevated",
               )}

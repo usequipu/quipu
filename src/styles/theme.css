@@ -70,10 +70,14 @@
   --animate-thinking-dot: thinking-dot 1.2s ease-in-out infinite;
   --animate-thinking-phrase: thinking-phrase 1.8s ease-out;
 
-  /* Activity bar */
-  --color-activity-bar: #2b4c7e;
-  --color-activity-bar-text: #d0ddef;
-  --color-activity-bar-active: #ffffff;
+  /* Sidebar surface (light) — slightly darker than the editor surface so
+     the floating card reads as distinct from the canvas. */
+  --color-sidebar: #f0f0f0;
+  /* Activity bar shares the sidebar's color so the rail and the active
+     panel inside the card render as one continuous surface. */
+  --color-activity-bar: #f0f0f0;
+  --color-activity-bar-text: #1e1e1e;
+  --color-activity-bar-active: #1e1e1e;
 
   /* Database viewer — single horizontal padding token shared by title,
      toolbar, and table container so columns align with the title. */
@@ -90,8 +94,11 @@
 
 /* Dark theme overrides (Claude.ai-inspired) */
 :root.dark {
-  --color-bg-base: #1a1a1a;
-  --color-bg-surface: #242424;
+  /* Unified surface — same warm dark used to be the old chat page-bg.
+     bg-base == bg-surface so the sidebar card visually blends with the
+     canvas (the floating lift comes from shadow + rounded corners only). */
+  --color-bg-base: #2b2926;
+  --color-bg-surface: #2b2926;
   --color-bg-elevated: #2d2d2d;
   --color-bg-overlay: #333333;
 
@@ -106,6 +113,8 @@
   --color-border: #383838;
   --color-border-focus: #c4835a;
 
+  /* Unified background — page-bg matches bg-surface so the editor page,
+     tab strip, sidebar card, and canvas share one continuous color. */
   --color-page-bg: #2b2926;
   --color-page-text: #e8e8e0;
   --color-page-border: #383838;
@@ -124,23 +133,33 @@
   --color-comment-bg: #b19963;
   --color-comment-bg-hover: #bcb08d;
 
-  --color-activity-bar: #1a2f4a;
-  --color-activity-bar-text: #7a9ec7;
-  --color-activity-bar-active: #d0ddef;
+  /* Sidebar surface (dark) — matches the canvas color so the card
+     blends with the rest of the shell; the floating lift comes purely
+     from the card's border + shadow. */
+  --color-sidebar: #2b2926;
+  --color-activity-bar: #2b2926;
+  --color-activity-bar-text: #e8e8e0;
+  --color-activity-bar-active: #ffffff;
 
-  /* Grain — soft-light for dark backgrounds */
+  /* Grain — soft-light for dark backgrounds. Sidebar opacity set to 0 so
+     the activity rail reads as the same color as the context menu /
+     popovers (which only get the global grain layer, not the per-region
+     `[role="toolbar"]::after` overlay). */
   --grain-blend: soft-light;
   --grain-opacity: 0.55;
-  --grain-sidebar-opacity: 0.85;
+  --grain-sidebar-opacity: 0;
   --sidebar-shadow: 4px 0 16px rgba(0, 0, 0, 0.35);
 }
 
 /* Tinted theme overrides (Tasokare warm cream) */
 :root.tinted {
-  --color-bg-base: #f5eac8;
-  --color-bg-surface: #f9f1d8;
-  --color-bg-elevated: #efe3c4;
-  --color-bg-overlay: #e8ddb8;
+  /* Unified surface — whitened a touch from the previous warm cream so
+     the background reads less yellow while keeping the warm undertone.
+     bg-base == bg-surface so the sidebar card blends with the canvas. */
+  --color-bg-base: #fdf9ec;
+  --color-bg-surface: #fdfcf8;
+  --color-bg-elevated: #f5ecd0;
+  --color-bg-overlay: #ede2c0;
 
   --color-text-primary: #5a4e48;
   --color-text-secondary: #877771;
@@ -153,7 +172,9 @@
   --color-border: #e0d4b8;
   --color-border-focus: #c4835a;
 
-  --color-page-bg: #fffcf5;
+  /* Unified background — page-bg matches bg-surface so the editor page,
+     tab strip, sidebar card, and canvas share one continuous color. */
+  --color-page-bg: #fdfcf8;
   --color-page-text: #5a4e48;
   --color-page-border: #e8dcc0;
 
@@ -171,9 +192,12 @@
   --color-git-renamed: #6899d9;
   --color-git-untracked: #c4b3a3;
 
-  --color-activity-bar: #3b5e8a;
-  --color-activity-bar-text: #c8d8e8;
-  --color-activity-bar-active: #ffffff;
+  /* Sidebar surface (tinted) — uses the deeper cream so the card has
+     a subtle warmth distinct from the editor's lighter cream surface. */
+  --color-sidebar: #fdf9ec;
+  --color-activity-bar: #fdf9ec;
+  --color-activity-bar-text: #5a4e48;
+  --color-activity-bar-active: #5a4e48;
 
   /* Grain — multiply works on warm cream too, slightly lighter touch */
   --grain-blend: multiply;

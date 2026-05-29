@@ -277,6 +277,14 @@ function AppContent() {
     registerCommand('editor.find',         () => appActionsRef.current.find(),               { label: 'Find',             category: 'Editor' });
     registerCommand('view.splitRight',     () => appActionsRef.current.splitRight(),         { label: 'Split editor right', category: 'View' });
 
+    // --- Workspace switcher commands (relocated from the deleted MenuBar) ---
+    // These three actions used to live in the File menu's submenu; after the
+    // Phase 1 layout overhaul they are reachable only via the command palette
+    // (until Phase 2 introduces the proper workspace switcher dropdown).
+    registerCommand('workspace.openFolder', () => appActionsRef.current.openFolder(), { label: 'Workspace: Open Folder…', category: 'Workspace' });
+    registerCommand('workspace.openRecent', () => appActionsRef.current.openFolder(), { label: 'Workspace: Open Recent…',  category: 'Workspace' });
+    registerCommand('workspace.newWindow',  () => appActionsRef.current.newWindow(),  { label: 'Workspace: New Window',    category: 'Workspace' });
+
     // --- Built-in keybindings (registered before plugins so they always win conflicts) ---
     builtinKeybindings.forEach(registerKeybinding);
 
@@ -305,6 +313,38 @@ function AppContent() {
 
   const sidePanelRef = usePanelRef();
   const terminalPanelRef = usePanelRef();
+  // Reactive mirror of sidePanelRef.current?.isCollapsed() so other parts
+  // of the layout can react to the sidebar being hidden.
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
+  // Root element of the sidebar Panel (react-resizable-panels exposes it via
+  // `elementRef`). We temporarily apply `transition: flex …` to it when the
+  // user clicks the logo so the collapse/expand animates; the transition is
+  // cleared immediately after so drag-resize stays instant.
+  const sidebarPanelEl = React.useRef<HTMLDivElement | null>(null);
+
+  // Track window width so the editor-area side padding can be responsive.
+  const [windowWidth, setWindowWidth] = useState<number>(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 1280,
+  );
+  useEffect(() => {
+    const onResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // Symmetric side padding around the editor area when the sidebar is
+  // collapsed — gives single-tab views a "centered document" feel and
+  // multi-tab views a smaller rail-width inset. Skipped on narrow windows
+  // so we never crush the editor below a usable width.
+  const editorPad = (() => {
+    if (!isSidebarCollapsed) return 0;
+    const SIDEBAR_W = 298;
+    const RAIL_W = 48;
+    const MIN_EDITOR = 400;
+    const target = openTabs.length <= 1 ? SIDEBAR_W : RAIL_W;
+    if (windowWidth < target * 2 + MIN_EDITOR) return 0;
+    return target;
+  })();
 
   // Start the terminal panel collapsed — users open it explicitly via the
   // activity bar / keyboard shortcut when they need it.
@@ -331,11 +371,53 @@ function AppContent() {
   }, [activePanel, sidePanelRef]);
 
   const handleToggleSidebar = useCallback(() => {
+    // Animate the sidebar Panel's width with the Web Animations API
+    // instead of a CSS transition. react-resizable-panels writes the new
+    // flex-grow via React reconciliation in a single tick and CSS
+    // transitions on `flex-grow` / `flex` / `all` were being skipped —
+    // the panel snapped to 0 instantly while only the editor padding
+    // transitioned, which the user perceived as "editor expands under
+    // the logo, then margin appears and editor shrinks". WAAPI animates
+    // the rendered width directly, giving guaranteed 200ms timing with
+    // the same `ease-in-out` curve as Tailwind so the editor padding
+    // tracks it frame-for-frame.
+    const el = sidebarPanelEl.current;
     const isCollapsed = sidePanelRef.current?.isCollapsed();
+    if (el && !isCollapsed) {
+      // About to collapse: capture current width, then animate from
+      // that width down to 0. The flex layout snap happens immediately
+      // when the library updates state, but the WAAPI keyframe pins
+      // the rendered width to the start value for the first frame and
+      // interpolates to 0 over 200ms — effectively masking the snap.
+      const startWidth = el.getBoundingClientRect().width;
+      if (startWidth > 0) {
+        el.animate(
+          [{ width: `${startWidth}px`, minWidth: `${startWidth}px`, flexGrow: 'unset' },
+           { width: '0px', minWidth: '0px', flexGrow: 'unset' }],
+          { duration: 200, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'none' },
+        );
+      }
+    } else if (el && isCollapsed) {
+      // About to expand: target width comes from the library's
+      // restored layout. Snapshot the panel's eventual width by
+      // briefly forcing visibility, then animate.
+      const targetWidth = 298; // sidebar default; library will settle to this
+      el.animate(
+        [{ width: '0px', minWidth: '0px', flexGrow: 'unset' },
+         { width: `${targetWidth}px`, minWidth: `${targetWidth}px`, flexGrow: 'unset' }],
+        { duration: 200, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'none' },
+      );
+    }
+    // Flip `isSidebarCollapsed` *immediately* (don't wait for the Panel's
+    // `onResize` to fire with size 0) so the editor-area padding animates
+    // in lockstep with the sidebar instead of starting 200ms later, which
+    // looked like a wiggle.
     if (isCollapsed) {
+      setIsSidebarCollapsed(false);
       sidePanelRef.current?.expand();
       setActivePanel(prev => prev || 'explorer');
     } else {
+      setIsSidebarCollapsed(true);
       sidePanelRef.current?.collapse();
       setActivePanel(null);
     }
@@ -466,6 +548,8 @@ function AppContent() {
     reloadFromDisk: () => void;
     find: () => void;
     splitRight: () => void;
+    openFolder: () => void;
+    newWindow: () => void;
   }>(null!);
   appActionsRef.current = {
     save: () => {
@@ -524,6 +608,15 @@ function AppContent() {
         return;
       }
       splitToRight(activeTabId);
+    },
+    openFolder: () => { openFolder(); },
+    newWindow: () => {
+      // Spawn an additional Quipu window in the same Electron process.
+      // Browser mode silently no-ops because there's no host-side window
+      // factory (and the tab/window distinction doesn't apply there).
+      if (window.electronAPI?.openNewWindow) {
+        window.electronAPI.openNewWindow().catch(() => {});
+      }
     },
   };
 
@@ -1099,10 +1192,36 @@ function AppContent() {
     };
   }, [workspacePath, activeFile, openFile]);
 
-  const title = buildWindowTitle(activeFile, workspacePath);
+  // Keep the OS-level window title (taskbar / window manager) in sync with the
+  // active file. After Phase 1 of the visual overhaul the in-app titlebar no
+  // longer renders this text on screen, but Electron still uses document.title
+  // for the BrowserWindow title.
+  useEffect(() => {
+    document.title = buildWindowTitle(activeFile, workspacePath);
+  }, [activeFile, workspacePath]);
 
   return (
-    <div className="flex flex-col h-screen w-screen" data-workspace-path={workspacePath ?? ''}>
+    <div className="flex flex-col h-screen w-screen bg-bg-surface relative" data-workspace-path={workspacePath ?? ''}>
+      {/* Quipu brand logo — always-present sidebar-toggle. Lives at the
+          App root, absolute-positioned, OUTSIDE both the sidebar and the
+          TitleBar so it stays put when either animates. Coordinates match
+          the activity-rail's logo slot when the sidebar is shown
+          (sidebar mx-2 + my-3 offsets + rail w-12 h-9 center → 22, 20). */}
+      <button
+        type="button"
+        onClick={handleToggleSidebar}
+        aria-label={isSidebarCollapsed ? 'Restore sidebar' : 'Collapse sidebar'}
+        title={isSidebarCollapsed ? 'Restore sidebar' : 'Collapse sidebar'}
+        className="absolute w-5 h-5 flex items-center justify-center bg-transparent border-none cursor-pointer z-[1000]"
+        style={{ left: '22px', top: '20px', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      >
+        <img
+          src={new URL('./assets/quipu-icon.png', import.meta.url).href}
+          alt="Quipu"
+          className="w-5 h-5 select-none pointer-events-none"
+          draggable={false}
+        />
+      </button>
       {showWizard && <FirstRunWizard onComplete={() => setShowWizard(false)} />}
       {contextMenu && (
         <ContextMenu
@@ -1162,37 +1281,74 @@ function AppContent() {
         onAction={handleMenuAction}
         initialValue={quickOpenInitialValue}
       />
-      <div className="flex flex-row flex-1 overflow-hidden min-h-0">
-        <ActivityBar activePanel={activePanel} onPanelToggle={handlePanelToggle} />
-        <div className="flex flex-col flex-1 overflow-hidden">
-        <TitleBar title={title} onAction={handleMenuAction} />
+      {/*
+        Outer container — canvas and the sidebar card share `bg-bg-surface`
+        so all surfaces (editor, tab bar, sidebar card, canvas) use the same
+        color. The "floating" effect for the sidebar card comes purely from
+        its `rounded-lg border shadow-md` — not from background contrast.
+      */}
+      <div className="flex flex-row flex-1 overflow-hidden min-h-0 bg-bg-surface">
+        {/*
+          Outer horizontal Group: sidebar Panel hosts a floating card that
+          contains both the ActivityBar (icon rail) and the active panel
+          (explorer / search / etc.) as one visual unit. Editor Panel is
+          flat — no card treatment — and hosts its own slim top strip.
+          See docs/plans/2026-05-28-001-feat-visual-overhaul-plan.md (Phase 3).
+        */}
         <Group orientation="horizontal" style={{ flex: 1, overflow: 'hidden' }}>
         <Panel
           panelRef={sidePanelRef}
+          elementRef={sidebarPanelEl}
           collapsible
+          onResize={(size) => setIsSidebarCollapsed(size.inPixels === 0)}
           collapsedSize={0}
-          minSize={200}
-          maxSize={400}
-          defaultSize={250}
+          minSize={248}
+          maxSize={448}
+          defaultSize={298}
         >
-          <div className="h-full overflow-hidden flex flex-col bg-bg-surface relative z-10" data-context="explorer">
-            {(() => {
-              if (!activePanel) return null;
-              const panel = getRegisteredPanels().find((p) => p.id === activePanel);
-              if (!panel) return null;
-              // Extra props for built-in panels that require them; plugin panels receive nothing.
-              const panelPropsMap: Record<string, Record<string, unknown>> = {
-                search: { activePanel },
-              };
-              const PanelComp = panel.component as React.ComponentType<Record<string, unknown>>;
-              return <PanelComp {...(panelPropsMap[activePanel] ?? {})} />;
-            })()}
+          {/*
+            Floating-card wrapper. `m-2` creates the gap between the card and
+            the window edges; `rounded-lg`, `border`, and `shadow-md` give the
+            lift. `overflow-hidden` clips the inner ActivityBar + panel
+            content to the rounded corners.
+          */}
+          <div className="h-[calc(100%-1rem)] mt-3 mb-0 mx-2 rounded-lg border border-border bg-sidebar shadow-md overflow-hidden flex flex-row" data-context="explorer">
+            <ActivityBar activePanel={activePanel} onPanelToggle={handlePanelToggle} />
+            <div className="flex-1 overflow-hidden flex flex-col relative z-10">
+              {(() => {
+                if (!activePanel) return null;
+                const panel = getRegisteredPanels().find((p) => p.id === activePanel);
+                if (!panel) return null;
+                // Extra props for built-in panels that require them; plugin panels receive nothing.
+                const panelPropsMap: Record<string, Record<string, unknown>> = {
+                  search: { activePanel },
+                };
+                const PanelComp = panel.component as React.ComponentType<Record<string, unknown>>;
+                return <PanelComp {...(panelPropsMap[activePanel] ?? {})} />;
+              })()}
+            </div>
           </div>
         </Panel>
-        <Separator className="shrink-0 w-px cursor-col-resize bg-border" style={{ WebkitAppRegion: 'no-drag', boxShadow: 'var(--sidebar-shadow)' } as React.CSSProperties} />
+        {/*
+          Sidebar / editor resize handle. Visually transparent — the card's
+          own shadow + the canvas gap provide the visual separation. The
+          handle is still draggable (cursor + width) and `no-drag` so the
+          OS doesn't treat the click as a window drag.
+        */}
+        <Separator className="shrink-0 w-1 cursor-col-resize bg-transparent" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} />
         <Panel>
-          <Group orientation="vertical" style={{ height: '100%' }}>
+          <div className="h-full flex flex-col overflow-hidden">
+          <TitleBar />
+          <Group orientation="vertical" style={{ flex: 1, overflow: 'hidden' }}>
             <Panel minSize={100}>
+              {/* Editor-area side padding. Symmetric inset that varies
+                  with sidebar visibility + tab count (see `editorPad`
+                  above). Animated so the change reads as a smooth
+                  margin growing in / out. */}
+              <div
+                className="h-full transition-[padding] duration-200 ease-in-out"
+                style={{ paddingInline: `${editorPad}px` }}
+              >
               {activeDiff ? (
                 <div className="h-full flex flex-col overflow-hidden relative">
                   <DiffViewer
@@ -1223,7 +1379,7 @@ function AppContent() {
                     </Panel>
                     {secondary !== null && (
                       <>
-                        <Separator className="shrink-0 w-px cursor-col-resize bg-border" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} />
+                        <Separator className="shrink-0 w-1 cursor-col-resize bg-transparent" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} />
                         <Panel minSize={20}>
                           <PaneView
                             pane={secondary}
@@ -1261,8 +1417,9 @@ function AppContent() {
                   </DragOverlay>
                 </DndContext>
               )}
+              </div>
             </Panel>
-            <Separator className="shrink-0 h-px cursor-row-resize bg-border transition-colors hover:bg-accent/50 active:bg-accent" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} />
+            <Separator className="shrink-0 h-1 cursor-row-resize bg-transparent transition-colors hover:bg-accent/50 active:bg-accent" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} />
             <Panel
               panelRef={terminalPanelRef}
               collapsible
@@ -1270,15 +1427,31 @@ function AppContent() {
               minSize={100}
               defaultSize={300}
             >
-              <div className="h-full bg-bg-surface">
+              {/* Floating terminal card. Margins picked to match the
+                  sidebar card visually:
+                  - `mb-1` (4px) so the bottom gap to the status bar
+                    matches the sidebar's effective 4px bottom gap.
+                  - `mr-2` (8px) for the right window-edge gap; no left
+                    margin because the sidebar / its `mx-2` already
+                    provides that gap on the editor column's left edge.
+                  - `h-[calc(100%-0.25rem)]` reserves space for `mb-1`.
+                  - `rounded-lg overflow-hidden` clips Terminal's
+                    own `rounded-t-md` so all four corners curve. */}
+              <div className="h-[calc(100%-0.25rem)] mr-2 mb-1 rounded-lg border border-border bg-bg-surface shadow-md overflow-hidden">
                 <Terminal workspacePath={workspacePath} />
               </div>
             </Panel>
           </Group>
+          </div>
         </Panel>
       </Group>
-        </div>
       </div>
+      {/*
+        Status bar sits BELOW the sidebar in normal vertical flow, so the
+        sidebar card's rounded bottom corners are visible above it. The
+        status bar uses the same `bg-bg-surface` token as the rest of the
+        shell so it reads as one continuous canvas.
+      */}
       <StatusBar />
     </div>
   );

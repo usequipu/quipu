@@ -1494,7 +1494,7 @@ const Editor: React.FC<EditorProps> = ({
 
 
             {editorMode === 'richtext' && editor && (
-                <div className="shrink-0 flex items-center gap-1 px-4 py-2 border-b border-border bg-bg-surface">
+                <div className="shrink-0 flex items-center gap-1 px-4 py-2 bg-bg-surface">
                     <ToolbarButton
                         onClick={() => editor.chain().focus().toggleBold().run()}
                         isActive={editor.isActive('bold')}
@@ -1657,7 +1657,7 @@ const Editor: React.FC<EditorProps> = ({
             )}
 
             {editorMode === 'obsidian' && editor && (
-                <div className="shrink-0 flex items-center justify-end gap-1 px-4 py-1.5 border-b border-border bg-bg-surface">
+                <div className="shrink-0 flex items-center justify-end gap-1 px-4 py-1.5 bg-bg-surface">
                     <div className="flex items-center gap-0.5">
                         <button
                             onClick={handleZoomOut}
@@ -1696,7 +1696,7 @@ const Editor: React.FC<EditorProps> = ({
             )}
 
             {editorMode === 'raw' && (
-                <div className="shrink-0 flex items-center justify-end gap-1 px-4 py-1.5 border-b border-border bg-bg-surface">
+                <div className="shrink-0 flex items-center justify-end gap-1 px-4 py-1.5 bg-bg-surface">
                     <button
                         onClick={toggleEditorMode}
                         className="text-[11px] text-text-tertiary hover:text-text-secondary px-2 py-1 rounded hover:bg-bg-elevated transition-colors"

@@ -55,8 +55,12 @@ const TextCell: React.FC<TextCellProps> = ({ value, onUpdate }) => {
   return (
     <div
       onClick={handleStartEdit}
+      // No `truncate` here — wrap-vs-clip is controlled by the parent
+      // `<td>` (TableView reads `col.wrap` and applies whitespace classes
+      // there). The cell content just needs to fill width and preserve
+      // line breaks for natural wrapping.
       className={cn(
-        'w-full cursor-text truncate min-h-[20px]',
+        'w-full cursor-text min-h-[20px]',
         !value && 'text-text-tertiary',
       )}
     >

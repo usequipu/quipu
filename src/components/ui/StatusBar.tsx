@@ -26,8 +26,7 @@ export default function StatusBar() {
   return (
     <>
       <div
-        className="flex items-center h-[22px] w-full shrink-0 select-none"
-        style={{ backgroundColor: 'var(--color-activity-bar)' }}
+        className="flex items-center h-[22px] w-full shrink-0 select-none bg-bg-surface"
       >
         {/* Remote connect button — left side, VS Code style */}
         <button
@@ -35,12 +34,12 @@ export default function StatusBar() {
           title={status === 'connected' ? `Connected to ${serverUrl}` : 'Connect to Kamalu remote'}
           className={cn(
             'flex items-center gap-1.5 h-full px-3 text-[11px] font-medium transition-colors',
-            'text-[var(--color-activity-bar-text)]',
+            'text-text-tertiary',
             status === 'connected'
-              ? 'hover:bg-white/10'
+              ? 'hover:bg-bg-elevated'
               : status === 'error'
               ? 'hover:bg-error/20'
-              : 'hover:bg-white/10'
+              : 'hover:bg-bg-elevated'
           )}
         >
           {icon}
@@ -49,7 +48,7 @@ export default function StatusBar() {
 
         {/* Scribe glyphs — right-aligned ambient ornament that ticks on
             every input or selection change. Decorative; not interactive. */}
-        <div className="ml-auto flex items-center h-full px-3 text-[var(--color-activity-bar-text)]">
+        <div className="ml-auto flex items-center h-full px-3 text-text-tertiary">
           <ScribeGlyphs />
         </div>
       </div>
