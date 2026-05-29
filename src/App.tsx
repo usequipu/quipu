@@ -379,47 +379,83 @@ function AppContent() {
   const handleToggleSidebar = useCallback(() => {
     // Animate the sidebar Panel's width with the Web Animations API
     // instead of a CSS transition. react-resizable-panels writes the new
-    // flex-grow via React reconciliation in a single tick and CSS
-    // transitions on `flex-grow` / `flex` / `all` were being skipped —
-    // the panel snapped to 0 instantly while only the editor padding
-    // transitioned, which the user perceived as "editor expands under
-    // the logo, then margin appears and editor shrinks". WAAPI animates
-    // the rendered width directly, giving guaranteed 200ms timing with
-    // the same `ease-in-out` curve as Tailwind so the editor padding
-    // tracks it frame-for-frame.
+    // `flex-grow` (alongside `flex-basis:0`) via React reconciliation in
+    // a single tick, and CSS transitions on `flex-grow` are skipped by
+    // every engine — the panel snaps. WAAPI animates the rendered width
+    // directly, with the same ease curve as the editor-pad transition
+    // so they track frame-for-frame.
+    //
+    // CRITICAL ORDERING: both branches pre-pin the element to its
+    // animation *start* width via inline `style` BEFORE calling
+    // `collapse()` / `expand()`. Otherwise React commits the library's
+    // new flex-grow first, the browser paints the panel at its final
+    // size for one frame, then WAAPI applies its first keyframe and
+    // snaps back — producing the "wiggle then jump to max" the user
+    // reported. With the inline pre-pin in place, the layout reflows
+    // into a 0-pinned panel and WAAPI's interpolation is the only thing
+    // the user ever sees.
     const el = sidebarPanelEl.current;
     const isCollapsed = sidePanelRef.current?.isCollapsed();
+    const EASING = 'cubic-bezier(0.4, 0, 0.2, 1)';
+    const DURATION = 200;
+
+    const clearInlineWidth = () => {
+      if (!el) return;
+      el.style.width = '';
+      el.style.minWidth = '';
+      el.style.flexGrow = '';
+    };
+
     if (el && !isCollapsed) {
-      // About to collapse: capture current width, then animate from
-      // that width down to 0. The flex layout snap happens immediately
-      // when the library updates state, but the WAAPI keyframe pins
-      // the rendered width to the start value for the first frame and
-      // interpolates to 0 over 200ms — effectively masking the snap.
+      // About to collapse. Snapshot current width, pre-pin to it
+      // inline, then drive WAAPI from that width down to 0.
       const startWidth = el.getBoundingClientRect().width;
+      el.style.width = `${startWidth}px`;
+      el.style.minWidth = `${startWidth}px`;
+      el.style.flexGrow = '0';
+      setIsSidebarCollapsed(true);
+      sidePanelRef.current?.collapse();
+      setActivePanel(null);
       if (startWidth > 0) {
-        el.animate(
-          [{ width: `${startWidth}px`, minWidth: `${startWidth}px`, flexGrow: 'unset' },
-           { width: '0px', minWidth: '0px', flexGrow: 'unset' }],
-          { duration: 200, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'none' },
+        const anim = el.animate(
+          [{ width: `${startWidth}px`, minWidth: `${startWidth}px`, flexGrow: '0' },
+           { width: '0px', minWidth: '0px', flexGrow: '0' }],
+          { duration: DURATION, easing: EASING, fill: 'forwards' },
         );
+        anim.onfinish = () => {
+          clearInlineWidth();
+          anim.cancel();
+        };
+      } else {
+        clearInlineWidth();
       }
-    } else if (el && isCollapsed) {
-      // About to expand: animate from 0 to the last non-zero width we
-      // recorded via onResize. react-resizable-panels restores to that
-      // size synchronously on `expand()`, so matching it here keeps the
-      // WAAPI keyframe and the post-animation layout in sync — no snap
-      // at animation end.
-      const targetWidth = lastSidebarWidthRef.current;
-      el.animate(
-        [{ width: '0px', minWidth: '0px', flexGrow: 'unset' },
-         { width: `${targetWidth}px`, minWidth: `${targetWidth}px`, flexGrow: 'unset' }],
-        { duration: 200, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'none' },
-      );
+      return;
     }
-    // Flip `isSidebarCollapsed` *immediately* (don't wait for the Panel's
-    // `onResize` to fire with size 0) so the editor-area padding animates
-    // in lockstep with the sidebar instead of starting 200ms later, which
-    // looked like a wiggle.
+
+    if (el && isCollapsed) {
+      // About to expand. Pre-pin width to 0 inline so when `expand()`
+      // reflows the layout to the restored flex-grow, the panel still
+      // renders at 0 px. WAAPI then interpolates 0 → last-seen width.
+      const targetWidth = lastSidebarWidthRef.current;
+      el.style.width = '0px';
+      el.style.minWidth = '0px';
+      el.style.flexGrow = '0';
+      setIsSidebarCollapsed(false);
+      sidePanelRef.current?.expand();
+      setActivePanel(prev => prev || 'explorer');
+      const anim = el.animate(
+        [{ width: '0px', minWidth: '0px', flexGrow: '0' },
+         { width: `${targetWidth}px`, minWidth: `${targetWidth}px`, flexGrow: '0' }],
+        { duration: DURATION, easing: EASING, fill: 'forwards' },
+      );
+      anim.onfinish = () => {
+        clearInlineWidth();
+        anim.cancel();
+      };
+      return;
+    }
+
+    // No element yet (first render); just flip state.
     if (isCollapsed) {
       setIsSidebarCollapsed(false);
       sidePanelRef.current?.expand();
