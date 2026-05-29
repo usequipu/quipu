@@ -316,6 +316,12 @@ function AppContent() {
   // Reactive mirror of sidePanelRef.current?.isCollapsed() so other parts
   // of the layout can react to the sidebar being hidden.
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
+  // Last non-zero sidebar width seen via `onResize`. Used as the WAAPI
+  // target when expanding so the animation interpolates 0 → the size
+  // react-resizable-panels actually restores to — without this we
+  // hard-coded 298 and visibly snapped at animation-end to whatever
+  // size the user had previously dragged the panel to.
+  const lastSidebarWidthRef = React.useRef<number>(298);
   // Root element of the sidebar Panel (react-resizable-panels exposes it via
   // `elementRef`). We temporarily apply `transition: flex …` to it when the
   // user clicks the logo so the collapse/expand animates; the transition is
@@ -398,10 +404,12 @@ function AppContent() {
         );
       }
     } else if (el && isCollapsed) {
-      // About to expand: target width comes from the library's
-      // restored layout. Snapshot the panel's eventual width by
-      // briefly forcing visibility, then animate.
-      const targetWidth = 298; // sidebar default; library will settle to this
+      // About to expand: animate from 0 to the last non-zero width we
+      // recorded via onResize. react-resizable-panels restores to that
+      // size synchronously on `expand()`, so matching it here keeps the
+      // WAAPI keyframe and the post-animation layout in sync — no snap
+      // at animation end.
+      const targetWidth = lastSidebarWidthRef.current;
       el.animate(
         [{ width: '0px', minWidth: '0px', flexGrow: 'unset' },
          { width: `${targetWidth}px`, minWidth: `${targetWidth}px`, flexGrow: 'unset' }],
@@ -1280,7 +1288,10 @@ function AppContent() {
           panelRef={sidePanelRef}
           elementRef={sidebarPanelEl}
           collapsible
-          onResize={(size) => setIsSidebarCollapsed(size.inPixels === 0)}
+          onResize={(size) => {
+            setIsSidebarCollapsed(size.inPixels === 0);
+            if (size.inPixels > 0) lastSidebarWidthRef.current = size.inPixels;
+          }}
           collapsedSize={0}
           minSize={248}
           maxSize={448}
