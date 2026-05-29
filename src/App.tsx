@@ -1316,8 +1316,18 @@ function AppContent() {
           elementRef={sidebarPanelEl}
           collapsible
           onResize={(size) => {
-            setIsSidebarCollapsed(size.inPixels === 0);
-            if (size.inPixels > 0) lastSidebarWidthRef.current = size.inPixels;
+            // Use `asPercentage` (library's internal state) instead of
+            // `inPixels` (== element.offsetWidth) to decide collapsed-ness.
+            // During the toggle animation we clamp the element via
+            // `min-width`/`max-width`, so offsetWidth is 0 even though the
+            // library has the panel internally expanded; reading inPixels
+            // here used to flip `isSidebarCollapsed` back to true mid-
+            // animation, reversing the editor's padding transition — that
+            // was the "wiggle".
+            setIsSidebarCollapsed(size.asPercentage === 0);
+            if (size.asPercentage > 0 && size.inPixels > 0) {
+              lastSidebarWidthRef.current = size.inPixels;
+            }
           }}
           collapsedSize={0}
           minSize={248}
