@@ -10,6 +10,49 @@ import { resolveViewer } from '../../extensions/registry';
 import { useToast } from './Toast';
 import type { Pane, ActiveFile } from '../../types/tab';
 
+// Crashes inside a plugin viewer (e.g. the Monaco-based code plugin failing to
+// initialize its worker / loader) used to propagate to the App root and blank
+// the entire window. ViewerErrorBoundary keeps the failure scoped to the pane
+// so the rest of the editor stays usable. The boundary resets when the tab
+// changes — a fresh viewer instance gets a clean error state via `key`.
+interface ViewerErrorBoundaryProps {
+  children: React.ReactNode;
+  fileName: string;
+}
+interface ViewerErrorBoundaryState {
+  error: Error | null;
+}
+class ViewerErrorBoundary extends React.Component<ViewerErrorBoundaryProps, ViewerErrorBoundaryState> {
+  state: ViewerErrorBoundaryState = { error: null };
+  static getDerivedStateFromError(error: Error): ViewerErrorBoundaryState {
+    return { error };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    // eslint-disable-next-line no-console
+    console.error('[viewer] crashed', error, info);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full w-full bg-bg-surface px-6 text-center">
+          <div className="text-base text-text-primary mb-1">Viewer failed to load</div>
+          <div className="text-xs text-text-secondary mb-3 max-w-md break-words">
+            {this.props.fileName}: {this.state.error.message}
+          </div>
+          <button
+            type="button"
+            onClick={() => this.setState({ error: null })}
+            className="px-3 py-1.5 text-xs bg-bg-elevated border border-border rounded-md text-text-primary hover:bg-accent-muted"
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 /**
  * Per-pane references that App.tsx routes global commands to.
  *
@@ -181,14 +224,16 @@ export default function PaneView({
       )}
       {activeFile && activeTab ? (
         Viewer ? (
-          <Viewer
-            tab={activeTab}
-            activeFile={activeFile}
-            onContentChange={handleContentChange}
-            isActive
-            workspacePath={workspacePath ?? ''}
-            showToast={showToast}
-          />
+          <ViewerErrorBoundary key={activeTab.id} fileName={activeFile.name}>
+            <Viewer
+              tab={activeTab}
+              activeFile={activeFile}
+              onContentChange={handleContentChange}
+              isActive
+              workspacePath={workspacePath ?? ''}
+              showToast={showToast}
+            />
+          </ViewerErrorBoundary>
         ) : (
           <Editor_
             onEditorReady={handleEditorReady}

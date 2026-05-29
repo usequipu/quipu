@@ -1202,26 +1202,6 @@ function AppContent() {
 
   return (
     <div className="flex flex-col h-screen w-screen bg-bg-surface relative" data-workspace-path={workspacePath ?? ''}>
-      {/* Quipu brand logo — always-present sidebar-toggle. Lives at the
-          App root, absolute-positioned, OUTSIDE both the sidebar and the
-          TitleBar so it stays put when either animates. Coordinates match
-          the activity-rail's logo slot when the sidebar is shown
-          (sidebar mx-2 + my-3 offsets + rail w-12 h-9 center → 22, 20). */}
-      <button
-        type="button"
-        onClick={handleToggleSidebar}
-        aria-label={isSidebarCollapsed ? 'Restore sidebar' : 'Collapse sidebar'}
-        title={isSidebarCollapsed ? 'Restore sidebar' : 'Collapse sidebar'}
-        className="absolute w-5 h-5 flex items-center justify-center bg-transparent border-none cursor-pointer z-[1000]"
-        style={{ left: '22px', top: '20px', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-      >
-        <img
-          src={new URL('./assets/quipu-icon.png', import.meta.url).href}
-          alt="Quipu"
-          className="w-5 h-5 select-none pointer-events-none"
-          draggable={false}
-        />
-      </button>
       {showWizard && <FirstRunWizard onComplete={() => setShowWizard(false)} />}
       {contextMenu && (
         <ContextMenu
@@ -1333,9 +1313,13 @@ function AppContent() {
           Sidebar / editor resize handle. Visually transparent — the card's
           own shadow + the canvas gap provide the visual separation. The
           handle is still draggable (cursor + width) and `no-drag` so the
-          OS doesn't treat the click as a window drag.
+          OS doesn't treat the click as a window drag. The `::before`
+          pseudo-element extends the hit area 8px LEFT to cover the
+          sidebar card's `mx-2` right margin, so the col-resize cursor
+          appears the moment the user crosses the visible card border
+          instead of 8px past it.
         */}
-        <Separator className="shrink-0 w-1 cursor-col-resize bg-transparent" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} />
+        <Separator className="shrink-0 w-1 cursor-col-resize bg-transparent relative before:absolute before:inset-y-0 before:-left-2 before:w-2 before:content-['']" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} />
         <Panel>
           <div className="h-full flex flex-col overflow-hidden">
           <TitleBar />
@@ -1453,6 +1437,28 @@ function AppContent() {
         shell so it reads as one continuous canvas.
       */}
       <StatusBar />
+      {/* Quipu brand logo — always-present sidebar-toggle. Rendered LAST so its
+          `WebkitAppRegion: 'no-drag'` subtracts from the drag regions declared
+          by earlier nodes (ActivityBar spacer, TitleBar) — Electron resolves
+          draggable regions in document order, so a no-drag must follow the
+          drag regions it should override. Coordinates match the activity-rail's
+          logo slot when the sidebar is shown (sidebar mx-2 + my-3 offsets +
+          rail w-12 h-9 center → 22, 20). */}
+      <button
+        type="button"
+        onClick={handleToggleSidebar}
+        aria-label={isSidebarCollapsed ? 'Restore sidebar' : 'Collapse sidebar'}
+        title={isSidebarCollapsed ? 'Restore sidebar' : 'Collapse sidebar'}
+        className="absolute w-5 h-5 flex items-center justify-center bg-transparent border-none cursor-pointer z-[1000]"
+        style={{ left: '22px', top: '20px', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      >
+        <img
+          src={new URL('./assets/quipu-icon.png', import.meta.url).href}
+          alt="Quipu"
+          className="w-5 h-5 select-none pointer-events-none"
+          draggable={false}
+        />
+      </button>
     </div>
   );
 }
