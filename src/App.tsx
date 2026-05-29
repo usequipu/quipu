@@ -313,14 +313,38 @@ function AppContent() {
 
   const sidePanelRef = usePanelRef();
   const terminalPanelRef = usePanelRef();
-  // Reactive mirror of sidePanelRef.current?.isCollapsed() so the TitleBar
-  // can render the floating restore-logo button when the sidebar is hidden.
+  // Reactive mirror of sidePanelRef.current?.isCollapsed() so other parts
+  // of the layout can react to the sidebar being hidden.
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   // Root element of the sidebar Panel (react-resizable-panels exposes it via
   // `elementRef`). We temporarily apply `transition: flex …` to it when the
   // user clicks the logo so the collapse/expand animates; the transition is
   // cleared immediately after so drag-resize stays instant.
   const sidebarPanelEl = React.useRef<HTMLDivElement | null>(null);
+
+  // Track window width so the editor-area side padding can be responsive.
+  const [windowWidth, setWindowWidth] = useState<number>(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 1280,
+  );
+  useEffect(() => {
+    const onResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // Symmetric side padding around the editor area when the sidebar is
+  // collapsed — gives single-tab views a "centered document" feel and
+  // multi-tab views a smaller rail-width inset. Skipped on narrow windows
+  // so we never crush the editor below a usable width.
+  const editorPad = (() => {
+    if (!isSidebarCollapsed) return 0;
+    const SIDEBAR_W = 298;
+    const RAIL_W = 48;
+    const MIN_EDITOR = 400;
+    const target = openTabs.length <= 1 ? SIDEBAR_W : RAIL_W;
+    if (windowWidth < target * 2 + MIN_EDITOR) return 0;
+    return target;
+  })();
 
   // Start the terminal panel collapsed — users open it explicitly via the
   // activity bar / keyboard shortcut when they need it.
@@ -1146,7 +1170,27 @@ function AppContent() {
   }, [activeFile, workspacePath]);
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-bg-surface" data-workspace-path={workspacePath ?? ''}>
+    <div className="flex flex-col h-screen w-screen bg-bg-surface relative" data-workspace-path={workspacePath ?? ''}>
+      {/* Quipu brand logo — always-present sidebar-toggle. Lives at the
+          App root, absolute-positioned, OUTSIDE both the sidebar and the
+          TitleBar so it stays put when either animates. Coordinates match
+          the activity-rail's logo slot when the sidebar is shown
+          (sidebar mx-2 + my-3 offsets + rail w-12 h-9 center → 22, 20). */}
+      <button
+        type="button"
+        onClick={handleToggleSidebar}
+        aria-label={isSidebarCollapsed ? 'Restore sidebar' : 'Collapse sidebar'}
+        title={isSidebarCollapsed ? 'Restore sidebar' : 'Collapse sidebar'}
+        className="absolute w-5 h-5 flex items-center justify-center bg-transparent border-none cursor-pointer z-[1000]"
+        style={{ left: '22px', top: '20px', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      >
+        <img
+          src={new URL('./assets/quipu-icon.png', import.meta.url).href}
+          alt="Quipu"
+          className="w-5 h-5 select-none pointer-events-none"
+          draggable={false}
+        />
+      </button>
       {showWizard && <FirstRunWizard onComplete={() => setShowWizard(false)} />}
       {contextMenu && (
         <ContextMenu
@@ -1238,7 +1282,7 @@ function AppContent() {
             content to the rounded corners.
           */}
           <div className="h-[calc(100%-1.5rem)] mt-3 mb-0 mx-2 rounded-lg border border-border bg-bg-base shadow-md overflow-hidden flex flex-row" data-context="explorer">
-            <ActivityBar activePanel={activePanel} onPanelToggle={handlePanelToggle} onLogoClick={handleToggleSidebar} />
+            <ActivityBar activePanel={activePanel} onPanelToggle={handlePanelToggle} />
             <div className="flex-1 overflow-hidden flex flex-col relative z-10">
               {(() => {
                 if (!activePanel) return null;
@@ -1263,9 +1307,17 @@ function AppContent() {
         <Separator className="shrink-0 w-1 cursor-col-resize bg-transparent" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} />
         <Panel>
           <div className="h-full flex flex-col overflow-hidden">
-          <TitleBar showRestoreLogo={isSidebarCollapsed} onRestoreLogoClick={handleToggleSidebar} />
+          <TitleBar />
           <Group orientation="vertical" style={{ flex: 1, overflow: 'hidden' }}>
             <Panel minSize={100}>
+              {/* Editor-area side padding. Symmetric inset that varies
+                  with sidebar visibility + tab count (see `editorPad`
+                  above). Animated so the change reads as a smooth
+                  margin growing in / out. */}
+              <div
+                className="h-full transition-[padding] duration-200 ease-out"
+                style={{ paddingInline: `${editorPad}px` }}
+              >
               {activeDiff ? (
                 <div className="h-full flex flex-col overflow-hidden relative">
                   <DiffViewer
@@ -1334,6 +1386,7 @@ function AppContent() {
                   </DragOverlay>
                 </DndContext>
               )}
+              </div>
             </Panel>
             <Separator className="shrink-0 h-1 cursor-row-resize bg-transparent transition-colors hover:bg-accent/50 active:bg-accent" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} />
             <Panel

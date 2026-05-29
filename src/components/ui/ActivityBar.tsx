@@ -25,14 +25,11 @@ const ICON_MAP: Record<string, PhosphorIcon> = {
 interface ActivityBarProps {
   activePanel: string | null;
   onPanelToggle: (panelId: string) => void;
-  /** Click handler for the brand logo — used to collapse the sidebar. */
-  onLogoClick?: () => void;
 }
 
 export default function ActivityBar({
   activePanel,
   onPanelToggle,
-  onLogoClick,
 }: ActivityBarProps) {
   const { gitChangeCount } = useFileSystem();
 
@@ -48,30 +45,14 @@ export default function ActivityBar({
       role="toolbar"
       aria-label="Activity Bar"
     >
-      {/* Quipu brand icon — doubles as the sidebar-collapse toggle.
-          Aligns with the TitleBar strip height on the editor column. The
-          surrounding row stays a window-drag region; only the icon
-          itself opts back into `no-drag` so clicks reach React. */}
+      {/* Spacer row matching the TitleBar height. The actual brand logo
+          is rendered as a single, always-present, absolutely-positioned
+          element at the App root so it never moves with the sidebar
+          collapse animation. */}
       <div
-        className="w-full h-9 flex items-center justify-center shrink-0"
+        className="w-full h-9 shrink-0"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-      >
-        <button
-          type="button"
-          onClick={onLogoClick}
-          aria-label="Collapse sidebar"
-          title="Collapse sidebar"
-          className="w-5 h-5 flex items-center justify-center bg-transparent border-none p-0 cursor-pointer"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        >
-          <img
-            src={new URL('../../assets/quipu-icon.png', import.meta.url).href}
-            alt="Quipu"
-            className="w-5 h-5 select-none pointer-events-none"
-            draggable={false}
-          />
-        </button>
-      </div>
+      />
 
       <div className="flex flex-col items-center pt-2 flex-1">
         {panels.map((panel) => {
