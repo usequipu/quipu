@@ -371,22 +371,53 @@ function AppContent() {
   }, [activePanel, sidePanelRef]);
 
   const handleToggleSidebar = useCallback(() => {
-    // Briefly apply a `transition: flex` to the sidebar Panel's root so the
-    // collapse/expand animates. Cleared after the transition window so a
-    // subsequent drag-resize stays instant (no laggy easing tracking the
-    // cursor).
+    // Animate the sidebar Panel's width with the Web Animations API
+    // instead of a CSS transition. react-resizable-panels writes the new
+    // flex-grow via React reconciliation in a single tick and CSS
+    // transitions on `flex-grow` / `flex` / `all` were being skipped —
+    // the panel snapped to 0 instantly while only the editor padding
+    // transitioned, which the user perceived as "editor expands under
+    // the logo, then margin appears and editor shrinks". WAAPI animates
+    // the rendered width directly, giving guaranteed 200ms timing with
+    // the same `ease-in-out` curve as Tailwind so the editor padding
+    // tracks it frame-for-frame.
     const el = sidebarPanelEl.current;
-    if (el) {
-      el.style.transition = 'flex 200ms ease-in-out';
-      window.setTimeout(() => {
-        if (sidebarPanelEl.current) sidebarPanelEl.current.style.transition = '';
-      }, 250);
-    }
     const isCollapsed = sidePanelRef.current?.isCollapsed();
+    if (el && !isCollapsed) {
+      // About to collapse: capture current width, then animate from
+      // that width down to 0. The flex layout snap happens immediately
+      // when the library updates state, but the WAAPI keyframe pins
+      // the rendered width to the start value for the first frame and
+      // interpolates to 0 over 200ms — effectively masking the snap.
+      const startWidth = el.getBoundingClientRect().width;
+      if (startWidth > 0) {
+        el.animate(
+          [{ width: `${startWidth}px`, minWidth: `${startWidth}px`, flexGrow: 'unset' },
+           { width: '0px', minWidth: '0px', flexGrow: 'unset' }],
+          { duration: 200, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'none' },
+        );
+      }
+    } else if (el && isCollapsed) {
+      // About to expand: target width comes from the library's
+      // restored layout. Snapshot the panel's eventual width by
+      // briefly forcing visibility, then animate.
+      const targetWidth = 298; // sidebar default; library will settle to this
+      el.animate(
+        [{ width: '0px', minWidth: '0px', flexGrow: 'unset' },
+         { width: `${targetWidth}px`, minWidth: `${targetWidth}px`, flexGrow: 'unset' }],
+        { duration: 200, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'none' },
+      );
+    }
+    // Flip `isSidebarCollapsed` *immediately* (don't wait for the Panel's
+    // `onResize` to fire with size 0) so the editor-area padding animates
+    // in lockstep with the sidebar instead of starting 200ms later, which
+    // looked like a wiggle.
     if (isCollapsed) {
+      setIsSidebarCollapsed(false);
       sidePanelRef.current?.expand();
       setActivePanel(prev => prev || 'explorer');
     } else {
+      setIsSidebarCollapsed(true);
       sidePanelRef.current?.collapse();
       setActivePanel(null);
     }
@@ -1281,7 +1312,7 @@ function AppContent() {
             lift. `overflow-hidden` clips the inner ActivityBar + panel
             content to the rounded corners.
           */}
-          <div className="h-[calc(100%-1.5rem)] mt-3 mb-0 mx-2 rounded-lg border border-border bg-bg-base shadow-md overflow-hidden flex flex-row" data-context="explorer">
+          <div className="h-[calc(100%-1rem)] mt-3 mb-0 mx-2 rounded-lg border border-border bg-sidebar shadow-md overflow-hidden flex flex-row" data-context="explorer">
             <ActivityBar activePanel={activePanel} onPanelToggle={handlePanelToggle} />
             <div className="flex-1 overflow-hidden flex flex-col relative z-10">
               {(() => {
@@ -1315,7 +1346,7 @@ function AppContent() {
                   above). Animated so the change reads as a smooth
                   margin growing in / out. */}
               <div
-                className="h-full transition-[padding] duration-200 ease-out"
+                className="h-full transition-[padding] duration-200 ease-in-out"
                 style={{ paddingInline: `${editorPad}px` }}
               >
               {activeDiff ? (
@@ -1396,7 +1427,17 @@ function AppContent() {
               minSize={100}
               defaultSize={300}
             >
-              <div className="h-full bg-bg-surface">
+              {/* Floating terminal card. Margins picked to match the
+                  sidebar card visually:
+                  - `mb-1` (4px) so the bottom gap to the status bar
+                    matches the sidebar's effective 4px bottom gap.
+                  - `mr-2` (8px) for the right window-edge gap; no left
+                    margin because the sidebar / its `mx-2` already
+                    provides that gap on the editor column's left edge.
+                  - `h-[calc(100%-0.25rem)]` reserves space for `mb-1`.
+                  - `rounded-lg overflow-hidden` clips Terminal's
+                    own `rounded-t-md` so all four corners curve. */}
+              <div className="h-[calc(100%-0.25rem)] mr-2 mb-1 rounded-lg border border-border bg-bg-surface shadow-md overflow-hidden">
                 <Terminal workspacePath={workspacePath} />
               </div>
             </Panel>

@@ -1,5 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { Minus, Square, X } from '@phosphor-icons/react';
+import { useTab } from '../../context/TabContext';
+import { useFileSystem } from '../../context/FileSystemContext';
 
 declare global {
   interface Window {
@@ -25,6 +27,21 @@ const isElectron = (): boolean => !!(window.__QUIPU_WINDOW__);
  */
 const TitleBar: React.FC = () => {
   const [isMaximized, setIsMaximized] = useState<boolean>(false);
+  const { activeFile } = useTab();
+  const { workspacePath } = useFileSystem();
+  // Show the active file's full path, scoped to the workspace when
+  // possible (so a 90-character absolute path doesn't dominate the strip
+  // for files that live inside the open workspace). Falls back to
+  // workspace name when no file is open. `activeFile.path` is the
+  // absolute on-disk path.
+  const activePath = activeFile?.path ?? null;
+  const titleText = (() => {
+    if (activePath && workspacePath && activePath.startsWith(workspacePath + '/')) {
+      return activePath.slice(workspacePath.length + 1);
+    }
+    if (activePath) return activePath;
+    return workspacePath?.split('/').pop() ?? '';
+  })();
 
   const handleMinimize = useCallback(() => {
     window.__QUIPU_WINDOW__?.minimize();
@@ -49,6 +66,19 @@ const TitleBar: React.FC = () => {
       className="h-9 flex items-center justify-end bg-bg-surface shrink-0 relative z-100"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
+      {/* Centered file path / workspace name. Absolute-positioned with a
+          generous side inset so the window controls (right) and the
+          floating brand logo (left, App-root) stay clickable. The text
+          is select-none + pointer-events-none so it never interferes
+          with the drag region. */}
+      <div
+        className="absolute left-0 right-0 mx-auto flex items-center justify-center px-32 pointer-events-none select-none"
+        style={{ height: '100%' }}
+      >
+        <span className="text-xs font-normal text-text-tertiary whitespace-nowrap overflow-hidden text-ellipsis max-w-full" title={activePath ?? ''}>
+          {titleText}
+        </span>
+      </div>
       {isElectron() && (
         <div
           className="flex items-center h-full"

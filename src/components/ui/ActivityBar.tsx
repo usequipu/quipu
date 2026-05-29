@@ -41,7 +41,7 @@ export default function ActivityBar({
 
   return (
     <div
-      className="flex flex-col items-center w-12 shrink-0 relative z-20"
+      className="flex flex-col items-center w-12 shrink-0 relative z-20 bg-activity-bar"
       role="toolbar"
       aria-label="Activity Bar"
     >
@@ -64,7 +64,7 @@ export default function ActivityBar({
               key={panel.id}
               className={cn(
                 "w-9 h-9 mx-1.5 mt-0.5 flex items-center justify-center rounded-lg",
-                "bg-transparent cursor-pointer transition-colors",
+                " cursor-pointer transition-colors",
                 "text-text-tertiary hover:text-text-secondary hover:bg-bg-elevated",
                 isActive && "text-text-primary bg-bg-elevated",
               )}

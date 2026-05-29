@@ -225,6 +225,22 @@ function senderWindow(event) {
     return BrowserWindow.fromWebContents(event.sender);
 }
 
+// Frameless-window controls — drive the minimize / maximize / close buttons
+// in TitleBar.tsx (which posts these via the `__QUIPU_WINDOW__` bridge
+// exposed by preload.cjs). Mirrors the same handlers in main-thin.cjs.
+ipcMain.on('window-minimize', (event) => {
+    senderWindow(event)?.minimize();
+});
+ipcMain.on('window-maximize', (event) => {
+    const win = senderWindow(event);
+    if (!win) return;
+    if (win.isMaximized()) win.unmaximize();
+    else win.maximize();
+});
+ipcMain.on('window-close', (event) => {
+    senderWindow(event)?.close();
+});
+
 const ptyProcesses = new Map(); // terminalId -> ptyProcess
 const MAX_TERMINALS = 10;
 

@@ -71,22 +71,16 @@ body::after {
   opacity: var(--grain-opacity);
 }
 
-/* Grain — sidebar only (ActivityBar + Explorer/Search/Git panel) */
-[role="toolbar"],
+/* Grain — sidebar card only. The ActivityBar lives INSIDE the card
+   (data-context="explorer") and is covered by the card's grain layer
+   already, so we deliberately exclude `[role="toolbar"]` here to avoid
+   a double-grain stack on the activity-rail area (most visible in the
+   tinted theme where grain-sidebar-opacity is 0.15). */
 [data-context="explorer"] {
   position: relative;
 }
 
-/* Dark theme: activity rail picks up the same elevated surface used by
-   context menus / popovers / dialogs (bg-bg-elevated). Other themes
-   inherit the sidebar card's transparent backdrop. Done in plain CSS
-   rather than the `dark:` Tailwind variant so it's guaranteed to apply
-   regardless of how the variant compiles. */
-:root.dark [role="toolbar"] {
-  background-color: var(--color-bg-elevated);
-}
 
-[role="toolbar"]::after,
 [data-context="explorer"]::after {
   content: "";
   position: absolute;

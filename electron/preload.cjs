@@ -1,5 +1,16 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+// Frameless-window controls — mirrors the bridge that preload-thin.cjs
+// exposes in production builds. TitleBar.tsx reads `window.__QUIPU_WINDOW__`
+// to drive its minimize / maximize / close buttons; without this the
+// controls don't render (their `isElectron()` check returns false during
+// dev) even though we're running inside Electron.
+contextBridge.exposeInMainWorld('__QUIPU_WINDOW__', {
+    minimize: () => ipcRenderer.send('window-minimize'),
+    maximize: () => ipcRenderer.send('window-maximize'),
+    close: () => ipcRenderer.send('window-close'),
+});
+
 contextBridge.exposeInMainWorld('electronAPI', {
     // Terminal (multi-terminal with terminalId multiplexing)
     createTerminal: (options) => ipcRenderer.invoke('terminal-create', options),
