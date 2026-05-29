@@ -313,6 +313,14 @@ function AppContent() {
 
   const sidePanelRef = usePanelRef();
   const terminalPanelRef = usePanelRef();
+  // Reactive mirror of sidePanelRef.current?.isCollapsed() so the TitleBar
+  // can render the floating restore-logo button when the sidebar is hidden.
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
+  // Root element of the sidebar Panel (react-resizable-panels exposes it via
+  // `elementRef`). We temporarily apply `transition: flex …` to it when the
+  // user clicks the logo so the collapse/expand animates; the transition is
+  // cleared immediately after so drag-resize stays instant.
+  const sidebarPanelEl = React.useRef<HTMLDivElement | null>(null);
 
   // Start the terminal panel collapsed — users open it explicitly via the
   // activity bar / keyboard shortcut when they need it.
@@ -339,6 +347,17 @@ function AppContent() {
   }, [activePanel, sidePanelRef]);
 
   const handleToggleSidebar = useCallback(() => {
+    // Briefly apply a `transition: flex` to the sidebar Panel's root so the
+    // collapse/expand animates. Cleared after the transition window so a
+    // subsequent drag-resize stays instant (no laggy easing tracking the
+    // cursor).
+    const el = sidebarPanelEl.current;
+    if (el) {
+      el.style.transition = 'flex 200ms ease-in-out';
+      window.setTimeout(() => {
+        if (sidebarPanelEl.current) sidebarPanelEl.current.style.transition = '';
+      }, 250);
+    }
     const isCollapsed = sidePanelRef.current?.isCollapsed();
     if (isCollapsed) {
       sidePanelRef.current?.expand();
@@ -1204,7 +1223,9 @@ function AppContent() {
         <Group orientation="horizontal" style={{ flex: 1, overflow: 'hidden' }}>
         <Panel
           panelRef={sidePanelRef}
+          elementRef={sidebarPanelEl}
           collapsible
+          onResize={(size) => setIsSidebarCollapsed(size.inPixels === 0)}
           collapsedSize={0}
           minSize={248}
           maxSize={448}
@@ -1217,7 +1238,7 @@ function AppContent() {
             content to the rounded corners.
           */}
           <div className="h-[calc(100%-1.5rem)] mt-3 mb-0 mx-2 rounded-lg border border-border bg-bg-base shadow-md overflow-hidden flex flex-row" data-context="explorer">
-            <ActivityBar activePanel={activePanel} onPanelToggle={handlePanelToggle} />
+            <ActivityBar activePanel={activePanel} onPanelToggle={handlePanelToggle} onLogoClick={handleToggleSidebar} />
             <div className="flex-1 overflow-hidden flex flex-col relative z-10">
               {(() => {
                 if (!activePanel) return null;
@@ -1242,7 +1263,7 @@ function AppContent() {
         <Separator className="shrink-0 w-1 cursor-col-resize bg-transparent" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} />
         <Panel>
           <div className="h-full flex flex-col overflow-hidden">
-          <TitleBar />
+          <TitleBar showRestoreLogo={isSidebarCollapsed} onRestoreLogoClick={handleToggleSidebar} />
           <Group orientation="vertical" style={{ flex: 1, overflow: 'hidden' }}>
             <Panel minSize={100}>
               {activeDiff ? (
