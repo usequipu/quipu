@@ -316,12 +316,26 @@ function AppContent() {
   // Reactive mirror of sidePanelRef.current?.isCollapsed() so other parts
   // of the layout can react to the sidebar being hidden.
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
-  // Last non-zero sidebar width seen via `onResize`. Used as the WAAPI
-  // target when expanding so the animation interpolates 0 → the size
-  // react-resizable-panels actually restores to — without this we
-  // hard-coded 298 and visibly snapped at animation-end to whatever
-  // size the user had previously dragged the panel to.
+  // Last non-zero sidebar width seen via `onResize`. Tracked for any
+  // consumer that needs the panel's natural width; no longer used to
+  // drive a WAAPI target (the v0.56.6+ approach hitches a CSS
+  // transition onto the library's own flex-grow value instead).
   const lastSidebarWidthRef = React.useRef<number>(298);
+  // Inline CSS transition string applied to the sidebar panel's outer
+  // element so any flex-grow change the library makes — including
+  // collapse()/expand() — animates instead of snapping. The string is
+  // kept in a ref so we can re-apply it after any DOM event that might
+  // clear inline styles. Matches the editor padding's 200ms ease curve.
+  const sidebarFlexTransition = React.useRef<string>(
+    'flex-grow 200ms cubic-bezier(0.4, 0, 0.2, 1)',
+  );
+  // Apply the inline transition once the library has mounted the
+  // panel's element ref. Re-applies if the element ref changes (it
+  // shouldn't in practice, but a defensive re-set is cheap).
+  React.useEffect(() => {
+    const el = sidebarPanelEl.current;
+    if (el) el.style.transition = sidebarFlexTransition.current;
+  });
   // Root element of the sidebar Panel (react-resizable-panels exposes it via
   // `elementRef`). We temporarily apply `transition: flex …` to it when the
   // user clicks the logo so the collapse/expand animates; the transition is
@@ -377,76 +391,30 @@ function AppContent() {
   }, [activePanel, sidePanelRef]);
 
   const handleToggleSidebar = useCallback(() => {
-    // Animate the sidebar Panel by clamping its rendered size via inline
-    // `min-width` and `max-width`, NOT by touching `flex-grow`.
-    // react-resizable-panels writes `flex-grow` inline via React; if we
-    // override it here and later clear our value (`el.style.flexGrow = ''`)
-    // the library's value goes with it because React never re-rendered, and
-    // the panel sticks at 0 forever. The min/max-width pair leaves the
-    // library's flex inline style alone — the clamps override the flex-
-    // allocated size while active, and clearing them just hands sizing
-    // back to flex.
-    const el = sidebarPanelEl.current;
-    const isCollapsed = sidePanelRef.current?.isCollapsed();
-    const EASING = 'cubic-bezier(0.4, 0, 0.2, 1)';
-    const DURATION = 200;
-
-    const clearWidthClamps = () => {
-      if (!el) return;
-      el.style.minWidth = '';
-      el.style.maxWidth = '';
-    };
-
-    if (el && !isCollapsed) {
-      // About to collapse. Snapshot current width, pin to it via
-      // min/max-width inline so the post-`collapse()` reflow doesn't
-      // shrink the panel instantly. Then animate the clamps down to 0.
-      const startWidth = el.getBoundingClientRect().width;
-      el.style.minWidth = `${startWidth}px`;
-      el.style.maxWidth = `${startWidth}px`;
-      setIsSidebarCollapsed(true);
-      sidePanelRef.current?.collapse();
-      setActivePanel(null);
-      if (startWidth > 0) {
-        const anim = el.animate(
-          [{ minWidth: `${startWidth}px`, maxWidth: `${startWidth}px` },
-           { minWidth: '0px', maxWidth: '0px' }],
-          { duration: DURATION, easing: EASING, fill: 'forwards' },
-        );
-        anim.onfinish = () => {
-          clearWidthClamps();
-          anim.cancel();
-        };
-      } else {
-        clearWidthClamps();
+    // Animate by hitching a CSS transition onto the library's own
+    // `flex-grow` value. react-resizable-panels writes `flex-grow`
+    // inline on the panel element via React's style prop, and it does
+    // NOT include `transition` in that style prop — so our inline
+    // `transition` set via direct DOM mutation persists across React
+    // commits and is honored when the library writes a new flex-grow.
+    //
+    // This eliminates the WAAPI vs. flex-layout sync issues: there is
+    // no JS-driven animation interpolating in parallel with the
+    // library's layout changes. The library updates flex-grow once on
+    // collapse()/expand(), and the same CSS transition smoothly
+    // interpolates that value AND the editor panel's mirrored
+    // flex-grow change in lockstep, frame-for-frame with the editor
+    // padding's CSS transition. No clamps, no inline width mutations,
+    // no clean-up — just flex-grow as the one source of size truth.
+    if (sidebarFlexTransition.current) {
+      // Refresh the inline transition each call in case the library
+      // (or anything else) ever cleared it. Idempotent on the DOM.
+      const el = sidebarPanelEl.current;
+      if (el && el.style.transition !== sidebarFlexTransition.current) {
+        el.style.transition = sidebarFlexTransition.current;
       }
-      return;
     }
-
-    if (el && isCollapsed) {
-      // About to expand. Pin to 0 via min/max-width inline so the
-      // post-`expand()` reflow doesn't flash the panel at its restored
-      // size. Then animate the clamps up to the last non-zero width
-      // the panel was at (tracked via `onResize`).
-      const targetWidth = lastSidebarWidthRef.current;
-      el.style.minWidth = '0px';
-      el.style.maxWidth = '0px';
-      setIsSidebarCollapsed(false);
-      sidePanelRef.current?.expand();
-      setActivePanel(prev => prev || 'explorer');
-      const anim = el.animate(
-        [{ minWidth: '0px', maxWidth: '0px' },
-         { minWidth: `${targetWidth}px`, maxWidth: `${targetWidth}px` }],
-        { duration: DURATION, easing: EASING, fill: 'forwards' },
-      );
-      anim.onfinish = () => {
-        clearWidthClamps();
-        anim.cancel();
-      };
-      return;
-    }
-
-    // No element yet (first render); just flip state.
+    const isCollapsed = sidePanelRef.current?.isCollapsed();
     if (isCollapsed) {
       setIsSidebarCollapsed(false);
       sidePanelRef.current?.expand();
