@@ -11,9 +11,40 @@ import {
   CheckIcon,
   XIcon,
   ShieldIcon,
+  MicrophoneIcon,
+  WaveformIcon,
 } from '@phosphor-icons/react';
 import type { Tab } from '@/types/tab';
 import type { AgentMessage, AgentImageAttachment, AgentToolCall, AgentPermissionRequest, Agent } from '@/types/agent';
+
+// Minimal shape we need from the browser SpeechRecognition object (the spec
+// is exposed via window.SpeechRecognition in Firefox, and webkitSpeechRecognition
+// in Chromium/Electron). We don't pull in the full DOM lib type because it's
+// not in every TS env we ship to, and we only call a handful of methods.
+interface SpeechRecognitionAlternativeLike { transcript: string }
+interface SpeechRecognitionResultLike extends ArrayLike<SpeechRecognitionAlternativeLike> {
+  isFinal?: boolean;
+}
+interface SpeechRecognitionLike {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  onresult: ((ev: { results: ArrayLike<SpeechRecognitionResultLike>; resultIndex: number }) => void) | null;
+  onerror: ((ev: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+}
+
+function getSpeechRecognitionCtor(): (new () => SpeechRecognitionLike) | null {
+  if (typeof window === 'undefined') return null;
+  const w = window as unknown as {
+    SpeechRecognition?: new () => SpeechRecognitionLike;
+    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
+  };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
 
 function extFromMime(mime: string): string {
   const m = mime.split('/')[1] ?? 'png';
@@ -112,6 +143,7 @@ function FilePathLink({
 }
 import { useTab } from '../../context/TabContext';
 import { useAgent } from '../../context/AgentContext';
+import { showToast } from '@/components/ui/Toast';
 import { useFileSystem } from '../../context/FileSystemContext';
 import { useRepo } from '../../context/RepoContext';
 import ThinkingIndicator from './ThinkingIndicator';
@@ -172,6 +204,20 @@ export default function ChatView({ tab }: ChatViewProps) {
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_MESSAGES);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Web Speech API recognition instance (created lazily; null when unsupported).
+  // We keep it on a ref because the instance is mutable across renders and we
+  // need to call start()/stop() imperatively from button handlers.
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  // Snapshot of the textarea's value at the moment recognition started, so we
+  // can append the final transcript without clobbering whatever the user had
+  // already typed.
+  const dictationBaseRef = useRef<string>('');
+  const [isListening, setIsListening] = useState<false | 'single' | 'continuous'>(false);
+  // Stock Electron ships without Google's STT credentials, so webkitSpeechRecognition
+  // errors with `network` the moment we start it. We track that state so the
+  // user gets one informative toast instead of a noisy console on every click.
+  const [voiceUnavailable, setVoiceUnavailable] = useState(false);
   // Track whether the user is at the bottom of the transcript so the
   // autoscroll-on-new-message effect doesn't yank them downward when they
   // scroll up to read history (or click "Load earlier").
@@ -253,6 +299,15 @@ export default function ChatView({ tab }: ChatViewProps) {
   useEffect(() => {
     if (slashIndex >= slashResults.length && slashResults.length > 0) setSlashIndex(0);
   }, [slashResults.length, slashIndex]);
+
+  // Tear down any active speech recognition when this chat unmounts or the
+  // agent switches. Otherwise the mic stays hot on a chat the user can't see.
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.abort();
+      recognitionRef.current = null;
+    };
+  }, [agentId]);
 
   // Autoscroll to bottom on new messages or streaming updates — but only
   // when the user is already at the bottom or a turn is actively streaming.
@@ -339,6 +394,119 @@ export default function ChatView({ tab }: ChatViewProps) {
       setDraft(agentId, { attachments: next });
       return next;
     });
+  };
+
+  const handlePickFiles = () => {
+    if (!agent || active) return;
+    fileInputRef.current?.click();
+  };
+
+  const handleFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const additions: AgentImageAttachment[] = [];
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith('image/')) continue;
+      try {
+        const base64 = await blobToBase64(file);
+        additions.push({
+          id: crypto.randomUUID(),
+          mediaType: file.type,
+          base64,
+          name: file.name || `image.${extFromMime(file.type)}`,
+        });
+      } catch (err) {
+        console.warn('[chat] failed to read selected image', err);
+      }
+    }
+    // Reset the input so picking the same file twice in a row still fires onChange.
+    e.target.value = '';
+    if (additions.length === 0) return;
+    setAttachments(prev => {
+      const next = [...prev, ...additions];
+      setDraft(agentId, { attachments: next });
+      return next;
+    });
+  };
+
+  // Toggle Web Speech dictation. `mode` 'single' stops after one utterance;
+  // 'continuous' keeps listening until the user presses again. Final transcripts
+  // are appended to whatever was in the textarea at the moment we started, so
+  // mid-dictation typing is preserved. Stock Electron lacks Google's STT
+  // credentials so this raises `network` on first use — when that happens we
+  // disable the buttons for the rest of the session and toast a clear message.
+  const toggleDictation = (mode: 'single' | 'continuous') => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+    if (voiceUnavailable) {
+      showToast('Voz indisponível neste build do Quipu (Electron sem provedor STT).', 'warning');
+      return;
+    }
+    const Ctor = getSpeechRecognitionCtor();
+    if (!Ctor) {
+      setVoiceUnavailable(true);
+      showToast('Voz indisponível neste runtime.', 'warning');
+      return;
+    }
+    const rec = new Ctor();
+    rec.lang = (typeof navigator !== 'undefined' && navigator.language) || 'en-US';
+    rec.continuous = mode === 'continuous';
+    rec.interimResults = true;
+    dictationBaseRef.current = input;
+    rec.onresult = (ev) => {
+      let finalText = '';
+      let interimText = '';
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const result = ev.results[i];
+        const alt = result?.[0];
+        if (!result || !alt) continue;
+        if (result.isFinal) {
+          finalText += alt.transcript;
+        } else {
+          interimText += alt.transcript;
+        }
+      }
+      if (finalText) {
+        const base = dictationBaseRef.current;
+        const next = (base ? `${base.replace(/\s+$/, '')} ${finalText.trim()}` : finalText.trim());
+        dictationBaseRef.current = next;
+        setInput(next);
+        setDraft(agentId, { input: next });
+      } else if (interimText) {
+        const base = dictationBaseRef.current;
+        const preview = (base ? `${base.replace(/\s+$/, '')} ${interimText.trim()}` : interimText.trim());
+        setInput(preview);
+      }
+    };
+    rec.onerror = (ev) => {
+      // `network` (no STT backend) and `service-not-allowed` (missing API key)
+      // are the two failure modes that mean voice will never work in this
+      // runtime — disable the buttons so we don't ask the user to retry into
+      // a wall. Other errors (`no-speech`, `aborted`) are transient.
+      if (ev.error === 'network' || ev.error === 'service-not-allowed') {
+        setVoiceUnavailable(true);
+        showToast(
+          'Voz indisponível neste build (Electron sem provedor de STT). Use texto por enquanto.',
+          'warning',
+        );
+      } else if (ev.error && ev.error !== 'aborted' && ev.error !== 'no-speech') {
+        showToast(`Falha no reconhecimento de voz: ${ev.error}`, 'error');
+      }
+    };
+    rec.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+      setDraft(agentId, { input: dictationBaseRef.current });
+    };
+    recognitionRef.current = rec;
+    setIsListening(mode);
+    try { rec.start(); } catch (err) {
+      console.warn('[chat] could not start speech recognition', err);
+      setIsListening(false);
+      recognitionRef.current = null;
+    }
   };
 
   const applySlashCommand = (cmd: SlashCommand) => {
@@ -554,17 +722,28 @@ export default function ChatView({ tab }: ChatViewProps) {
             disabled={active || !agent}
             rows={1}
           />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={handleFilesSelected}
+          />
           <div className="flex items-center justify-between px-2 pb-2">
             <button
-              className="w-8 h-8 flex items-center justify-center rounded-full text-text-tertiary hover:text-text-primary hover:bg-bg-elevated transition-colors"
-              title="Attach context (not wired)"
-              disabled
+              className="w-8 h-8 flex items-center justify-center rounded-full text-text-tertiary hover:text-text-primary hover:bg-bg-elevated transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Adicionar imagens"
+              onClick={handlePickFiles}
+              disabled={!agent || active}
             >
               <PlusIcon size={14} />
             </button>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <ModelPicker
                 value={agent?.model}
+                effort={agent?.effort}
+                reasoning={agent?.reasoning}
                 disabled={!agent || active}
                 onChange={(modelId) => {
                   if (!agent || modelId === agent.model) return;
@@ -573,10 +752,54 @@ export default function ChatView({ tab }: ChatViewProps) {
                   // The next ensureSession will --resume the claude session id, preserving context.
                   void cancelTurn(agent.id);
                 }}
+                onEffortChange={(effort) => {
+                  if (!agent || effort === agent.effort) return;
+                  upsertAgent({ ...agent, effort, updatedAt: new Date().toISOString() });
+                }}
+                onReasoningChange={(enabled) => {
+                  if (!agent || enabled === (agent.reasoning ?? true)) return;
+                  upsertAgent({ ...agent, reasoning: enabled, updatedAt: new Date().toISOString() });
+                }}
               />
+              <button
+                className={cn(
+                  'w-8 h-8 flex items-center justify-center rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+                  isListening === 'single'
+                    ? 'bg-accent text-white'
+                    : 'text-text-tertiary hover:text-text-primary hover:bg-bg-elevated',
+                )}
+                onClick={() => toggleDictation('single')}
+                disabled={!agent || active || isListening === 'continuous' || voiceUnavailable}
+                title={
+                  voiceUnavailable
+                    ? 'Voz indisponível neste build'
+                    : isListening === 'single' ? 'Parar' : 'Ditar'
+                }
+                aria-pressed={isListening === 'single'}
+              >
+                <MicrophoneIcon size={14} weight={isListening === 'single' ? 'fill' : 'regular'} />
+              </button>
+              <button
+                className={cn(
+                  'w-8 h-8 flex items-center justify-center rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+                  isListening === 'continuous'
+                    ? 'bg-accent text-white'
+                    : 'text-text-tertiary hover:text-text-primary hover:bg-bg-elevated',
+                )}
+                onClick={() => toggleDictation('continuous')}
+                disabled={!agent || active || isListening === 'single' || voiceUnavailable}
+                title={
+                  voiceUnavailable
+                    ? 'Voz indisponível neste build'
+                    : isListening === 'continuous' ? 'Parar modo de voz' : 'Usar modo de voz'
+                }
+                aria-pressed={isListening === 'continuous'}
+              >
+                <WaveformIcon size={14} weight={isListening === 'continuous' ? 'fill' : 'regular'} />
+              </button>
               {active ? (
                 <button
-                  className="w-8 h-8 flex items-center justify-center rounded-full bg-warning text-white hover:opacity-90 transition-opacity"
+                  className="ml-1 w-8 h-8 flex items-center justify-center rounded-full bg-warning text-white hover:opacity-90 transition-opacity"
                   onClick={handleCancel}
                   title="Stop the agent"
                 >
@@ -584,7 +807,7 @@ export default function ChatView({ tab }: ChatViewProps) {
                 </button>
               ) : (
                 <button
-                  className="w-8 h-8 flex items-center justify-center rounded-full bg-accent text-white hover:bg-accent-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="ml-1 w-8 h-8 flex items-center justify-center rounded-full bg-accent text-white hover:bg-accent-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   onClick={handleSend}
                   disabled={(!input.trim() && attachments.length === 0) || !agent}
                   title="Send (Enter)"

@@ -36,6 +36,10 @@ export interface Agent {
   kind: AgentKind;
   systemPrompt: string;
   model: string;
+  /** Reasoning effort knob shown next to the model picker. Undefined = default ('high'). */
+  effort?: 'low' | 'medium' | 'high' | 'extra' | 'max';
+  /** When true, the agent uses extended reasoning. Undefined = default (on). */
+  reasoning?: boolean;
   bindings: AgentBinding[];
   permissionMode: AgentPermissionMode;
   /** Optional grouping folder shown in the Agents panel. */
