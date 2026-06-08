@@ -96,6 +96,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     agentSpawn: (agentId, options) => ipcRenderer.invoke('agent-spawn', { agentId, options }),
     agentKill: (spawnId) => ipcRenderer.invoke('agent-kill', { spawnId }),
 
+    // List available Claude models (Anthropic API → CLI alias fallback).
+    agentListModels: () => ipcRenderer.invoke('agent-list-models'),
+
     // Persistent agent session (stream-json I/O — supports permission prompts).
     agentSessionStart: (agentId, options) => ipcRenderer.invoke('agent-session-start', { agentId, options }),
     agentSessionWrite: (sessionKey, payload) => ipcRenderer.send('agent-session-write', { sessionKey, payload }),

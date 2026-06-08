@@ -9,12 +9,12 @@ import { Section, Field } from './EditorLayout';
 import WorkspaceTreePicker from './WorkspaceTreePicker';
 import { slugify } from '../../services/slug';
 
-import { AGENT_MODELS, DEFAULT_AGENT_MODEL } from '../../services/agentModels';
+import { FALLBACK_MODELS, DEFAULT_AGENT_MODEL } from '../../services/agentModels';
 
 const DEFAULT_MODEL = DEFAULT_AGENT_MODEL;
 const DEFAULT_PERMISSION_MODE: AgentPermissionMode = 'default';
 
-const MODELS = AGENT_MODELS.map((m) => ({
+const MODELS = FALLBACK_MODELS.map((m) => ({
   id: m.id,
   label: m.id === DEFAULT_AGENT_MODEL ? `${m.label} (default)` : m.label,
 }));

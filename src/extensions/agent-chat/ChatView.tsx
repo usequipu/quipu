@@ -755,6 +755,11 @@ export default function ChatView({ tab }: ChatViewProps) {
                 onEffortChange={(effort) => {
                   if (!agent || effort === agent.effort) return;
                   upsertAgent({ ...agent, effort, updatedAt: new Date().toISOString() });
+                  // Same rationale as model change — effort is a spawn-time
+                  // CLI flag, so the running subprocess won't pick it up.
+                  // Killing forces a fresh spawn on the next message with
+                  // the new --effort value.
+                  void cancelTurn(agent.id);
                 }}
                 onReasoningChange={(enabled) => {
                   if (!agent || enabled === (agent.reasoning ?? true)) return;

@@ -1491,6 +1491,14 @@ app.whenReady().then(() => {
         if (opts.model && typeof opts.model === 'string' && opts.model.trim().length > 0) {
             args.push('--model', opts.model);
         }
+        // Pass --effort if the agent has one configured. CLI accepts
+        // low | medium | high | xhigh | max (verified via `claude --help`).
+        if (opts.effort && typeof opts.effort === 'string') {
+            const valid = ['low', 'medium', 'high', 'xhigh', 'max'];
+            if (valid.includes(opts.effort)) {
+                args.push('--effort', opts.effort);
+            }
+        }
         if (Array.isArray(opts.addDirs)) {
             for (const dir of opts.addDirs) {
                 if (typeof dir === 'string' && dir.length > 0) args.push('--add-dir', dir);
@@ -1594,6 +1602,48 @@ app.whenReady().then(() => {
             agentSessions.delete(sessionKey);
         }
         return { success: true };
+    });
+
+    // Enumerate live model IDs from Anthropic's /v1/models endpoint. Falls
+    // back to CLI aliases (`opus`, `sonnet`, `haiku`) when no API key is
+    // configured — those always resolve correctly because the claude CLI
+    // itself maps them at runtime.
+    ipcMain.handle('agent-list-models', async () => {
+        const apiKey = process.env.ANTHROPIC_API_KEY;
+        const fallback = {
+            source: 'alias',
+            models: [
+                { id: 'opus', label: 'Opus', description: 'Most capable for ambitious work' },
+                { id: 'sonnet', label: 'Sonnet', description: 'Balanced speed and quality' },
+                { id: 'haiku', label: 'Haiku', description: 'Fastest, lightest' },
+            ],
+        };
+        if (!apiKey) return fallback;
+        try {
+            const resp = await fetch('https://api.anthropic.com/v1/models?limit=100', {
+                headers: {
+                    'x-api-key': apiKey,
+                    'anthropic-version': '2023-06-01',
+                },
+            });
+            if (!resp.ok) return fallback;
+            const json = await resp.json();
+            const data = Array.isArray(json?.data) ? json.data : [];
+            // Only surface Claude models — the endpoint may include other
+            // model families in the future.
+            const filtered = data.filter((m) => typeof m?.id === 'string' && /claude/i.test(m.id));
+            if (filtered.length === 0) return fallback;
+            return {
+                source: 'api',
+                models: filtered.map((m) => ({
+                    id: m.id,
+                    label: typeof m.display_name === 'string' && m.display_name.length > 0 ? m.display_name : m.id,
+                })),
+            };
+        } catch (err) {
+            console.warn('[agent] failed to list models from Anthropic API', err);
+            return fallback;
+        }
     });
 
     // Ask Claude Code for the authoritative list of slash commands + plugin

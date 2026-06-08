@@ -575,6 +575,15 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     const previousLocation = previous
       ? joinId(previous.folder ?? '', previous.slug)
       : null;
+    // Optimistic ref update so callers that immediately read agentsRef
+    // (sendMessage → ensureSession) see the new model/effort BEFORE the
+    // async file write completes. Without this, model swaps silently
+    // applied to the next-but-one message instead of the next one.
+    if (previous) {
+      agentsRef.current = agentsRef.current.map(a => a.id === agent.id ? agent : a);
+    } else {
+      agentsRef.current = [...agentsRef.current, agent];
+    }
     void persistAgent(workspacePath, agent, previousLocation);
   }, [persistAgent, workspacePath]);
 
@@ -1082,6 +1091,7 @@ export function AgentProvider({ children }: { children: React.ReactNode }) {
     const handle = await startSession(agent.id, {
       systemPrompt: combinedSystemPrompt,
       model: agent.model,
+      effort: agent.effort,
       addDirs,
       cwd: workspacePath ?? undefined,
       resumeSessionId: existingSession?.claudeSessionId,

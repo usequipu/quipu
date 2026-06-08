@@ -36,8 +36,8 @@ export interface Agent {
   kind: AgentKind;
   systemPrompt: string;
   model: string;
-  /** Reasoning effort knob shown next to the model picker. Undefined = default ('high'). */
-  effort?: 'low' | 'medium' | 'high' | 'extra' | 'max';
+  /** Reasoning effort knob shown next to the model picker. Maps directly to `claude --effort`. */
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   /** When true, the agent uses extended reasoning. Undefined = default (on). */
   reasoning?: boolean;
   bindings: AgentBinding[];

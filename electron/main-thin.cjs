@@ -275,6 +275,42 @@ function createWindow() {
 // Window control IPC handlers
 ipcMain.on('window-minimize', () => mainWindow?.minimize());
 
+// Live model enumeration via Anthropic /v1/models. Falls back to CLI aliases
+// when no ANTHROPIC_API_KEY is set — aliases always work because claude CLI
+// resolves them at spawn time.
+ipcMain.handle('agent-list-models', async () => {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const fallback = {
+        source: 'alias',
+        models: [
+            { id: 'opus', label: 'Opus', description: 'Most capable for ambitious work' },
+            { id: 'sonnet', label: 'Sonnet', description: 'Balanced speed and quality' },
+            { id: 'haiku', label: 'Haiku', description: 'Fastest, lightest' },
+        ],
+    };
+    if (!apiKey) return fallback;
+    try {
+        const resp = await fetch('https://api.anthropic.com/v1/models?limit=100', {
+            headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        });
+        if (!resp.ok) return fallback;
+        const json = await resp.json();
+        const data = Array.isArray(json?.data) ? json.data : [];
+        const filtered = data.filter((m) => typeof m?.id === 'string' && /claude/i.test(m.id));
+        if (filtered.length === 0) return fallback;
+        return {
+            source: 'api',
+            models: filtered.map((m) => ({
+                id: m.id,
+                label: typeof m.display_name === 'string' && m.display_name.length > 0 ? m.display_name : m.id,
+            })),
+        };
+    } catch (err) {
+        console.warn('[agent-thin] failed to list models', err);
+        return fallback;
+    }
+});
+
 // Plugin management IPC handlers
 ipcMain.handle('get-quipu-dir', () => QUIPU_HOME_DIR);
 
@@ -417,6 +453,7 @@ ipcMain.handle('agent-session-start', async (event, { agentId, options }) => {
     if (opts.permissionMode && typeof opts.permissionMode === 'string') args.push('--permission-mode', opts.permissionMode);
     if (opts.systemPrompt && typeof opts.systemPrompt === 'string' && opts.systemPrompt.trim()) args.push('--append-system-prompt', opts.systemPrompt);
     if (opts.model && typeof opts.model === 'string' && opts.model.trim()) args.push('--model', opts.model);
+    if (opts.effort && ['low', 'medium', 'high', 'xhigh', 'max'].includes(opts.effort)) args.push('--effort', opts.effort);
     if (Array.isArray(opts.addDirs)) for (const dir of opts.addDirs) if (typeof dir === 'string' && dir.length > 0) args.push('--add-dir', dir);
     if (Array.isArray(opts.allowedTools) && opts.allowedTools.length > 0) args.push('--allowedTools', ...opts.allowedTools.filter(t => typeof t === 'string' && t.length > 0));
     if (opts.resumeSessionId && typeof opts.resumeSessionId === 'string') args.push('--resume', opts.resumeSessionId);

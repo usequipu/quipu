@@ -2,13 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { CaretDownIcon, CaretRightIcon, CaretLeftIcon, CheckIcon, InfoIcon } from '@phosphor-icons/react';
 import { cn } from '@/lib/utils';
 import {
-  AGENT_MODELS,
+  FALLBACK_MODELS,
   AGENT_EFFORTS,
   DEFAULT_AGENT_MODEL,
   DEFAULT_AGENT_EFFORT,
+  loadAvailableModels,
   modelLabel,
   effortLabel,
   type AgentEffort,
+  type AgentModelOption,
 } from '../../services/agentModels';
 
 interface ModelPickerProps {
@@ -34,13 +36,23 @@ export default function ModelPicker({
 }: ModelPickerProps) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>('main');
+  const [models, setModels] = useState<AgentModelOption[]>(FALLBACK_MODELS);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
 
+  // Resolve the live model list once on mount. The function caches internally,
+  // so opening the picker repeatedly doesn't refetch.
+  useEffect(() => {
+    let cancelled = false;
+    void loadAvailableModels().then((list) => {
+      if (!cancelled && list.length > 0) setModels(list);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   const currentId = value ?? DEFAULT_AGENT_MODEL;
-  const currentModel = AGENT_MODELS.find(m => m.id === currentId) ?? AGENT_MODELS[0];
-  const featured = AGENT_MODELS.filter(m => m.tier !== 'more');
-  const others = AGENT_MODELS.filter(m => m.tier === 'more' && m.id !== currentId);
+  const featured = models.filter(m => m.tier !== 'more');
+  const others = models.filter(m => m.tier === 'more' && m.id !== currentId);
   const currentEffort = effort ?? DEFAULT_AGENT_EFFORT;
   const reasoningOn = reasoning ?? true;
 
@@ -85,7 +97,7 @@ export default function ModelPicker({
         title={disabled ? 'Model locked while the agent is responding' : 'Change model, effort, or reasoning'}
         disabled={disabled}
       >
-        <span className="text-[13px] text-text-secondary">{modelLabel(currentId)}</span>
+        <span className="text-[13px] text-text-secondary">{modelLabel(currentId, models)}</span>
         <span className="text-[12px] text-text-tertiary">{effortLabel(currentEffort)}</span>
         <CaretDownIcon size={11} weight="bold" className="text-text-tertiary" />
       </button>
@@ -238,7 +250,7 @@ export default function ModelPicker({
                 </button>
               </div>
               <ul className="py-1">
-                {AGENT_MODELS.map((m) => {
+                {models.map((m) => {
                   const selected = m.id === currentId;
                   return (
                     <li key={m.id}>

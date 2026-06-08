@@ -38,6 +38,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     pathExists: (targetPath) => ipcRenderer.invoke('path-exists', targetPath),
     gitClone: (url, targetDir) => ipcRenderer.invoke('git-clone', { url, targetDir }),
 
+    // List available Claude models (Anthropic API → CLI alias fallback).
+    agentListModels: () => ipcRenderer.invoke('agent-list-models'),
+
     // Persistent agent session (stream-json I/O with permission prompts)
     agentSessionStart: (agentId, options) => ipcRenderer.invoke('agent-session-start', { agentId, options }),
     agentSessionWrite: (sessionKey, payload) => ipcRenderer.send('agent-session-write', { sessionKey, payload }),

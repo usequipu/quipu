@@ -114,16 +114,32 @@ export interface ElectronAPI {
   removeAgentSessionExitListener: (handler: unknown) => void;
 
   claudeListSlashCommands: (cwd?: string) => Promise<ClaudeSlashCommandProbeResult>;
+
+  agentListModels: () => Promise<AgentModelsResult>;
 }
 
 export interface AgentSessionStartOptions {
   systemPrompt?: string;
   model?: string;
+  /** Reasoning effort knob — maps to `claude --effort`. */
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   addDirs?: string[];
   resumeSessionId?: string;
   cwd?: string;
   permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'auto' | 'dontAsk' | 'plan';
   allowedTools?: string[];
+}
+
+export interface AgentModelEntry {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface AgentModelsResult {
+  /** 'api' = enumerated from Anthropic /v1/models; 'alias' = fell back to CLI aliases. */
+  source: 'api' | 'alias';
+  models: AgentModelEntry[];
 }
 
 export interface AgentSessionEventPayload {

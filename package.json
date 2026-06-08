@@ -1,7 +1,7 @@
 {
   "name": "quipu_simple",
   "private": true,
-  "version": "0.57.1",
+  "version": "0.58.0",
   "description": "A web-based code editor with rich text, terminal, and git support",
   "author": {
     "name": "barelias",
